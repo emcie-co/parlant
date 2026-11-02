@@ -13,6 +13,19 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Fixed
+
+- With the Anthropic provider, indexing no longer fails on Claude Opus 4.7 and
+  later or any Claude 5 model, including the default routes (Sonnet 5.5 and
+  Haiku 5.5). Parlant sent a `temperature`, which those models reject with
+  "`temperature` is deprecated for this model."; it now sends one only to
+  Claude 3 models and Claude 4 models up to 4.6, which still accept it.
+- A reasoning effort on a Claude Fable model now uses adaptive thinking instead
+  of a thinking budget, which Fable rejects.
+- A reasoning effort on Claude Opus 4.5 no longer fails. Parlant sent it
+  adaptive thinking, which it rejects ("adaptive thinking is not supported on
+  this model"); it now gets a thinking budget, as Sonnet and Haiku 4.5 do.
+
 ## [4.0.0] - 2026-11-02
 
 Parlant 4 release.

@@ -1598,3 +1598,161 @@ async def test_that_a_schematic_generator_reports_usage_under_its_provider_name(
         assert reporter.get_usage()[f"anthropic-eu:{LIVE_MODEL}"].requests == 1
 
     assert reported == [f"anthropic-eu:{LIVE_MODEL}"]
+
+
+# ─────────────────── sampling parameters on current models ──────────────────
+
+# Opus 4.7 and later, and every Claude 5-family model, reject `temperature` with
+# a 400 ("`temperature` is deprecated for this model."). Indexing always passes
+# a temperature hint, so forwarding it broke indexing on every current model.
+_MODELS_REJECTING_SAMPLING_PARAMETERS = [
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+]
+
+
+def _offline_schematic(logger: Logger, model: str) -> RoutedAnthropicSchematicGenerator[_Capital]:
+    return RoutedAnthropicSchematicGenerator[_Capital](
+        model_name=model,
+        logger=logger,
+        tracer=LocalTracer(),
+        meter=LocalMeter(logger),
+        api_key="offline",
+    )
+
+
+@pytest.mark.parametrize("model", _MODELS_REJECTING_SAMPLING_PARAMETERS)
+def test_that_a_temperature_hint_is_not_sent_to_models_that_reject_sampling_parameters(
+    logger: Logger,
+    model: str,
+) -> None:
+    generator = _offline_schematic(logger, model)
+
+    request = generator._build_request("What is the capital of France?", {"temperature": 0.0})
+
+    assert "temperature" not in request
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["claude-sonnet-4-5", "claude-haiku-4-5-20251001", "claude-opus-4-6", "claude-sonnet-4-6"],
+)
+def test_that_a_temperature_hint_is_still_sent_to_models_that_accept_it(
+    logger: Logger,
+    model: str,
+) -> None:
+    generator = _offline_schematic(logger, model)
+
+    request = generator._build_request("What is the capital of France?", {"temperature": 0.15})
+
+    assert request["temperature"] == 0.15
+
+
+def test_that_a_reasoning_effort_on_claude_fable_uses_adaptive_thinking(logger: Logger) -> None:
+    generator = _offline_schematic(logger, "claude-fable-5-1")
+
+    request = generator._build_request(
+        "What is the capital of France?", {"reasoning_effort": "high"}
+    )
+
+    assert request["thinking"]["type"] == "adaptive"
+    assert "budget_tokens" not in request["thinking"]
+    assert request["output_config"]["effort"] == "high"
+
+
+@LIVE
+async def test_that_live_schematic_generation_succeeds_with_the_indexing_temperature_hint_on_claude_sonnet_5_5(
+    logger: Logger,
+) -> None:
+    tracer = LocalTracer()
+    generator = RoutedAnthropicSchematicGenerator[_Capital](
+        model_name="claude-sonnet-5-5",
+        logger=logger,
+        tracer=tracer,
+        meter=LocalMeter(logger),
+    )
+
+    # Exactly the hints rule indexing sends on the default (effort-less) route.
+    result = await generator.generate(
+        "What is the capital of France? Answer as JSON.", hints={"temperature": 0.0}
+    )
+
+    assert "Paris" in result.content.capital
+
+
+# ─────────────────── thinking shape on older Opus models ────────────────────
+
+# Opus 4.5 rejects adaptive thinking with a 400 ("adaptive thinking is not
+# supported on this model") and takes a thinking budget; adaptive starts at 4.6.
+
+
+@pytest.mark.parametrize("model", ["claude-opus-4-5", "claude-opus-4-5-20251101"])
+def test_that_a_reasoning_effort_on_claude_opus_4_5_uses_a_thinking_budget(
+    logger: Logger,
+    model: str,
+) -> None:
+    generator = _offline_schematic(logger, model)
+
+    request = generator._build_request(
+        "What is the capital of France?", {"reasoning_effort": "high"}
+    )
+
+    assert request["thinking"]["type"] == "enabled"
+    assert request["thinking"]["budget_tokens"] == generator._EFFORT_TO_THINKING_BUDGET["high"]
+    assert "effort" not in request.get("output_config", {})
+
+
+def test_that_the_react_generator_uses_a_thinking_budget_on_claude_opus_4_5(
+    logger: Logger,
+) -> None:
+    generator = AnthropicReactGenerator(
+        model="claude-opus-4-5",
+        logger=logger,
+        client=AsyncAnthropic(api_key="offline-encode-tests"),
+    )
+
+    request = generator._encode([], [], "auto", reasoning=ReasoningConfig(effort="high"))
+
+    assert request["thinking"]["type"] == "enabled"
+    assert request["thinking"]["budget_tokens"] == generator._EFFORT_TO_BUDGET["high"]
+    assert "output_config" not in request
+
+
+@pytest.mark.parametrize("model", ["claude-opus-4-6", "claude-opus-4-8", "claude-opus-5-5"])
+def test_that_a_reasoning_effort_stays_adaptive_on_claude_opus_4_6_and_later(
+    logger: Logger,
+    model: str,
+) -> None:
+    generator = _offline_schematic(logger, model)
+
+    request = generator._build_request(
+        "What is the capital of France?", {"reasoning_effort": "high"}
+    )
+
+    assert request["thinking"]["type"] == "adaptive"
+    assert request["output_config"]["effort"] == "high"
+
+
+@LIVE
+async def test_that_live_schematic_generation_with_a_reasoning_effort_succeeds_on_claude_opus_4_5(
+    logger: Logger,
+) -> None:
+    generator = RoutedAnthropicSchematicGenerator[_Capital](
+        model_name="claude-opus-4-5",
+        logger=logger,
+        tracer=LocalTracer(),
+        meter=LocalMeter(logger),
+    )
+
+    result = await generator.generate(
+        "What is the capital of France? Answer as JSON.",
+        hints={"temperature": 0.0, "reasoning_effort": "low"},
+    )
+
+    assert "Paris" in result.content.capital

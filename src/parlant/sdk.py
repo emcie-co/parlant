@@ -603,6 +603,32 @@ class NLPServices:
         return factory
 
     @staticmethod
+    def nvidia(
+        container: Container | None = None,
+    ) -> NLPService | Callable[[Container], NLPService]:
+        """
+        Returns a callable that creates an NVIDIA NLPService instance using the provided container.
+        If container is None, the callable expects the container to be provided later (by the Server).
+        All configuration is done via environment variables.
+        """
+        from parlant.adapters.nlp.nvidia_service import NvidiaService
+
+        def factory(c: Container) -> NLPService:
+            if error := NvidiaService.verify_environment():
+                raise NLPServiceConfigurationError(error)
+            return NvidiaService(
+                c[Logger],
+                c[Tracer],
+                c[Meter],
+                c[HealthReporter],
+            )
+
+        if container is not None:
+            return factory(container)
+
+        return factory
+
+    @staticmethod
     def zhipu(container: Container) -> NLPService:
         """Creates a Zhipu AI NLPService instance using the provided container."""
         from parlant.adapters.nlp.zhipu_service import ZhipuService

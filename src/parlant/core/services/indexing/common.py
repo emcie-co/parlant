@@ -16,9 +16,36 @@ import asyncio
 from typing import Awaitable, Callable
 
 
-class EvaluationError(Exception):
-    def __init__(self, message: str = "Evaluation failed") -> None:
+class IndexingError(Exception):
+    def __init__(self, message: str = "Indexing failed") -> None:
         super().__init__(message)
+
+    # Provider errors can carry whole JSON bodies; keep enough to name the cause.
+    _MAX_CAUSE_LENGTH = 300
+
+    @classmethod
+    def caused_by(
+        cls,
+        source: str,
+        cause: BaseException | None,
+        attempts: int = 1,
+    ) -> "IndexingError":
+        """An error that says which step failed and what the last attempt raised.
+
+        Indexing runs before the server is ready, so this message is often the
+        only thing a developer sees. The provider's own error (a 429, a missing
+        model, a bad key) is what tells them what to fix.
+        """
+        tried = f" after {attempts} attempts" if attempts > 1 else ""
+
+        if cause is None:
+            return cls(f"{source} failed{tried}")
+
+        detail = " ".join(f"{type(cause).__name__}: {cause}".split())
+        if len(detail) > cls._MAX_CAUSE_LENGTH:
+            detail = detail[: cls._MAX_CAUSE_LENGTH - 1] + "…"
+
+        return cls(f"{source} failed{tried}: {detail}")
 
 
 class ProgressReport:

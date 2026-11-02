@@ -21,8 +21,9 @@ from tests.sdk.utils import Context, SDKTest
 class Test_that_a_static_value_variable_can_be_created(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-1",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
         self.variable = await self.agent.create_variable(
@@ -47,8 +48,9 @@ class Test_that_a_tool_enabled_variable_can_be_created(SDKTest):
             return p.ToolResult("premium")
 
         self.agent = await server.create_agent(
+            id="variables-agent-2",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
         self.variable = await self.agent.create_variable(
@@ -71,11 +73,12 @@ class Test_that_a_tool_enabled_variable_can_be_created(SDKTest):
 class Test_that_a_variable_value_can_be_set_for_a_customer(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-3",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
-        self.customer = await server.create_customer("John Doe")
+        self.customer = await server.create_customer("John Doe", id="variables-cust-1")
 
         self.variable = await self.agent.create_variable(
             name="subscription_plan",
@@ -91,28 +94,30 @@ class Test_that_a_variable_value_can_be_set_for_a_customer(SDKTest):
 class Test_that_a_variable_value_can_be_set_for_a_tag(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-4",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
-        self.tag = await server.create_tag("premium_users")
+        self.group = await server.create_group("premium_users")
 
         self.variable = await self.agent.create_variable(
             name="subscription_plan",
             description="The current subscription plan of the user.",
         )
 
-        await self.variable.set_value_for_tag(self.tag.id, "premium")
+        await self.variable.set_value_for_tag(self.group.id, "premium")
 
     async def run(self, ctx: Context) -> None:
-        assert "premium" == await self.variable.get_value_for_tag(self.tag.id)
+        assert "premium" == await self.variable.get_value_for_tag(self.group.id)
 
 
 class Test_that_a_variable_value_can_be_set_globally(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-5",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
         self.variable = await self.agent.create_variable(
@@ -129,8 +134,9 @@ class Test_that_a_variable_value_can_be_set_globally(SDKTest):
 class Test_that_variables_can_be_listed(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-6",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
         self.variable = await self.agent.create_variable(
@@ -147,8 +153,9 @@ class Test_that_variables_can_be_listed(SDKTest):
 class Test_that_a_variable_can_be_found_by_name(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-7",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
         self.variable = await self.agent.create_variable(
@@ -164,8 +171,9 @@ class Test_that_a_variable_can_be_found_by_name(SDKTest):
 class Test_that_a_variable_can_be_found_by_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="variables-agent-8",
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            instructions="Agent for rule relationships",
         )
 
         self.variable = await self.agent.create_variable(
@@ -175,3 +183,150 @@ class Test_that_a_variable_can_be_found_by_id(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         assert await self.agent.find_variable(id=self.variable.id) == self.variable
+
+
+class Test_that_variable_get_value_returns_correct_value_when_called_from_retriever(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="variables-agent-9",
+            name="Var Agent",
+            instructions="Agent for variable retriever test",
+        )
+
+        self.customer = await server.create_customer("Jane Doe", id="variables-cust-2")
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_value_for_customer(self.customer, "premium")
+
+        self.retrieved_value: p.JSONSerializable | None = None
+
+        variable = self.variable
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retrieved_value = await variable.get_value()
+            return p.RetrieverResult(data={"plan": self.retrieved_value})
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What is my subscription plan?",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.retrieved_value is not None, (
+            "Variable.get_value() returned None inside retriever"
+        )
+        assert self.retrieved_value == "premium"
+
+
+class Test_that_a_variable_value_can_be_set_for_an_agent(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="variables-agent-10",
+            name="Var Agent",
+            instructions="Agent for variable per-agent value test",
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_value_for_agent(self.agent, "premium")
+
+    async def run(self, ctx: Context) -> None:
+        assert "premium" == await self.variable.get_value_for_agent(self.agent)
+
+
+class Test_that_variable_value_for_agent_is_used_when_no_customer_or_tag_value_exists(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="variables-agent-11",
+            name="Var Agent",
+            instructions="Agent for variable per-agent engine resolution test",
+        )
+
+        self.customer = await server.create_customer("Jane Doe", id="variables-cust-3")
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_global_value("free")
+        await self.variable.set_value_for_agent(self.agent, "premium")
+
+        self.retrieved_value: p.JSONSerializable | None = None
+
+        variable = self.variable
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retrieved_value = await variable.get_value()
+            return p.RetrieverResult(data={"plan": self.retrieved_value})
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What is my subscription plan?",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.retrieved_value == "premium", (
+            f"Expected agent-tier value 'premium', got {self.retrieved_value!r}"
+        )
+
+
+class Test_that_customer_tag_value_takes_precedence_over_agent_value(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="variables-agent-12",
+            name="Var Agent",
+            instructions="Agent for precedence regression test",
+        )
+
+        self.group = await server.create_group("premium_users")
+
+        self.customer = await server.create_customer(
+            "Jane Doe",
+            groups=[self.group],
+            id="variables-cust-4",
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_global_value("free")
+        await self.variable.set_value_for_agent(self.agent, "agent_default")
+        await self.variable.set_value_for_tag(self.group.id, "tag_value")
+
+        self.retrieved_value: p.JSONSerializable | None = None
+
+        variable = self.variable
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retrieved_value = await variable.get_value()
+            return p.RetrieverResult(data={"plan": self.retrieved_value})
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What is my plan?",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.retrieved_value == "tag_value", (
+            f"Expected customer-group value 'tag_value' (must beat agent tier), "
+            f"got {self.retrieved_value!r}"
+        )

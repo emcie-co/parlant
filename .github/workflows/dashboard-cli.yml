@@ -1,0 +1,46 @@
+name: Dashboard CLI
+
+on:
+  pull_request:
+    branches: [compass]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Dashboard command, quota and packaging tests
+        run: uv run --frozen pytest --noconftest tests/bin/test_dashboard_commands.py tests/bin/test_dashboard_auth_preselection.py tests/bin/test_dashboard_local_projects.py tests/bin/test_dashboard_project_creation.py tests/bin/test_dashboard_quotas.py tests/bin/test_dashboard_deployments.py tests/bin/test_packaging.py
+      - name: Dashboard strict type checks
+        run: uv run --frozen mypy --follow-imports=silent src/parlant/bin/dashboard
+      - name: Dashboard lint
+        run: uv run --frozen ruff check src/parlant/bin/dashboard tests/bin/test_dashboard_commands.py tests/bin/test_dashboard_auth_preselection.py tests/bin/test_dashboard_local_projects.py tests/bin/test_dashboard_project_creation.py tests/bin/test_dashboard_quotas.py
+      - name: Quota formatting
+        run: uv run --frozen ruff format --check src/parlant/bin/dashboard/client.py src/parlant/bin/dashboard/errors.py src/parlant/bin/dashboard/quota.py src/parlant/bin/dashboard/auth.py tests/bin/test_dashboard_auth_preselection.py tests/bin/test_dashboard_quotas.py
+
+  pricing-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Coverage resolves route keys; these tests never call a model provider.
+      GEMINI_API_KEY: pricing-coverage-tests-only
+      PARLANT_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --frozen --extra gemini
+      - name: Real SDK pricing coverage and health isolation
+        run: uv run --frozen --extra gemini pytest --noconftest tests/sdk/test_pricing_health.py tests/core/stable/test_pricing.py tests/core/stable/test_health_reporter.py -q

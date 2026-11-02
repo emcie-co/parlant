@@ -13,6 +13,24 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from functools import lru_cache
+
+import tiktoken
+
+
+@lru_cache(maxsize=1)
+def _gpt5_encoding() -> tiktoken.Encoding:
+    """The gpt-5 (o200k_base) encoding — a fast, provider-agnostic local estimator."""
+    return tiktoken.encoding_for_model("gpt-5")
+
+
+def estimate_tokens(text: str) -> int:
+    """A fast, provider-agnostic local token estimate (gpt-5 / o200k_base).
+
+    Used where a provider does not report a token count (e.g. Gemini embeddings)
+    or where a per-item split of a batch total is needed.
+    """
+    return len(_gpt5_encoding().encode(text))
 
 
 class EstimatingTokenizer(ABC):

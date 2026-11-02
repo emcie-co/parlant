@@ -20,6 +20,7 @@ from typing import (
     Callable,
     Generic,
     Iterator,
+    Mapping,
     Optional,
     Sequence,
     TypeVar,
@@ -27,7 +28,13 @@ from typing import (
     cast,
 )
 
-from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
+from parlant.core.persistence.common import (
+    Cursor,
+    ObjectId,
+    SortDirection,
+    Where,
+    WhereExpression,
+)
 from parlant.core.common import Version
 
 
@@ -71,7 +78,7 @@ class FindResult(Generic[TDocument]):
             item_id = last_item.get("id")
 
             if creation_utc is not None and item_id is not None:
-                next_cursor = Cursor(creation_utc=str(creation_utc), id=ObjectId(str(item_id)))
+                next_cursor = Cursor(sort_value=str(creation_utc), id=ObjectId(str(item_id)))
 
         return cls(items=items, total_count=total_count, has_more=has_more, next_cursor=next_cursor)
 
@@ -220,3 +227,36 @@ class DocumentCollection(ABC, Generic[TDocument]):
     ) -> DeleteResult[TDocument]:
         """Deletes the first document that matches the query criteria."""
         ...
+
+
+async def group_ids_by_entity(
+    collection: DocumentCollection[TDocument],
+    *,
+    entity_field: str,
+    value_field: str,
+    entity_ids: Sequence[str],
+) -> Mapping[str, Sequence[str]]:
+    """Read a whole page of entities' group associations in one query.
+
+    Association collections are keyed by the owning entity, so reconstructing a
+    list of N entities one document at a time costs N queries on top of the one
+    that fetched them. This asks once for all of them instead.
+
+    Every requested id appears in the result, mapped to an empty sequence when
+    it has no associations — a caller cannot otherwise distinguish an ungrouped
+    entity from one it forgot to ask about.
+    """
+    if not entity_ids:
+        return {}
+
+    grouped: dict[str, list[str]] = {entity_id: [] for entity_id in entity_ids}
+
+    filters: WhereExpression = {entity_field: {"$in": list(entity_ids)}}
+
+    for association in await collection.find(filters):
+        # The field names are the caller's, so the row is read as a plain
+        # mapping rather than through its TypedDict keys.
+        row = cast(Mapping[str, str], association)
+        grouped[row[entity_field]].append(row[value_field])
+
+    return grouped

@@ -41,7 +41,7 @@ from parlant.core.persistence.document_database import (
     UpdateResult,
     identity_loader,
 )
-from parlant.core.loggers import Logger
+from parlant.core.loggers import ScopedLogger, Logger
 
 
 class JSONFileDocumentDatabase(DocumentDatabase):
@@ -52,7 +52,7 @@ class JSONFileDocumentDatabase(DocumentDatabase):
     ) -> None:
         self.file_path = file_path
 
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "JSONFileDocumentDatabase")
         self._op_counter = 0
 
         self._lock = ReaderWriterLock()
@@ -255,12 +255,11 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
             # Sort by creation_utc with id as tiebreaker according to sort_direction
             sort_direction = sort_direction or SortDirection.ASC
             filtered_docs = self._apply_sort(filtered_docs, sort_direction)
+            total_count = len(filtered_docs)
 
             # Apply cursor-based pagination if cursor is provided
             if cursor:
                 filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
-
-            total_count = len(filtered_docs)
 
             # Apply limit
             has_more = False
@@ -275,7 +274,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 if result_docs:
                     last_doc = result_docs[-1]
                     next_cursor = Cursor(
-                        creation_utc=str(last_doc.get("creation_utc", "")),
+                        sort_value=str(last_doc.get("creation_utc", "")),
                         id=ObjectId(str(last_doc.get("id", ""))),
                     )
             else:
@@ -338,21 +337,21 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 # For descending order pagination, include documents that come after the cursor
                 # This matches the MongoDB query pattern:
                 # { "$or": [
-                #     { "creation_utc": { "$lt": cursor.creation_utc } },
-                #     { "creation_utc": cursor.creation_utc, "id": { "$lt": cursor.id } }
+                #     { "creation_utc": { "$lt": cursor.sort_value } },
+                #     { "creation_utc": cursor.sort_value, "id": { "$lt": cursor.id } }
                 # ]}
-                if doc_creation_utc < cursor.creation_utc or (
-                    doc_creation_utc == cursor.creation_utc and doc_id < cursor.id
+                if doc_creation_utc < cursor.sort_value or (
+                    doc_creation_utc == cursor.sort_value and doc_id < cursor.id
                 ):
                     result.append(doc)
             else:  # SortDirection.ASC
                 # For ascending order pagination, include documents that come after the cursor
                 # { "$or": [
                 #     { "creation_utc": { "$gt": cursor_creation_utc } },
-                #     { "creation_utc": cursor.creation_utc, "id": { "$gt": cursor.id } }
+                #     { "creation_utc": cursor.sort_value, "id": { "$gt": cursor.id } }
                 # ]}
-                if doc_creation_utc > cursor.creation_utc or (
-                    doc_creation_utc == cursor.creation_utc and doc_id > cursor.id
+                if doc_creation_utc > cursor.sort_value or (
+                    doc_creation_utc == cursor.sort_value and doc_id > cursor.id
                 ):
                     result.append(doc)
 

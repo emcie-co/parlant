@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import httpx
-from lagom import Container
+from parlant.core.container import Container
 
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.services.tools.plugins import PluginServer, tool

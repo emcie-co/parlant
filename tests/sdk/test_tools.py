@@ -13,14 +13,17 @@
 # limitations under the License.
 
 import asyncio
+from typing import Any, cast
 from parlant.core.async_utils import default_done_callback
 from parlant.core.customers import CustomerStore
+from parlant.core.services.tools.plugins import PluginServer, tool as plugin_tool
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import SessionStore
-from parlant.core.tools import ToolContext, ToolResult
+from parlant.core.tools import ToolContext, ToolId, ToolResult
 import parlant.sdk as p
 
 from tests.sdk.utils import Context, SDKTest, get_message
-from tests.test_utilities import nlp_test
+from tests.test_utilities import get_random_port, nlp_test
 
 
 class Test_that_a_tool_is_called_when_triggered_by_user_message(SDKTest):
@@ -28,8 +31,9 @@ class Test_that_a_tool_is_called_when_triggered_by_user_message(SDKTest):
         self.tool_called = False
 
         self.agent = await server.create_agent(
+            id="tools-agent-1",
             name="Tool Test Agent",
-            description="Agent for testing tool invocation",
+            instructions="Agent for testing tool invocation",
         )
 
         self.tool_called = False
@@ -39,9 +43,9 @@ class Test_that_a_tool_is_called_when_triggered_by_user_message(SDKTest):
             self.tool_called = True
             return ToolResult(data={"status": "flag set"})
 
-        await self.agent.attach_tool(
-            tool=set_flag_tool,
+        await self.agent.create_observation(
             condition="the user asks to set the flag or trigger the tool",
+            tools=[set_flag_tool],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -58,11 +62,12 @@ class Test_that_a_tool_can_access_current_customer(SDKTest):
         self.tool_called = False
 
         self.agent = await server.create_agent(
+            id="tools-agent-2",
             name="Tool Test Agent",
-            description="Agent for testing tool invocation",
+            instructions="Agent for testing tool invocation",
         )
 
-        self.customer = await server.create_customer(name="Test Customer")
+        self.customer = await server.create_customer(name="Test Customer", id="tools-cust-1")
 
         self.id_of_customer_in_session: str | None = None
 
@@ -71,9 +76,9 @@ class Test_that_a_tool_can_access_current_customer(SDKTest):
             self.id_of_customer_in_session = p.Customer.current.id
             return ToolResult({})
 
-        await self.agent.attach_tool(
-            tool=set_flag_tool,
+        await self.agent.create_observation(
             condition="the user asks to set the flag or trigger the tool",
+            tools=[set_flag_tool],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -88,25 +93,26 @@ class Test_that_a_tool_can_access_current_customer(SDKTest):
         )
 
 
-class Test_that_tool_guidelines_are_followed_by_agent(SDKTest):
+class Test_that_tool_rules_are_followed_by_agent(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="tools-agent-3",
             name="Test Agent",
-            description="",
+            instructions="",
         )
 
         @p.tool
         async def check_account(context: ToolContext, account_id: str) -> ToolResult:
             return ToolResult(
                 data={"account_id": account_id, "name": "John"},
-                guidelines=[
-                    {"action": "Offer the customer a Pepsi immediately"},
+                rules=[
+                    {"content": "Offer the customer a Pepsi immediately"},
                 ],
             )
 
-        await self.agent.attach_tool(
-            tool=check_account,
+        await self.agent.create_observation(
             condition="the user asks to check their account",
+            tools=[check_account],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -118,31 +124,98 @@ class Test_that_tool_guidelines_are_followed_by_agent(SDKTest):
         assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
 
 
-class Test_that_tool_guideline_priority_filters_lower_priority_guidelines(SDKTest):
+class Test_that_tool_returned_rules_reach_the_reply_at_low_effort(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="tools-agent-low-effort-rules",
             name="Test Agent",
-            description="",
-        )
-
-        # Regular guideline with default priority (0)
-        await self.agent.create_guideline(
-            condition="a]ways, in all circumstances",
-            action="Offer the customer orange juice immediately",
+            instructions="",
+            effort=p.Effort.LOW,
         )
 
         @p.tool
         async def check_account(context: ToolContext, account_id: str) -> ToolResult:
             return ToolResult(
                 data={"account_id": account_id, "name": "John"},
-                guidelines=[
-                    {"action": "Offer the customer a Pepsi immediately", "priority": 100},
+                rules=[
+                    {"content": "Offer the customer a Pepsi immediately"},
                 ],
             )
 
-        await self.agent.attach_tool(
-            tool=check_account,
+        await self.agent.create_observation(
             condition="the user asks to check their account",
+            tools=[check_account],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Please check my account, my account ID is 12345",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+
+
+class Test_that_tool_returned_rules_reach_the_reply_at_minimum_effort(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="tools-agent-minimum-effort-rules",
+            name="Test Agent",
+            instructions="",
+            effort=p.Effort.MIN,
+        )
+
+        @p.tool
+        async def check_account(context: ToolContext, account_id: str) -> ToolResult:
+            return ToolResult(
+                data={"account_id": account_id, "name": "John"},
+                rules=[
+                    {"content": "Offer the customer a Pepsi immediately"},
+                ],
+            )
+
+        await self.agent.create_observation(
+            condition="the user asks to check their account",
+            tools=[check_account],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Please check my account, my account ID is 12345",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+
+
+class Test_that_tool_rule_priority_filters_lower_priority_rules(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="tools-agent-4",
+            name="Test Agent",
+            instructions="",
+            # Priority suppression / directive adherence needs real per-step
+            # reasoning; MEDIUM-effort steps often run with zero reasoning tokens.
+            effort=p.Effort.HIGH,
+        )
+
+        # Regular policy with default priority (0)
+        await self.agent.create_policy(
+            content="Always, in all circumstances, offer the customer orange juice immediately",
+        )
+
+        @p.tool
+        async def check_account(context: ToolContext, account_id: str) -> ToolResult:
+            return ToolResult(
+                data={"account_id": account_id, "name": "John"},
+                rules=[
+                    {"content": "Offer the customer a Pepsi immediately", "priority": 100},
+                ],
+            )
+
+        await self.agent.create_observation(
+            condition="the user asks to check their account",
+            tools=[check_account],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -152,7 +225,7 @@ class Test_that_tool_guideline_priority_filters_lower_priority_guidelines(SDKTes
         )
 
         assert "pepsi" in response.lower(), (
-            f"Expected 'pepsi' in response (high-priority tool guideline) but got: {response}"
+            f"Expected 'pepsi' in response (high-priority tool rule) but got: {response}"
         )
         assert "orange" not in response.lower(), (
             f"Expected 'orange' to be filtered out by priority but got: {response}"
@@ -162,11 +235,12 @@ class Test_that_tool_guideline_priority_filters_lower_priority_guidelines(SDKTes
 class Test_that_a_tool_can_update_customer_metadata(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="tools-agent-5",
             name="Tool Test Agent",
-            description="Agent for testing customer metadata update",
+            instructions="Agent for testing customer metadata update",
         )
 
-        self.customer = await server.create_customer(name="Test Customer")
+        self.customer = await server.create_customer(name="Test Customer", id="tools-cust-2")
 
         self.update_succeeded = False
 
@@ -176,14 +250,18 @@ class Test_that_a_tool_can_update_customer_metadata(SDKTest):
             self.update_succeeded = True
             return ToolResult(data={"status": "updated"})
 
-        await self.agent.attach_tool(
-            tool=update_customer_tool,
+        await self.agent.create_observation(
             condition="the user asks to update their profile",
+            tools=[update_customer_tool],
         )
 
     async def run(self, ctx: Context) -> None:
+        # The request is deliberately decisive: an open-ended "update my
+        # profile" legitimately invites a clarifying question instead of a
+        # tool call, and this test is about the metadata write, not the
+        # model's eagerness.
         await ctx.send_and_receive_message(
-            customer_message="Please update my profile",
+            customer_message="Please update my profile now — no details needed, just run it.",
             recipient=self.agent,
             sender=self.customer,
         )
@@ -193,19 +271,20 @@ class Test_that_a_tool_can_update_customer_metadata(SDKTest):
         customer_store = ctx.container[CustomerStore]
         updated_customer = await customer_store.read_customer(self.customer.id)
 
-        assert updated_customer.extra.get("vip") == "true", (
-            f"Expected customer metadata to contain vip=true, got: {updated_customer.extra}"
+        assert updated_customer.metadata.get("vip") == "true", (
+            f"Expected customer metadata to contain vip=true, got: {updated_customer.metadata}"
         )
 
 
 class Test_that_a_tool_can_update_session_metadata(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="tools-agent-6",
             name="Tool Test Agent",
-            description="Agent for testing session metadata update",
+            instructions="Agent for testing session metadata update",
         )
 
-        self.customer = await server.create_customer(name="Test Customer")
+        self.customer = await server.create_customer(name="Test Customer", id="tools-cust-3")
 
         self.update_succeeded = False
 
@@ -215,9 +294,9 @@ class Test_that_a_tool_can_update_session_metadata(SDKTest):
             self.update_succeeded = True
             return ToolResult(data={"status": "updated"})
 
-        await self.agent.attach_tool(
-            tool=update_session_tool,
+        await self.agent.create_observation(
             condition="the user asks to update their session",
+            tools=[update_session_tool],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -238,28 +317,29 @@ class Test_that_a_tool_can_update_session_metadata(SDKTest):
         )
 
 
-class Test_that_agent_utter_follows_guidelines(SDKTest):
+class Test_that_agent_utter_follows_rules(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.booked_event = asyncio.Event()
 
         self.agent = await server.create_agent(
+            id="tools-agent-7",
             name="Utter Test Agent",
-            description="Agent for testing utter",
+            instructions="Agent for testing utter",
+            # Priority suppression / directive adherence needs real per-step
+            # reasoning; MEDIUM-effort steps often run with zero reasoning tokens.
+            effort=p.Effort.HIGH,
         )
 
         @p.tool
         async def start_flight_booking(context: ToolContext) -> ToolResult:
-            session = p.Session.current
-
             async def book_flight() -> None:
                 await asyncio.sleep(3)  # Simulate booking delay
 
                 self.booked_event.set()
 
-                await self.agent.utter(
-                    session=session,
-                    guidelines=[
-                        {"action": "tell the customer the booking is confirmed"},
+                await p.Agent.current.utter(
+                    rules=[
+                        {"content": "tell the customer the booking is confirmed"},
                     ],
                 )
 
@@ -267,8 +347,8 @@ class Test_that_agent_utter_follows_guidelines(SDKTest):
 
             return ToolResult(
                 data={"status": "booking in progress"},
-                guidelines=[
-                    {"action": "tell the customer you'll confirm the booking shortly"},
+                rules=[
+                    {"content": "tell the customer you'll confirm the booking shortly"},
                 ],
             )
 
@@ -296,40 +376,42 @@ class Test_that_agent_utter_follows_guidelines(SDKTest):
         assert await nlp_test(last_message, "it says the booking is confirmed")
 
 
-class Test_that_a_guideline_with_custom_tag_is_followed(SDKTest):
+class Test_that_compass_agent_utter_follows_turn_directives(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Tag Test Agent",
-            description="Agent for testing custom tags",
-        )
-
-        tag = await server.create_tag("vip")
-
-        await self.agent.create_guideline(
-            condition="always, in all circumstances",
-            action="Offer a Pepsi",
-            tags=[tag],
+            id="tools-agent-8",
+            name="Compass Utter Test Agent",
+            instructions="Agent for testing direct utterances",
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message(
-            customer_message="Hello there",
-            recipient=self.agent,
+        created = await ctx.client.sessions.create(
+            agent_id=self.agent.id,
+            allow_greeting=False,
+        )
+        session = await ctx.server.get_session(id=created.id)
+
+        message = await self.agent.utter(
+            session=session,
+            rules=[
+                {"content": "tell the customer the booking is confirmed"},
+            ],
         )
 
-        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+        assert await nlp_test(message, "it says the booking is confirmed")
 
 
-class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
+class Test_that_tag_reevaluation_triggers_rule_after_tool_call(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.tool_called = False
 
         self.agent = await server.create_agent(
-            name="Tag Reeval Agent",
-            description="Agent for testing tag-based reevaluation",
+            id="tools-agent-9",
+            name="Group Reeval Agent",
+            instructions="Agent for testing group-based reevaluation",
         )
 
-        tag = await server.create_tag("post-lookup")
+        group = await server.create_group("post-lookup")
 
         @p.tool
         async def verify_account(context: ToolContext, account_id: str) -> ToolResult:
@@ -341,13 +423,12 @@ class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
             tools=[verify_account],
         )
 
-        await self.agent.create_guideline(
-            condition="the customer's account has been verified",
-            action="Offer a Pepsi",
-            tags=[tag],
+        await self.agent.create_policy(
+            content="When the customer's account has been verified, offer a Pepsi",
+            groups=[group],
         )
 
-        await tag.reevaluate_after(verify_account)
+        await group.reevaluate_after(verify_account)
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive_message(
@@ -357,109 +438,331 @@ class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
 
         assert self.tool_called, "Expected verify_account tool to be called but it was not"
         assert "pepsi" in response.lower(), (
-            f"Expected 'pepsi' in response (reevaluation should trigger the tagged guideline "
+            f"Expected 'pepsi' in response (reevaluation should trigger the grouped rule "
             f"after the tool returns) but got: {response}"
         )
 
 
-class Test_that_tag_prioritize_over_deprioritizes_target_guideline(SDKTest):
+class Test_that_staged_tool_calls_are_accessible_in_custom_matcher_context(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Tag Priority Agent",
-            description="Agent for testing tag-based prioritization",
+            id="tools-agent-10",
+            name="Staged Tool Calls Agent",
+            instructions="Agent for testing staged_tool_calls in custom matcher",
+            effort=p.Effort.HIGH,
         )
 
-        tag = await server.create_tag("priority-group")
+        @p.tool
+        async def check_account(context: ToolContext, account_id: str) -> ToolResult:
+            return ToolResult(data={"account_id": account_id, "verified": True})
 
-        await self.agent.create_guideline(
-            condition="always, in all circumstances",
-            action="Offer a Pepsi",
-            tags=[tag],
+        await self.agent.create_observation(
+            condition="the customer asks to verify their account",
+            tools=[check_account],
         )
 
-        g2 = await self.agent.create_guideline(
-            condition="always, in all circumstances",
-            action="Offer orange juice",
+        self.saw_tool_call = False
+
+        async def matcher_that_checks_staged_tool_calls(
+            ctx: p.RuleEvaluationContext, rule: p.Rule
+        ) -> p.RuleEvaluation:
+            for call in ctx.staged_tool_calls:
+                if call.tool_id.tool_name == "check_account":
+                    self.saw_tool_call = True
+                    return p.RuleEvaluation(
+                        id=rule.id,
+                        is_relevant=True,
+                        reasoning="Found check_account in staged tool calls",
+                    )
+
+            return p.RuleEvaluation(
+                id=rule.id,
+                is_relevant=False,
+                reasoning="check_account not found in staged tool calls",
+            )
+
+        pepsi_offer = await self.agent.create_policy(
+            content="Offer the customer a Pepsi immediately",
+            evaluation_func=matcher_that_checks_staged_tool_calls,
         )
 
-        await tag.prioritize_over(g2)
+        await pepsi_offer.reevaluate_after(check_account)
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive_message(
-            customer_message="Hello",
+            customer_message="Please verify my account, ID is 12345",
             recipient=self.agent,
         )
 
-        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
-        assert "orange" not in response.lower(), (
-            f"Expected 'orange' to be filtered out by tag prioritization but got: {response}"
+        assert self.saw_tool_call, (
+            "Expected custom matcher to see check_account in staged_tool_calls"
+        )
+        assert "pepsi" in response.lower(), (
+            f"Expected 'pepsi' in response (matcher should match via staged_tool_calls) "
+            f"but got: {response}"
         )
 
 
-class Test_that_tag_depend_on_deactivates_tagged_guideline_when_dependency_not_met(SDKTest):
+class Test_that_external_tool_referenced_by_tool_id_is_called(SDKTest):
+    """An external PluginServer hosts a tool. The SDK rule references it
+    by ToolId (not ToolEntry). The engine should call the external tool and
+    incorporate its result into the response."""
+
+    tool_was_called = False
+
+    async def configure_container(self, container: p.Container) -> p.Container:
+        import threading
+
+        self.external_port = get_random_port()
+
+        outer = self
+
+        @plugin_tool
+        async def lookup_balance(context: ToolContext, account_id: str) -> ToolResult:
+            outer.tool_was_called = True
+            return ToolResult(data={"account_id": account_id, "balance": "$4,200.00"})
+
+        # Start the external plugin server in a separate thread so it
+        # doesn't compete with the main event loop.
+        self._external_server = PluginServer(
+            tools=[lookup_balance],
+            port=self.external_port,
+            host="127.0.0.1",
+        )
+
+        ready = threading.Event()
+
+        def run_external() -> None:
+            loop = asyncio.new_event_loop()
+            self._external_loop = loop
+
+            async def _start() -> None:
+                await self._external_server.__aenter__()
+                ready.set()
+                # Keep running until cancelled
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    await self._external_server.__aexit__(None, None, None)
+
+            self._external_task = loop.create_task(_start())
+            try:
+                loop.run_until_complete(self._external_task)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                loop.close()
+
+        self._external_thread = threading.Thread(target=run_external, daemon=True)
+        self._external_thread.start()
+        ready.wait(timeout=10)
+
+        await container[ServiceRegistry].update_tool_service(
+            name="external-test",
+            kind="sdk",
+            url=f"http://127.0.0.1:{self.external_port}",
+            transient=True,
+        )
+
+        return container
+
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Tag Dependency Agent",
-            description="Agent for testing tag-based dependency",
+            id="tools-agent-11",
+            name="External Tool Agent",
+            instructions="Agent that uses an external tool service",
         )
 
-        tag = await server.create_tag("dep-group")
-
-        await self.agent.create_guideline(
-            condition="always, in all circumstances",
-            action="Offer a Pepsi",
-            tags=[tag],
+        await self.agent.create_observation(
+            condition="the customer asks about their account balance",
+            tools=[ToolId(service_name="external-test", tool_name="lookup_balance")],
         )
-
-        g2 = await self.agent.create_guideline(
-            condition="the customer has explicitly said the word 'banana'",
-            action="Offer Coke",
-        )
-
-        await tag.depend_on(g2)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message(
-            customer_message="Hello, how are you",
+        try:
+            response = await ctx.send_and_receive_message(
+                customer_message="What is the balance on account 12345?",
+                recipient=self.agent,
+            )
+
+            assert self.tool_was_called, "Expected external tool to be called but it was not"
+            assert "4,200" in response or "4200" in response, (
+                f"Expected balance '$4,200.00' in response but got: {response}"
+            )
+        finally:
+            self._external_task.cancel()
+            self._external_thread.join(timeout=5)
+
+
+class Test_that_a_tool_can_read_the_current_effort_level(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.seen_effort: p.Effort | None = None
+        outer = self
+
+        @p.tool
+        async def search_knowledge_base(context: p.ToolContext, query: str) -> p.ToolResult:
+            outer.seen_effort = p.Session.current.effort
+            return p.ToolResult(data={"results": ["how to reset a password"]})
+
+        self.agent = await server.create_agent(
+            id="tools-agent-effort",
+            name="Effort Reading Agent",
+            instructions="Help customers by searching the knowledge base",
+            effort=p.Effort.HIGH,
+        )
+        await self.agent.create_policy(
+            content="When the customer asks a question, search the knowledge base first",
+            tools=[search_knowledge_base],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="How do I reset my password?",
             recipient=self.agent,
         )
-
-        assert "pepsi" not in response.lower(), (
-            f"Expected 'pepsi' NOT in response (dependency not met) but got: {response}"
-        )
+        assert self.seen_effort is p.Effort.HIGH
 
 
-class Test_that_guideline_depend_on_tag_deactivates_guideline_when_tagged_dependency_not_met(
-    SDKTest
-):
+class Test_that_a_guest_reads_a_tools_narration_under_the_production_authorization_policy(SDKTest):
+    """Under the OSS production policy a guest lacks ``read_event_reasoning``.
+    That permission guards the model's own reasoning only: a tool's narration is
+    written for the customer, so the guest reads it verbatim, while any reasoning
+    event reaches the guest as a bare "Thinking" label with no chunks."""
+
+    GUEST_TOKEN_HEADER = "X-Parlant-Guest-Token"
+    ADMIN_API_KEY = "sdk-test-admin-api-key"
+    NARRATION = "Checking the flag with the warehouse…"
+
+    async def configure_container(self, container: p.Container) -> p.Container:
+        from parlant.api.authentication import TokenAuthenticator
+        from parlant.api.authorization import AuthorizationPolicy, CompositeAuthorizationPolicy
+
+        policy: CompositeAuthorizationPolicy | None = None
+
+        # The customer store is bound later in startup, so build the policy
+        # lazily, the way the SDK's own ``auth=`` binding does.
+        def _policy(c: p.Container) -> AuthorizationPolicy:
+            nonlocal policy
+            if policy is None:
+                policy = CompositeAuthorizationPolicy(
+                    authenticator=TokenAuthenticator(
+                        guest_token_secret="sdk-test-guest-secret-0123456789abcdef",
+                        admin_api_key=self.ADMIN_API_KEY,
+                    ),
+                    customer_store=c[CustomerStore],
+                )
+            return policy
+
+        container[AuthorizationPolicy] = _policy
+        return container
+
+    async def _wait_for_startup(self, port: int) -> None:
+        import time
+
+        import httpx
+
+        # Under this policy /healthz hides the instance id from anonymous
+        # callers, so probe as the admin.
+        start_time = time.time()
+        async with httpx.AsyncClient() as http:
+            while True:
+                try:
+                    response = await http.get(
+                        f"http://localhost:{port}/healthz",
+                        headers={"Authorization": f"Bearer {self.ADMIN_API_KEY}"},
+                        timeout=5.0,
+                    )
+                    if response.status_code == 200:
+                        assert response.json()["instance_id"] == self.INSTANCE_ID
+                        return
+                except (httpx.RequestError, httpx.TimeoutException):
+                    pass
+
+                if time.time() >= (start_time + self.STARTUP_TIMEOUT):
+                    raise RuntimeError("Server did not start in time")
+
+                await asyncio.sleep(0.25)
+
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Guideline Tag Dependency Agent",
-            description="Agent for testing guideline dependency on a custom tag",
+            id="tools-agent-narration",
+            name="Narration Test Agent",
+            instructions="Agent for testing tool narration visibility",
         )
 
-        t1 = await server.create_tag("drink-group")
+        @p.tool(narration=self.NARRATION)
+        async def set_flag_tool(context: ToolContext) -> ToolResult:
+            return ToolResult(data={"status": "flag set"})
 
-        g1 = await self.agent.create_guideline(
-            matcher=p.MATCH_ALWAYS,
-            action="Offer a Pepsi",
+        await self.agent.create_observation(
+            condition="the user asks to set the flag or trigger the tool",
+            tools=[set_flag_tool],
         )
-
-        await self.agent.create_guideline(
-            condition="the customer has explicitly said the word 'banana'",
-            action="Offer Coke",
-            tags=[t1],
-        )
-
-        # g1 depends on tag t1 — if no tagged guideline is active, g1 is deactivated
-        await g1.depend_on(t1)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message(
-            customer_message="Hello",
-            recipient=self.agent,
+        import httpx
+
+        async with httpx.AsyncClient(base_url=ctx.base_url, timeout=120.0) as http:
+            created = await http.post("/sessions", json={"agent_id": self.agent.id})
+            assert created.status_code == 201
+            session_id = created.json()["id"]
+            guest = {"Authorization": f"Bearer {created.headers[self.GUEST_TOKEN_HEADER]}"}
+            admin = {"Authorization": f"Bearer {self.ADMIN_API_KEY}"}
+
+            posted = await http.post(
+                f"/sessions/{session_id}/events",
+                json={
+                    "kind": "message",
+                    "source": "customer",
+                    "message": "Please set the flag for me",
+                },
+                headers=guest,
+            )
+            assert posted.status_code == 201
+
+            async def events_as(headers: dict[str, str]) -> list[dict[str, Any]]:
+                response = await http.get(
+                    f"/sessions/{session_id}/events",
+                    params={"min_offset": 0, "wait_for_data": 0},
+                    headers=headers,
+                )
+                assert response.status_code == 200
+                return cast(list[dict[str, Any]], response.json())
+
+            for _ in range(240):
+                guest_events = await events_as(guest)
+                if any(
+                    e["kind"] == "status" and e["data"].get("status") == "ready"
+                    for e in guest_events
+                ):
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                raise AssertionError("The agent never finished the turn")
+
+            admin_events = await events_as(admin)
+
+        assert any(e["kind"] == "message" and e["source"] == "ai_agent" for e in guest_events), (
+            "Expected the agent to reply"
         )
 
-        assert "pepsi" not in response.lower(), (
-            f"Expected 'pepsi' NOT in response (tag dependency not met) but got: {response}"
-        )
+        narrations = [
+            e
+            for e in guest_events
+            if e["kind"] == "status" and e["data"].get("message") == self.NARRATION
+        ]
+        assert narrations, "The guest should read the tool's narration verbatim"
+
+        # The guest never receives reasoning chunks, whatever the model streamed.
+        assert not any("chunks" in e["data"] for e in guest_events if e["kind"] == "status")
+
+        # Whatever the admin sees flagged as internal reasoning reached the guest
+        # as a bare "Thinking" label.
+        guest_by_id = {e["id"]: e for e in guest_events}
+        for e in admin_events:
+            if e["metadata"].get("__parlant__", {}).get("internal_reasoning"):
+                assert guest_by_id[e["id"]]["data"]["message"] == "Thinking"
+                assert "chunks" not in guest_by_id[e["id"]]["data"]
+                assert "__parlant__" not in guest_by_id[e["id"]]["metadata"]

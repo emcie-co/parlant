@@ -13,36 +13,36 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, AsyncIterator, Callable, Mapping, cast
+from dataclasses import dataclass
+from typing import Any, Mapping
 from typing_extensions import override
-from lagom import Container
-from unittest.mock import AsyncMock
+from parlant.core.container import Container
 
 from pytest import raises
 
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.prompt_builder import (
+from parlant.core.engines.compass.prompt_builder import (
     BuiltInSection,
     PromptBuilder,
     PromptSection,
     SectionStatus,
 )
 from parlant.core.loggers import Logger
-from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import EmbeddingResult
 from parlant.core.nlp.generation import (
-    BaseStreamingTextGenerator,
+    HEDGE_TIMEOUT_HINT,
+    BaseSchematicGenerator,
     FallbackSchematicGenerator,
     SchematicGenerationResult,
     SchematicGenerator,
-    StreamingTextGenerationResult,
-    StreamingTextGenerator,
 )
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.nlp.common import UsageInfo
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
 
 
 class DummySchema(DefaultBaseModel):
@@ -57,28 +57,72 @@ class SecondException(Exception):
     pass
 
 
-async def test_that_fallback_generation_uses_the_first_working_generator(
-    container: Container,
-) -> None:
-    mock_first_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_first_generator.generate.return_value = SchematicGenerationResult(
-        content=DummySchema(result="Success"),
+def _success_result(result: str = "Success") -> SchematicGenerationResult[DummySchema]:
+    return SchematicGenerationResult(
+        content=DummySchema(result=result),
         info=GenerationInfo(
             schema_name="DummySchema",
             model="not-real-model",
             duration=1,
-            usage=UsageInfo(
-                input_tokens=1,
-                output_tokens=1,
-            ),
+            usage=UsageInfo(input_tokens=1, output_tokens=1),
         ),
     )
 
-    mock_second_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
+
+class ScriptedSchematicGenerator(SchematicGenerator[DummySchema]):
+    """A hand-written scripted generator: the Nth call to `generate` yields the
+    Nth scripted item, either returning it (a result) or raising it (an
+    exception). Records every call's prompt and hints."""
+
+    def __init__(
+        self,
+        script: list[SchematicGenerationResult[DummySchema] | Exception],
+    ) -> None:
+        self._script = list(script)
+        self.calls: list[tuple[str | PromptBuilder, Mapping[str, Any]]] = []
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[DummySchema]:
+        self.calls.append((prompt, dict(hints)))
+        assert self._script, "ScriptedSchematicGenerator called more times than scripted"
+        item = self._script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    @override
+    @property
+    def id(self) -> str:
+        return "scripted-schematic-generator"
+
+    @override
+    @property
+    def max_tokens(self) -> int:
+        return 1000
+
+    @override
+    @property
+    def tokenizer(self) -> EstimatingTokenizer:
+        return ZeroEstimatingTokenizer()
+
+
+async def test_that_fallback_generation_uses_the_first_working_generator(
+    container: Container,
+) -> None:
+    first_generator = ScriptedSchematicGenerator([_success_result()])
+    second_generator = ScriptedSchematicGenerator([])
 
     fallback_generator = FallbackSchematicGenerator[DummySchema](
-        mock_first_generator,
-        mock_second_generator,
+        first_generator,
+        second_generator,
         logger=container[Logger],
     )
 
@@ -86,8 +130,8 @@ async def test_that_fallback_generation_uses_the_first_working_generator(
         prompt="test prompt", hints={"a": 1}
     )
 
-    mock_first_generator.generate.assert_awaited_once_with(prompt="test prompt", hints={"a": 1})
-    mock_second_generator.generate.assert_not_called()
+    assert first_generator.calls == [("test prompt", {"a": 1})]
+    assert second_generator.calls == []
 
     assert schema_generation_result.content.result == "Success"
 
@@ -95,26 +139,12 @@ async def test_that_fallback_generation_uses_the_first_working_generator(
 async def test_that_fallback_generation_falls_back_to_the_next_generator_when_encountering_an_error_in_the_first_one(
     container: Container,
 ) -> None:
-    mock_first_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_first_generator.generate.side_effect = Exception("Failure")
-
-    mock_second_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_second_generator.generate.return_value = SchematicGenerationResult(
-        content=DummySchema(result="Success"),
-        info=GenerationInfo(
-            schema_name="DummySchema",
-            model="not-real-model",
-            duration=1,
-            usage=UsageInfo(
-                input_tokens=1,
-                output_tokens=1,
-            ),
-        ),
-    )
+    first_generator = ScriptedSchematicGenerator([Exception("Failure")])
+    second_generator = ScriptedSchematicGenerator([_success_result()])
 
     fallback_generator = FallbackSchematicGenerator[DummySchema](
-        mock_first_generator,
-        mock_second_generator,
+        first_generator,
+        second_generator,
         logger=container[Logger],
     )
 
@@ -122,8 +152,8 @@ async def test_that_fallback_generation_falls_back_to_the_next_generator_when_en
         prompt="test prompt", hints={"a": 1}
     )
 
-    mock_first_generator.generate.assert_awaited_once_with(prompt="test prompt", hints={"a": 1})
-    mock_second_generator.generate.assert_awaited_once_with(prompt="test prompt", hints={"a": 1})
+    assert first_generator.calls == [("test prompt", {"a": 1})]
+    assert second_generator.calls == [("test prompt", {"a": 1})]
 
     assert schema_generation_result.content.result == "Success"
 
@@ -131,87 +161,60 @@ async def test_that_fallback_generation_falls_back_to_the_next_generator_when_en
 async def test_that_fallback_generation_raises_an_error_when_all_generators_fail(
     container: Container,
 ) -> None:
-    mock_first_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_first_generator.generate.side_effect = Exception("Failure")
-
-    mock_second_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_second_generator.generate.side_effect = Exception("Failure")
+    first_generator = ScriptedSchematicGenerator([Exception("Failure")])
+    second_generator = ScriptedSchematicGenerator([Exception("Failure")])
 
     dummy_generator: SchematicGenerator[DummySchema] = FallbackSchematicGenerator(
-        mock_first_generator,
-        mock_second_generator,
+        first_generator,
+        second_generator,
         logger=container[Logger],
     )
 
     with raises(Exception):
         await dummy_generator.generate("test prompt")
 
-    mock_first_generator.generate.assert_awaited_once_with(prompt="test prompt", hints={})
-    mock_second_generator.generate.assert_awaited_once_with(prompt="test prompt", hints={})
+    assert first_generator.calls == [("test prompt", {})]
+    assert second_generator.calls == [("test prompt", {})]
 
 
 async def test_that_retry_succeeds_on_first_attempt(
     container: Container,
 ) -> None:
-    mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_generator.generate.return_value = SchematicGenerationResult(
-        content=DummySchema(result="Success"),
-        info=GenerationInfo(
-            schema_name="DummySchema",
-            model="not-real-model",
-            duration=1,
-            usage=UsageInfo(input_tokens=1, output_tokens=1),
-        ),
-    )
+    scripted_generator = ScriptedSchematicGenerator([_success_result()])
 
     @policy([retry(exceptions=(FirstException))])
     async def generate(
         prompt: str, hints: Mapping[str, Any]
     ) -> SchematicGenerationResult[DummySchema]:
-        return cast(
-            SchematicGenerationResult[DummySchema],
-            await mock_generator.generate(prompt=prompt, hints=hints),
-        )
+        return await scripted_generator.generate(prompt=prompt, hints=hints)
 
     result = await generate(prompt="test prompt", hints={"a": 1})
 
-    mock_generator.generate.assert_awaited_once_with(prompt="test prompt", hints={"a": 1})
+    assert scripted_generator.calls == [("test prompt", {"a": 1})]
     assert result.content.result == "Success"
 
 
 async def test_that_retry_succeeds_after_failures(
     container: Container,
 ) -> None:
-    mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    success_result = SchematicGenerationResult(
-        content=DummySchema(result="Success"),
-        info=GenerationInfo(
-            schema_name="DummySchema",
-            model="not-real-model",
-            duration=1,
-            usage=UsageInfo(input_tokens=1, output_tokens=1),
-        ),
+    scripted_generator = ScriptedSchematicGenerator(
+        [
+            FirstException("First failure"),
+            FirstException("Second failure"),
+            _success_result(),
+        ]
     )
-
-    mock_generator.generate.side_effect = [
-        FirstException("First failure"),
-        FirstException("Second failure"),
-        success_result,
-    ]
 
     @policy([retry(exceptions=(FirstException))])
     async def generate(
         prompt: str, hints: Mapping[str, Any]
     ) -> SchematicGenerationResult[DummySchema]:
-        return cast(
-            SchematicGenerationResult[DummySchema],
-            await mock_generator.generate(prompt=prompt, hints=hints),
-        )
+        return await scripted_generator.generate(prompt=prompt, hints=hints)
 
     result = await generate(prompt="test prompt", hints={"a": 1})
 
-    assert mock_generator.generate.await_count == 3
-    mock_generator.generate.assert_awaited_with(prompt="test prompt", hints={"a": 1})
+    assert scripted_generator.call_count == 3
+    assert scripted_generator.calls[-1] == ("test prompt", {"a": 1})
     assert result.content.result == "Success"
 
 
@@ -219,34 +222,23 @@ async def test_that_retry_handles_multiple_exception_types(container: Container)
     class AnotherException(Exception):
         pass
 
-    mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    success_result = SchematicGenerationResult(
-        content=DummySchema(result="Success"),
-        info=GenerationInfo(
-            schema_name="DummySchema",
-            model="not-real-model",
-            duration=1,
-            usage=UsageInfo(input_tokens=1, output_tokens=1),
-        ),
+    scripted_generator = ScriptedSchematicGenerator(
+        [
+            FirstException("First error"),
+            AnotherException("Second error"),
+            _success_result(),
+        ]
     )
-
-    mock_generator.generate.side_effect = [
-        FirstException("First error"),
-        AnotherException("Second error"),
-        success_result,
-    ]
 
     @policy([retry(exceptions=(FirstException, AnotherException), max_exceptions=3)])
     async def generate(
         prompt: str, hints: Mapping[str, Any] = {}
     ) -> SchematicGenerationResult[DummySchema]:
-        return cast(
-            SchematicGenerationResult[DummySchema], await mock_generator.generate(prompt, hints)
-        )
+        return await scripted_generator.generate(prompt, hints)
 
     result = await generate(prompt="test prompt")
 
-    assert mock_generator.generate.await_count == 3
+    assert scripted_generator.call_count == 3
     assert result.content.result == "Success"
 
 
@@ -254,49 +246,64 @@ async def test_that_retry_doesnt_catch_unspecified_exceptions(container: Contain
     class UnexpectedException(Exception):
         pass
 
-    mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-    mock_generator.generate.side_effect = UnexpectedException("Unexpected error")
+    scripted_generator = ScriptedSchematicGenerator([UnexpectedException("Unexpected error")])
 
     @policy([retry(exceptions=(FirstException), max_exceptions=3)])
     async def generate(
         prompt: str, hints: Mapping[str, Any] = {}
     ) -> SchematicGenerationResult[DummySchema]:
-        return cast(
-            SchematicGenerationResult[DummySchema], await mock_generator.generate(prompt, hints)
-        )
+        return await scripted_generator.generate(prompt, hints)
 
     with raises(UnexpectedException):
         await generate(prompt="test prompt")
 
-    mock_generator.generate.assert_awaited_once()
+    assert scripted_generator.call_count == 1
+
+
+class ScriptedEmbedder:
+    """A scripted embedding callable: the Nth call yields the Nth scripted item,
+    returning it (a result) or raising it (an exception)."""
+
+    def __init__(self, script: list[EmbeddingResult | Exception]) -> None:
+        self._script = list(script)
+        self.call_count = 0
+
+    async def __call__(self, text: str) -> EmbeddingResult:
+        self.call_count += 1
+        assert self._script, "ScriptedEmbedder called more times than scripted"
+        item = self._script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 async def test_that_stacked_retry_decorators_exceed_max_attempts(container: Container) -> None:
-    mock_embedder = AsyncMock(spec=EmbeddingResult)
     success_result = EmbeddingResult(vectors=[[0.1, 0.2, 0.3]])
 
-    mock_embedder.side_effect = [
-        SecondException("First failure"),
-        FirstException("Second failure"),
-        FirstException("Third failure"),
-        SecondException("Fourth failure"),
-        FirstException("Fifth failure"),
-        success_result,
-    ]
+    scripted_embedder = ScriptedEmbedder(
+        [
+            SecondException("First failure"),
+            FirstException("Second failure"),
+            FirstException("Third failure"),
+            SecondException("Fourth failure"),
+            FirstException("Fifth failure"),
+            success_result,
+        ]
+    )
 
     @policy([retry(SecondException, max_exceptions=3), retry(FirstException, max_exceptions=3)])
     async def embed(text: str) -> EmbeddingResult:
-        return cast(EmbeddingResult, await mock_embedder(text=text))
+        return await scripted_embedder(text=text)
 
     with raises(FirstException) as exc_info:
         await embed(text="test text")
 
-    assert mock_embedder.await_count == 5
+    assert scripted_embedder.call_count == 5
     assert str(exc_info.value) == "Fifth failure"
 
 
 async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
-    class MockNLPService(SchematicGenerator[DummySchema]):
+    class MockSchematicGenerator(SchematicGenerator[DummySchema]):
         def __init__(self) -> None:
             self.last_prompt: str | None = None
 
@@ -348,7 +355,7 @@ async def test_that_prompt_builder_edits_are_reflected_in_generation() -> None:
                 ),
             )
 
-    mock_service = MockNLPService()
+    mock_service = MockSchematicGenerator()
     builder = PromptBuilder()
 
     builder.add_section(
@@ -367,177 +374,122 @@ async def test_that_retry_succeeds_after_failures_with_higher_concurrency(
 ) -> None:
     concurrency = 10
 
-    success_result = SchematicGenerationResult(
-        content=DummySchema(result="Success"),
-        info=GenerationInfo(
-            schema_name="DummySchema",
-            model="not-real-model",
-            duration=1,
-            usage=UsageInfo(input_tokens=1, output_tokens=1),
-        ),
-    )
-
-    private_side_effects = [
-        FirstException("First failure"),
-        FirstException("Second failure"),
-        success_result,
-    ]
-
     @policy(retry(exceptions=(FirstException,)))
     async def generate(
-        mock_object: AsyncMock,
+        generator: ScriptedSchematicGenerator,
         prompt: str,
         hints: Mapping[str, Any],
     ) -> SchematicGenerationResult[DummySchema]:
-        return cast(
-            SchematicGenerationResult[DummySchema],
-            await mock_object.generate(prompt=prompt, hints=hints),
-        )
+        return await generator.generate(prompt=prompt, hints=hints)
 
-    # Create 5 tasks, each with a different mock object
+    # Create tasks, each with a different scripted generator
     tasks = []
-    mock_generators = []
+    scripted_generators = []
 
     for i in range(concurrency):
-        mock_generator = AsyncMock(spec=SchematicGenerator[DummySchema])
-        mock_generator.generate.side_effect = private_side_effects
+        scripted_generator = ScriptedSchematicGenerator(
+            [
+                FirstException("First failure"),
+                FirstException("Second failure"),
+                _success_result(),
+            ]
+        )
 
-        mock_generators.append(mock_generator)
+        scripted_generators.append(scripted_generator)
 
-        tasks.append(generate(mock_object=mock_generator, prompt="test prompt", hints={"a": i}))
+        tasks.append(generate(generator=scripted_generator, prompt="test prompt", hints={"a": i}))
 
     results = await asyncio.gather(*tasks)
 
     for i in range(concurrency):
-        assert mock_generators[i].generate.await_count == 3
-        mock_generators[i].generate.assert_awaited_with(prompt="test prompt", hints={"a": i})
+        assert scripted_generators[i].call_count == 3
+        assert scripted_generators[i].calls[-1] == ("test prompt", {"a": i})
         assert results[i].content.result == "Success"
 
 
 # ============================================================================
-# StreamingTextGenerator Tests
+# BaseSchematicGenerator Hedging Tests
 # ============================================================================
 
 
-class MockStreamingTextGenerator(StreamingTextGenerator):
-    """Mock streaming generator for testing."""
+@dataclass
+class _HedgeAttempt:
+    """Scripts one `do_generate` invocation: how long it takes, and whether it
+    ultimately succeeds (``result``) or raises (``exception``)."""
 
-    def __init__(self, chunks: list[str]) -> None:
-        self._chunks = chunks
-
-    @override
-    def generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
-    ) -> StreamingTextGenerationResult:
-        async def stream() -> AsyncIterator[str | None]:
-            for chunk in self._chunks:
-                yield chunk
-            yield None
-
-        def info_getter() -> GenerationInfo:
-            return GenerationInfo(
-                schema_name="streaming",
-                model=self.id,
-                duration=0.0,
-                usage=UsageInfo(input_tokens=0, output_tokens=0),
-            )
-
-        return StreamingTextGenerationResult(stream=stream(), info_getter=info_getter)
-
-    @property
-    @override
-    def id(self) -> str:
-        return "mock-streaming-generator"
-
-    @property
-    @override
-    def tokenizer(self) -> EstimatingTokenizer:
-        return ZeroEstimatingTokenizer()
+    delay: float
+    result: str | None = None
+    exception: BaseException | None = None
 
 
-async def test_that_streaming_text_generator_yields_chunks_and_terminates_with_none() -> None:
-    chunks = ["Hello", " ", "world", "!"]
-    generator = MockStreamingTextGenerator(chunks)
-
-    result = generator.generate("test prompt")
-    collected_chunks: list[str | None] = []
-    async for chunk in result.stream:
-        collected_chunks.append(chunk)
-
-    # Should yield all chunks followed by None
-    assert collected_chunks == ["Hello", " ", "world", "!", None]
-
-
-async def test_that_streaming_text_generator_yields_none_immediately_for_empty_response() -> None:
-    generator = MockStreamingTextGenerator([])
-
-    result = generator.generate("test prompt")
-    collected_chunks: list[str | None] = []
-    async for chunk in result.stream:
-        collected_chunks.append(chunk)
-
-    # Should yield only None for empty response
-    assert collected_chunks == [None]
-
-
-async def test_that_streaming_text_generator_can_be_collected_into_full_text() -> None:
-    chunks = ["The ", "quick ", "brown ", "fox"]
-    generator = MockStreamingTextGenerator(chunks)
-
-    result = generator.generate("test prompt")
-    full_text = ""
-    async for chunk in result.stream:
-        if chunk is not None:
-            full_text += chunk
-
-    assert full_text == "The quick brown fox"
-
-
-class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
-    """Testable implementation of BaseStreamingTextGenerator."""
+class TestableBaseSchematicGenerator(BaseSchematicGenerator[DummySchema]):
+    """A BaseSchematicGenerator whose `do_generate` is scripted per attempt, so the
+    base class's hedging behavior can be exercised deterministically. The Nth call
+    to `do_generate` runs the Nth scripted attempt (the last one repeats)."""
 
     def __init__(
         self,
-        logger: Logger,
-        tracer: Tracer,
-        meter: Meter,
-        chunks: list[str],
-        should_fail: bool = False,
+        container: Container,
+        attempts: list[_HedgeAttempt],
+        usage_reporter: UsageReporter | None = None,
     ) -> None:
         super().__init__(
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
             model_name="test-model",
-            health_reporter=NullHealthReporter(),
+            usage_reporter=usage_reporter,
+            provider_name="test",
         )
-        self._chunks = chunks
-        self._should_fail = should_fail
+        self._attempts = attempts
+        self.call_count = 0
+        self.cancelled_indices: list[int] = []
+
+    @property
+    @override
+    def schema(self) -> type[DummySchema]:
+        return DummySchema
 
     @override
     async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
-        async def stream() -> AsyncIterator[str | None]:
-            for chunk in self._chunks:
-                if self._should_fail:
-                    raise Exception("Generation failed mid-stream")
-                yield chunk
-            yield None
+    ) -> SchematicGenerationResult[DummySchema]:
+        index = self.call_count
+        self.call_count += 1
+        spec = self._attempts[min(index, len(self._attempts) - 1)]
 
-        def get_usage() -> UsageInfo:
-            return UsageInfo(input_tokens=10, output_tokens=5)
+        try:
+            await asyncio.sleep(spec.delay)
+        except asyncio.CancelledError:
+            self.cancelled_indices.append(index)
+            raise
 
-        return stream(), get_usage
+        if spec.exception is not None:
+            raise spec.exception
+
+        return SchematicGenerationResult(
+            content=DummySchema(
+                result=spec.result if spec.result is not None else f"attempt-{index}"
+            ),
+            info=GenerationInfo(
+                schema_name="DummySchema",
+                model="test-model",
+                duration=spec.delay,
+                usage=UsageInfo(input_tokens=1, output_tokens=1),
+            ),
+        )
 
     @property
     @override
     def id(self) -> str:
-        return "test-streaming-generator"
+        return "testable-schematic-generator"
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1000
 
     @property
     @override
@@ -545,112 +497,121 @@ class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
         return ZeroEstimatingTokenizer()
 
 
-async def test_that_base_streaming_text_generator_wraps_generation_with_tracing(
+async def test_that_a_request_slower_than_the_hedge_delay_triggers_a_second_attempt(
     container: Container,
 ) -> None:
-    chunks = ["Hello", " world"]
-    generator = TestableBaseStreamingTextGenerator(
-        logger=container[Logger],
-        tracer=container[Tracer],
-        meter=container[Meter],
-        chunks=chunks,
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=5.0, result="slow"),  # first attempt — never returns in time
+            _HedgeAttempt(delay=0.01, result="fast"),  # hedge — wins
+        ],
     )
 
-    result = generator.generate("test prompt")
-    collected_chunks: list[str | None] = []
-    async for chunk in result.stream:
-        collected_chunks.append(chunk)
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
 
-    assert collected_chunks == ["Hello", " world", None]
+    assert generator.call_count == 2
+    assert result.content.result == "fast"
 
 
-async def test_that_base_streaming_text_generator_propagates_exceptions(
+async def test_that_a_request_faster_than_the_hedge_delay_is_not_hedged(
     container: Container,
 ) -> None:
-    generator = TestableBaseStreamingTextGenerator(
-        logger=container[Logger],
-        tracer=container[Tracer],
-        meter=container[Meter],
-        chunks=["chunk1", "chunk2"],
-        should_fail=True,
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[_HedgeAttempt(delay=0.01, result="quick")],
     )
 
-    result = generator.generate("test prompt")
-    with raises(Exception, match="Generation failed mid-stream"):
-        async for _ in result.stream:
-            pass
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.5})
+
+    assert generator.call_count == 1
+    assert result.content.result == "quick"
 
 
-async def test_that_streaming_text_generator_reports_time_to_first_token_as_latency(
+async def test_that_no_hedge_is_attempted_without_the_hint(
     container: Container,
 ) -> None:
-    from datetime import timedelta
-
-    from parlant.core.health import (
-        NLP_REQUEST_KIND,
-        NLP_REQUESTS_COUNTER,
-        NLP_TOKENS_COUNTER,
-        ReportRetention,
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[_HedgeAttempt(delay=0.05, result="only")],
     )
 
-    reporter = HealthReporter()
-    reporter.configure_retention(
-        NLP_REQUEST_KIND, ReportRetention(window=timedelta(minutes=10), max_count=1000)
+    result = await generator.generate("prompt")
+
+    assert generator.call_count == 1
+    assert result.content.result == "only"
+
+
+async def test_that_the_losing_hedge_attempt_is_cancelled(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=5.0, result="slow"),
+            _HedgeAttempt(delay=0.01, result="fast"),
+        ],
     )
-    reporter.configure_counter(NLP_REQUESTS_COUNTER, retention=timedelta(days=1))
-    reporter.configure_counter(NLP_TOKENS_COUNTER, retention=timedelta(days=1))
 
-    inter_chunk_delay_seconds = 0.5
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
 
-    class SlowFollowupStreamGenerator(BaseStreamingTextGenerator):
-        def __init__(self) -> None:
-            super().__init__(
-                logger=container[Logger],
-                tracer=container[Tracer],
-                meter=container[Meter],
-                model_name="test-slow",
-                health_reporter=reporter,
-            )
+    assert result.content.result == "fast"
+    assert generator.cancelled_indices == [0]
 
-        @override
-        async def do_generate(
-            self,
-            prompt: str | PromptBuilder,
-            hints: Mapping[str, Any] = {},
-        ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
-            async def stream() -> AsyncIterator[str | None]:
-                yield "first"
-                await asyncio.sleep(inter_chunk_delay_seconds)
-                yield "second"
-                yield None
 
-            def get_usage() -> UsageInfo:
-                return UsageInfo(input_tokens=1, output_tokens=2)
-
-            return stream(), get_usage
-
-        @property
-        @override
-        def id(self) -> str:
-            return "slow"
-
-        @property
-        @override
-        def tokenizer(self) -> EstimatingTokenizer:
-            return ZeroEstimatingTokenizer()
-
-    generator = SlowFollowupStreamGenerator()
-    result = generator.generate("hi")
-    async for _ in result.stream:
-        pass
-
-    captured = list(reporter._buffers[NLP_REQUEST_KIND])  # type: ignore[attr-defined]
-    assert len(captured) == 1
-    latency_ms = float(captured[0].attributes["latency_ms"])
-
-    # End-to-end would be > 500ms because of the sleep between chunks.
-    # TTFT is the time to the first chunk, which yields immediately.
-    assert latency_ms < inter_chunk_delay_seconds * 1000.0 / 2, (
-        f"Expected TTFT-style latency well under {inter_chunk_delay_seconds * 1000}ms,"
-        f" got {latency_ms}ms"
+async def test_that_all_hedge_attempts_are_included_in_reported_usage(
+    container: Container,
+) -> None:
+    reporter = container[UsageReporter]
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=0.05, result="slow"),
+            _HedgeAttempt(delay=0.001, result="fast"),
+        ],
+        usage_reporter=reporter,
     )
+
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.01})
+    await reporter.wait_for_pending()
+
+    usage = reporter.get_usage()["test:test-model"]
+    assert result.content.result == "fast"
+    assert generator.cancelled_indices == []
+    assert usage.input_tokens == 2
+    assert usage.output_tokens == 2
+    assert usage.requests == 2
+
+
+async def test_that_a_hedge_returns_the_first_successful_result_even_if_another_attempt_fails(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=0.15, result="slow-success"),  # first — slow but succeeds
+            _HedgeAttempt(delay=0.01, exception=FirstException()),  # hedge — fails fast
+        ],
+    )
+
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
+
+    assert generator.call_count == 2
+    assert result.content.result == "slow-success"
+
+
+async def test_that_a_hedge_raises_when_all_attempts_fail(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=0.15, exception=FirstException("first")),
+            _HedgeAttempt(delay=0.01, exception=SecondException("second")),
+        ],
+    )
+
+    with raises(FirstException):
+        await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
+
+    assert generator.call_count == 2

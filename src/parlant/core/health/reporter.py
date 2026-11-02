@@ -25,7 +25,9 @@ it consumes and how to render them, including a status that contributes
 to the overall worst-of rollup when the view is marked as critical.
 """
 
+import asyncio
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -168,10 +170,29 @@ class HealthReporter:
         self._buffers: dict[str, deque[HealthReport]] = defaultdict(deque)
         self._counters: dict[str, RollingCounter] = {}
         self._views: list[HealthView] = []
+        self._admin_details: dict[str, Callable[[], Awaitable[Mapping[str, Any]]]] = {}
         self._lock = Lock()
         self._snapshot_cache_ttl = snapshot_cache_ttl
         self._cached_snapshot: dict[str, Any] | None = None
         self._cached_snapshot_at: datetime | None = None
+
+    def register_admin_detail(
+        self, name: str, read: Callable[[], Awaitable[Mapping[str, Any]]]
+    ) -> None:
+        """Attach live operational context outside the health verdict and snapshot cache."""
+        if name in {"status", "checks", "instance_id"}:
+            raise ValueError("Admin details cannot replace health fields")
+        self._admin_details[name] = read
+
+    async def admin_snapshot(self) -> dict[str, Any]:
+        snapshot = dict(self.snapshot())
+        readers = list(self._admin_details.items())
+        results = await asyncio.gather(*(read() for _, read in readers), return_exceptions=True)
+        for (name, _), result in zip(readers, results):
+            # Supplementary context failing cannot take down a health probe.
+            if isinstance(result, Mapping):
+                snapshot[name] = dict(result)
+        return snapshot
 
     def configure_retention(self, kind: str, retention: ReportRetention) -> None:
         """Configure how long and how many reports of ``kind`` to retain."""
@@ -209,6 +230,22 @@ class HealthReporter:
         """Register a view that participates in ``snapshot()`` output."""
         with self._lock:
             self._views.append(view)
+
+    def read_reports(self, kind: str) -> list[HealthReport]:
+        """Return a snapshot of the current buffer for ``kind``, pruned by age.
+
+        Returns a fresh list so callers can iterate / sort without lock
+        contention. Raises ``KeyError`` if no retention has been configured
+        for ``kind``, matching the strictness of ``report()``.
+        """
+        with self._lock:
+            if kind not in self._retention:
+                raise KeyError(f"No retention configured for health report kind '{kind}'")
+            buffer = self._buffers.get(kind)
+            if buffer is None:
+                return []
+            self._prune(kind, buffer)
+            return list(buffer)
 
     def report(self, kind: str, attributes: Mapping[str, Any]) -> None:
         """Record an observation of ``kind``.

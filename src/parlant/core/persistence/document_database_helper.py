@@ -45,11 +45,13 @@ class DocumentStoreMigrationHelper:
         store: VersionedStore,
         database: DocumentDatabase,
         allow_migration: bool,
+        collections_prefix: str | None = None,
     ):
         self._store_name = store.__class__.__name__
         self._runtime_store_version = store.VERSION.to_string()
         self._database = database
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
     async def __aenter__(self) -> Self:
         migration_required = await self._is_migration_required(
@@ -79,7 +81,7 @@ class DocumentStoreMigrationHelper:
         runtime_store_version: Version.String,
     ) -> bool:
         metadata_collection = await database.get_or_create_collection(
-            "metadata",
+            f"{self._collections_prefix}_metadata" if self._collections_prefix else "metadata",
             MetadataDocument,
             load_metadata_document,
         )
@@ -107,7 +109,7 @@ class DocumentStoreMigrationHelper:
         runtime_store_version: Version.String,
     ) -> None:
         metadata_collection = await database.get_or_create_collection(
-            "metadata",
+            f"{self._collections_prefix}_metadata" if self._collections_prefix else "metadata",
             MetadataDocument,
             load_metadata_document,
         )

@@ -29,12 +29,12 @@ from qdrant_client.http.exceptions import ResponseHandlingException  # type: ign
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
-from parlant.core.loggers import Logger
+from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.nlp.embedding import (
     Embedder,
-    EmbedderFactory,
     EmbeddingCacheProvider,
     NullEmbedder,
+    embedder_id_hash,
 )
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
@@ -44,6 +44,7 @@ from parlant.core.persistence.vector_database import (
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
+    VectorCollectionIndex,
     VectorDatabase,
     TDocument,
     identity_loader,
@@ -234,16 +235,13 @@ class QdrantDatabase(VectorDatabase):
         path: Optional[Path] = None,
         url: Optional[str] = None,
         api_key: Optional[str] = None,
-        embedder_factory: Optional[EmbedderFactory] = None,
         embedding_cache_provider: Optional[EmbeddingCacheProvider] = None,
     ) -> None:
         self._path = path
         self._url = url
         self._api_key = api_key
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "QdrantDatabase")
         self._tracer = tracer
-        self._embedder_factory = embedder_factory
-
         self.qdrant_client: Optional[QdrantClient] = None
         self._collections: dict[str, QdrantCollection[BaseDocument]] = {}
 
@@ -320,9 +318,9 @@ class QdrantDatabase(VectorDatabase):
     def format_collection_name(
         self,
         name: str,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
     ) -> str:
-        return f"{name}_{embedder_type.__name__}"
+        return f"{name}_{embedder_id_hash(embedder)}"
 
     def _ensure_payload_index(self, collection_name: str, field_name: str) -> None:
         """Ensure a payload index exists for a field."""
@@ -355,13 +353,11 @@ class QdrantDatabase(VectorDatabase):
         self,
         embedded_collection_name: str,
         unembedded_collection_name: str,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> str:
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
-        assert self._embedder_factory is not None, "Embedder factory must be provided"
         failed_migrations: list[BaseDocument] = []
-        embedder = self._embedder_factory.create_embedder(embedder_type)
 
         # Get all points from unembedded collection
         unembedded_points = self.qdrant_client.scroll(
@@ -410,7 +406,7 @@ class QdrantDatabase(VectorDatabase):
                 failed_migrations_collection = await self.get_or_create_collection(
                     "failed_migrations",
                     BaseDocument,
-                    NullEmbedder,
+                    NullEmbedder(),
                     identity_loader,
                 )
 
@@ -559,20 +555,18 @@ class QdrantDatabase(VectorDatabase):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
     ) -> QdrantCollection[TDocument]:
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
-        assert self._embedder_factory is not None, "Embedder factory must be provided"
         assert self._embedding_cache_provider is not None, (
             "Embedding cache provider must be provided"
         )
         if name in self._collections:
             raise ValueError(f'Collection "{name}" already exists.')
 
-        embedder = self._embedder_factory.create_embedder(embedder_type)
         vector_size = embedder.dimensions
 
-        embedded_collection_name = self.format_collection_name(name, embedder_type)
+        embedded_collection_name = self.format_collection_name(name, embedder)
         unembedded_collection_name = f"{name}_unembedded"
 
         # Create embedded collection
@@ -619,11 +613,10 @@ class QdrantDatabase(VectorDatabase):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> QdrantCollection[TDocument]:
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
-        assert self._embedder_factory is not None, "Embedder factory must be provided"
         assert self._embedding_cache_provider is not None, (
             "Embedding cache provider must be provided"
         )
@@ -632,7 +625,7 @@ class QdrantDatabase(VectorDatabase):
 
         # Find unembedded collection first which acts as the SSOT.
         unembedded_collection_name = f"{name}_unembedded"
-        embedded_collection_name = self.format_collection_name(name, embedder_type)
+        embedded_collection_name = self.format_collection_name(name, embedder)
 
         # Check if collections exist
         collections = self.qdrant_client.get_collections().collections
@@ -641,7 +634,6 @@ class QdrantDatabase(VectorDatabase):
         if unembedded_collection_name in collection_names:
             if embedded_collection_name not in collection_names:
                 # Create embedded collection if it doesn't exist
-                embedder = self._embedder_factory.create_embedder(embedder_type)
                 self.qdrant_client.create_collection(
                     collection_name=embedded_collection_name,
                     vectors_config=models.VectorParams(
@@ -655,7 +647,7 @@ class QdrantDatabase(VectorDatabase):
             await self._index_collection(
                 embedded_collection_name=embedded_collection_name,
                 unembedded_collection_name=unembedded_collection_name,
-                embedder=self._embedder_factory.create_embedder(embedder_type),
+                embedder=embedder,
             )
 
             collection = QdrantCollection(
@@ -665,13 +657,13 @@ class QdrantDatabase(VectorDatabase):
                 embedded_collection_name=await self._load_collection_documents(
                     embedded_collection_name=embedded_collection_name,
                     unembedded_collection_name=unembedded_collection_name,
-                    embedder_type=embedder_type,
+                    embedder=embedder,
                     document_loader=document_loader,
                 ),
                 unembedded_collection_name=unembedded_collection_name,
                 name=name,
                 schema=schema,
-                embedder=self._embedder_factory.create_embedder(embedder_type),
+                embedder=embedder,
                 embedding_cache_provider=self._embedding_cache_provider,
                 version=1,
             )
@@ -686,21 +678,19 @@ class QdrantDatabase(VectorDatabase):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> QdrantCollection[TDocument]:
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
-        assert self._embedder_factory is not None, "Embedder factory must be provided"
         assert self._embedding_cache_provider is not None, (
             "Embedding cache provider must be provided"
         )
         if collection := self._collections.get(name):
             return cast(QdrantCollection[TDocument], collection)
 
-        embedder = self._embedder_factory.create_embedder(embedder_type)
         vector_size = embedder.dimensions
 
-        embedded_collection_name = self.format_collection_name(name, embedder_type)
+        embedded_collection_name = self.format_collection_name(name, embedder)
         unembedded_collection_name = f"{name}_unembedded"
 
         # Get or create collections
@@ -735,7 +725,7 @@ class QdrantDatabase(VectorDatabase):
             embedded_collection_name=await self._load_collection_documents(
                 embedded_collection_name=embedded_collection_name,
                 unembedded_collection_name=unembedded_collection_name,
-                embedder_type=embedder_type,
+                embedder=embedder,
                 document_loader=document_loader,
             ),
             unembedded_collection_name=unembedded_collection_name,
@@ -760,7 +750,7 @@ class QdrantDatabase(VectorDatabase):
             raise ValueError(f'Collection "{name}" not found.')
 
         embedded_collection_name = self.format_collection_name(
-            name, type(self._collections[name]._embedder)
+            name, self._collections[name]._embedder
         )
         unembedded_collection_name = f"{name}_unembedded"
 
@@ -907,7 +897,7 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     ) -> None:
         super().__init__(tracer)
 
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "QdrantCollection")
         self._tracer = tracer
         self._name = name
         self._schema = schema
@@ -922,6 +912,13 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
         self._database: Optional[QdrantDatabase] = (
             None  # Reference to parent database for version methods
         )
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        pass
 
     @override
     async def find(
@@ -1024,14 +1021,14 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
         ensure_is_total(document, self._schema)
 
         if e := await self._embedding_cache_provider().get(
-            embedder_type=type(self._embedder),
+            embedder=self._embedder,
             texts=[document["content"]],
         ):
             embeddings = list(e.vectors)
         else:
             embeddings = list((await self._embedder.embed([document["content"]])).vectors)
             await self._embedding_cache_provider().set(
-                embedder_type=type(self._embedder),
+                embedder=self._embedder,
                 texts=[document["content"]],
                 vectors=embeddings,
             )
@@ -1127,14 +1124,14 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
                     content = str(doc["content"])
 
                 if e := await self._embedding_cache_provider().get(
-                    embedder_type=type(self._embedder),
+                    embedder=self._embedder,
                     texts=[content],
                 ):
                     embeddings = list(e.vectors)
                 else:
                     embeddings = list((await self._embedder.embed([content])).vectors)
                     await self._embedding_cache_provider().set(
-                        embedder_type=type(self._embedder),
+                        embedder=self._embedder,
                         texts=[content],
                         vectors=embeddings,
                     )
@@ -1200,14 +1197,14 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
                 ensure_is_total(params, self._schema)
 
                 if e := await self._embedding_cache_provider().get(
-                    embedder_type=type(self._embedder),
+                    embedder=self._embedder,
                     texts=[params["content"]],
                 ):
                     embeddings = list(e.vectors)
                 else:
                     embeddings = list((await self._embedder.embed([params["content"]])).vectors)
                     await self._embedding_cache_provider().set(
-                        embedder_type=type(self._embedder),
+                        embedder=self._embedder,
                         texts=[params["content"]],
                         vectors=embeddings,
                     )

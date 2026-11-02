@@ -4,7 +4,9 @@ import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/chat/',
+  // Relative so the built page works wherever it is mounted, including behind a
+  // path prefix such as host.com/{projectId}/chat.
+  base: './',
   test: {
     globals: true,
     environment: 'jsdom',

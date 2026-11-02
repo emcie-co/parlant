@@ -12,18 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import os
+from contextlib import asynccontextmanager
 import time
-from typing import Awaitable, Callable, Mapping
+from typing import AsyncIterator, Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 import httpx
 import pytest
-from typing_extensions import override
+from unittest.mock import patch
 
 import parlant.sdk as p
-from parlant.core.services.indexing.common import ProgressReport
-from parlant.core.services.indexing.indexer import IndexRequest, Indexer
 
+from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
+from parlant.core.health import ENGINE_TURN_KIND, HealthReporter
 from tests.sdk.utils import Context, SDKTest
+
+
+def test_that_server_defaults_to_openrouter() -> None:
+    server = p.Server(hot_reload=False)
+
+    assert server._models == {"*": "openrouter"}
 
 
 class Test_that_server_exposes_api_property_with_fastapi_app(SDKTest):
@@ -94,117 +103,141 @@ class Test_that_configure_api_can_add_middleware(SDKTest):
             assert self.middleware_was_called
 
 
-class Test_that_get_tag_returns_tag_by_id(SDKTest):
+class Test_that_get_group_returns_group_by_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.tag = await server.create_tag("test-tag")
+        self.group = await server.create_group("test-group")
 
     async def run(self, ctx: Context) -> None:
-        retrieved = await ctx.server.get_tag(id=self.tag.id)
-        assert retrieved.id == self.tag.id
-        assert retrieved.name == self.tag.name
+        retrieved = await ctx.server.get_group(id=self.group.id)
+        assert retrieved.id == self.group.id
+        assert retrieved.name == self.group.name
 
 
-class Test_that_get_tag_returns_tag_by_name(SDKTest):
+class Test_that_get_group_returns_group_by_name(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.tag = await server.create_tag("test-tag")
+        self.group = await server.create_group("test-group")
 
     async def run(self, ctx: Context) -> None:
-        retrieved = await ctx.server.get_tag(name="test-tag")
-        assert retrieved.id == self.tag.id
-        assert retrieved.name == self.tag.name
+        retrieved = await ctx.server.get_group(name="test-group")
+        assert retrieved.id == self.group.id
+        assert retrieved.name == self.group.name
 
 
-class Test_that_get_tag_raises_when_both_id_and_name_are_provided(SDKTest):
+class Test_that_get_group_raises_when_both_id_and_name_are_provided(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.tag = await server.create_tag("test-tag")
+        self.group = await server.create_group("test-group")
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
-            await ctx.server.get_tag(id=self.tag.id, name="test-tag")
+            await ctx.server.get_group(id=self.group.id, name="test-group")
 
 
-class Test_that_get_tag_raises_when_name_does_not_exist(SDKTest):
+class Test_that_get_group_raises_when_name_does_not_exist(SDKTest):
     async def setup(self, server: p.Server) -> None:
         pass
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError, match="not found"):
-            await ctx.server.get_tag(name="nonexistent")
+            await ctx.server.get_group(name="nonexistent")
 
 
-class Test_that_get_tag_raises_when_neither_id_nor_name_is_provided(SDKTest):
+class Test_that_get_group_raises_when_neither_id_nor_name_is_provided(SDKTest):
     async def setup(self, server: p.Server) -> None:
         pass
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
-            await ctx.server.get_tag()
+            await ctx.server.get_group()
 
 
-class Test_that_indexer_runs_during_server_startup_with_full_payload(SDKTest):
-    captured_payload: Mapping[str, Mapping[str, IndexRequest]] | None = None
-    call_count: int = 0
+class Test_that_setup_blocking_does_not_poison_event_loop_health(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        # Establish a pending monitor tick before simulating synchronous setup work.
+        await asyncio.sleep(0.15)
+        time.sleep(0.7)
+        await asyncio.sleep(0.15)
 
+    async def run(self, ctx: Context) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{ctx.base_url}/healthz")
+
+        response.raise_for_status()
+        event_loop = response.json()["checks"]["event_loop"]
+        assert event_loop["status"] == "healthy", event_loop
+        assert event_loop["latency_ms"] < 200, event_loop
+
+
+class Test_that_lifespan_startup_blocking_does_not_poison_event_loop_health(SDKTest):
+    async def configure_api(self, app: FastAPI) -> None:
+        original_lifespan = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+            async with original_lifespan(application):
+                await asyncio.sleep(0.15)
+                time.sleep(0.7)
+                await asyncio.sleep(0.15)
+                yield
+
+        app.router.lifespan_context = lifespan
+
+    async def setup(self, server: p.Server) -> None:
+        pass
+
+    async def run(self, ctx: Context) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{ctx.base_url}/healthz")
+
+        response.raise_for_status()
+        event_loop = response.json()["checks"]["event_loop"]
+        assert event_loop["status"] == "healthy", event_loop
+        assert event_loop["latency_ms"] < 200, event_loop
+
+
+class Test_that_runtime_blocking_is_detected_after_clean_startup(SDKTest):
     async def configure_container(self, container: p.Container) -> p.Container:
-        outer = self
-
-        class _RecordingIndexer(Indexer):
-            @override
-            async def index(
-                self,
-                payload: Mapping[str, Mapping[str, IndexRequest]],
-                progress_report: ProgressReport,
-            ) -> None:
-                outer.captured_payload = payload
-                outer.call_count += 1
-                total = sum(len(bucket) for bucket in payload.values())
-                if total > 0:
-                    await progress_report.increment(total)
-
-        container[Indexer] = _RecordingIndexer
+        # One 0.7s stall is far under 1% of five minutes; a zero share makes
+        # it count, so this checks the monitor is measuring, not the share.
+        container[p.HealthThresholds] = p.HealthThresholds(
+            event_loop=p.EventLoopHealthThresholds(lag_share=0.0),
+        )
         return container
 
     async def setup(self, server: p.Server) -> None:
-        agent = await server.create_agent(
-            name="Indexed Agent",
-            description="An agent for the indexer test",
-        )
-        await agent.create_guideline(
-            condition="customer says hi",
-            action="reply with a greeting",
-        )
+        pass
 
     async def run(self, ctx: Context) -> None:
-        assert self.call_count == 1
-        assert self.captured_payload is not None
+        async with httpx.AsyncClient() as client:
+            before = await client.get(f"{ctx.base_url}/healthz")
+            before.raise_for_status()
+            assert before.json()["checks"]["event_loop"]["status"] == "healthy"
 
-        payload = self.captured_payload
-        assert {
-            "agents",
-            "guidelines",
-            "journeys",
-            "relationships",
-            "glossary",
-            "context_variables",
-            "canned_responses",
-            "tools",
-        }.issubset(payload.keys())
-        assert len(payload["agents"]) == 1
-        assert len(payload["guidelines"]) >= 1
+            await asyncio.sleep(0.15)
+            time.sleep(0.7)
+            await asyncio.sleep(0.15)
+
+            after = await client.get(f"{ctx.base_url}/healthz")
+
+        after.raise_for_status()
+        event_loop = after.json()["checks"]["event_loop"]
+        assert event_loop["status"] == "unhealthy", event_loop
+        assert event_loop["latency_ms"] >= 500, event_loop
 
 
 class Test_that_healthz_detects_event_loop_blocking_from_synchronous_tool(SDKTest):
     async def setup(self, server: p.Server) -> None:
 
         self.agent = await server.create_agent(
+            id="server-agent-2",
             name="Blocking Tool Agent",
-            description="Agent for testing event loop health detection",
+            instructions="Agent for testing event loop health detection",
         )
 
         @p.tool
         async def slow_lookup(context: p.ToolContext, account_id: str) -> p.ToolResult:
-            # Simulate a badly-written tool that blocks the event loop
-            time.sleep(3)
+            # Simulate a badly-written tool that blocks the event loop: 3.5s
+            # is over 1% of the five-minute window, with room to spare.
+            time.sleep(3.5)
             return p.ToolResult(data={"account_id": account_id, "status": "found"})
 
         await self.agent.create_observation(
@@ -229,7 +262,7 @@ class Test_that_healthz_detects_event_loop_blocking_from_synchronous_tool(SDKTes
 
             data = health_response.json()
             assert data["status"] == "unhealthy", (
-                f"Expected unhealthy after 3s blocking tool, got {data}"
+                f"Expected unhealthy after 3.5s blocking tool, got {data}"
             )
             assert data["checks"]["event_loop"]["latency_ms"] >= 500
 
@@ -237,8 +270,9 @@ class Test_that_healthz_detects_event_loop_blocking_from_synchronous_tool(SDKTes
 class Test_that_healthz_reports_healthy_after_well_behaved_tool(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="server-agent-3",
             name="Good Tool Agent",
-            description="Agent for testing event loop stays healthy with async tools",
+            instructions="Agent for testing event loop stays healthy with async tools",
         )
 
         @p.tool
@@ -287,8 +321,9 @@ class Test_that_healthz_nlp_section_starts_empty_before_any_message(SDKTest):
 class Test_that_healthz_reports_nlp_section_after_message_exchange(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="server-agent-4",
             name="NLP Health Agent",
-            description="Agent for testing NLP health reporting",
+            instructions="Agent for testing NLP health reporting",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -312,17 +347,22 @@ class Test_that_healthz_reports_nlp_section_after_message_exchange(SDKTest):
             assert nlp_section["status"] == "healthy", (
                 f"Expected nlp.status healthy after a successful exchange, got {nlp_section}"
             )
-            assert isinstance(nlp_section.get("schemas"), dict)
-            assert len(nlp_section["schemas"]) > 0, (
-                f"Expected at least one schema in nlp.schemas, got {nlp_section}"
+            assert isinstance(nlp_section.get("routes"), dict)
+            assert "react" in nlp_section["routes"], (
+                f"Expected the react route in nlp.routes after a message exchange, got {nlp_section}"
+            )
+            react_route = nlp_section["routes"]["react"]
+            assert self.agent.id in react_route["agents"], (
+                f"Expected the responding agent in react.agents, got {react_route}"
             )
 
 
 class Test_that_healthz_reports_token_and_request_rates_after_message_exchange(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="server-agent-5",
             name="Token Rate Agent",
-            description="Agent for testing token/request rate reporting",
+            instructions="Agent for testing token/request rate reporting",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -356,8 +396,9 @@ class Test_that_healthz_reports_token_and_request_rates_after_message_exchange(S
 class Test_that_healthz_reports_engine_section_after_message_exchange(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="server-agent-6",
             name="Engine Health Agent",
-            description="Agent for testing engine health reporting",
+            instructions="Agent for testing engine health reporting",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -393,3 +434,113 @@ class Test_that_healthz_reports_engine_section_after_message_exchange(SDKTest):
                 assert engine["turns_per_minute"][window] > 0, (
                     f"Expected positive turns_per_minute[{window}], got {engine['turns_per_minute']}"
                 )
+
+
+class Test_that_healthz_lists_recent_diagnostic_report_links(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="server-agent-healthz-reports",
+            name="Report Links Agent",
+            instructions="Agent for testing diagnostic report links in healthz",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Hello there",
+            recipient=self.agent,
+        )
+        assert len(response) > 0
+
+        async with httpx.AsyncClient() as client:
+            health_response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
+            assert health_response.status_code == 200
+
+            data = health_response.json()
+            reports = data.get("diagnostic_reports")
+            assert isinstance(reports, list), (
+                f"Expected diagnostic_reports in /healthz after a turn, got {data.keys()}"
+            )
+            assert len(reports) >= 1
+            entry = reports[0]
+            assert entry["report_uri"].startswith("/debug/reports/")
+            assert entry["trace_id"]
+            assert entry["outcome"] in ("success", "error")
+
+
+class Test_that_health_thresholds_bound_in_configure_container_change_the_healthz_status(SDKTest):
+    """Binding ``HealthThresholds`` is the one way to tune ``/healthz``. A turn
+    that is healthy under the defaults must read as degraded under a tighter
+    engine threshold bound through ``configure_container``."""
+
+    async def configure_container(self, container: p.Container) -> p.Container:
+        container[p.HealthThresholds] = p.HealthThresholds(
+            engine=p.EngineHealthThresholds(degraded_p95_ms=5.0, unhealthy_p95_ms=1_000.0),
+        )
+        return container
+
+    async def run(self, ctx: Context) -> None:
+        reporter = ctx.container[HealthReporter]
+        reporter.report(
+            ENGINE_TURN_KIND,
+            {"success": True, "latency_ms": 10.0, "error_class": None},
+        )
+
+        async with httpx.AsyncClient() as client:
+            health_response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
+            assert health_response.status_code == 200
+
+            data = health_response.json()
+            assert data["status"] == "degraded", data
+            assert data["checks"]["engine"]["reasons"][0]["threshold"] == 5.0
+
+
+class Test_that_event_loop_thresholds_bound_in_configure_container_change_the_healthz_status(
+    SDKTest
+):
+    """The event loop monitor reads its lag thresholds from the same binding."""
+
+    async def configure_container(self, container: p.Container) -> p.Container:
+        container[p.HealthThresholds] = p.HealthThresholds(
+            # The 0.15s stall below is 0.05% of the five-minute window.
+            event_loop=p.EventLoopHealthThresholds(
+                degraded_lag_ms=10.0,
+                unhealthy_lag_ms=50.0,
+                lag_share=0.0001,
+            ),
+        )
+        return container
+
+    async def run(self, ctx: Context) -> None:
+        # The server shares this event loop, so stalling it here is what a
+        # blocking tool would do inside the server.
+        time.sleep(0.15)
+        await asyncio.sleep(0.3)
+
+        async with httpx.AsyncClient() as client:
+            health_response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
+            assert health_response.status_code == 200
+
+            data = health_response.json()
+            assert data["checks"]["event_loop"]["status"] == "unhealthy", data
+            assert data["status"] == "unhealthy"
+
+
+class Test_that_a_test_environment_server_stays_local_when_a_dashboard_token_is_set(SDKTest):
+    """A connected checkout's .env holds the real project's token, and the
+    generated config loads .env. A server running as test must not register
+    with that project or take on its authorization policy."""
+
+    async def test_run(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"PARLANT_ENV": "test", "PARLANT_DASHBOARD_PROJECT_TOKEN": "a-real-projects-token"},
+        ):
+            await super().test_run()
+
+    async def run(self, ctx: Context) -> None:
+        assert isinstance(ctx.container[AuthorizationPolicy], DevelopmentAuthorizationPolicy)
+
+        async with httpx.AsyncClient(base_url=ctx.base_url) as http:
+            response = await http.get("/agents")
+
+        assert response.status_code == 200

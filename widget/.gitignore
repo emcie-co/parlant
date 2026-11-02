@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.tsbuildinfo
+
+# Runtime data written by the sample agents when run from this directory
+# (embedding cache, session store, logs, diagnostic reports).
+parlant-data/

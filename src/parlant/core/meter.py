@@ -84,8 +84,9 @@ class LocalHistogram(DurationHistogram):
         value: float,
         attributes: Mapping[str, str] | None = None,
     ) -> None:
-        attrs = f" attributes={attributes}" if attributes else ""
-        self._logger.trace(f"Histogram '{self._name}' recorded duration={value:.6f}{attrs}")
+        pass  # No-op for now, but we could log or store the recorded value if desired.
+        # attrs = f" attributes={attributes}" if attributes else ""
+        # self._logger.trace(f"Histogram '{self._name}' recorded duration={value:.6f}{attrs}")
 
     @override
     @asynccontextmanager

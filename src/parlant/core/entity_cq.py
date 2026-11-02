@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
 from itertools import chain
-from typing import Mapping, Optional, Sequence, cast
+from typing import Awaitable, Callable, Optional, Sequence, TypeVar, cast
 
-from cachetools import TTLCache
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
-from parlant.core.capabilities import Capability, CapabilityStore
 from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
@@ -28,27 +27,19 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
-from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
-from parlant.core.journey_guideline_projection import (
-    JourneyGuidelineProjection,
-    extract_node_id_from_journey_node_guideline_id,
+from parlant.core.rules import (
+    Rule,
+    RuleStore,
 )
-from parlant.core.guidelines import (
-    Guideline,
-    GuidelineId,
-    GuidelineStore,
-)
-from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.relationships import (
-    RelationshipKind,
-    RelationshipEntityKind,
     RelationshipStore,
 )
-from parlant.core.guideline_tool_associations import (
-    GuidelineToolAssociation,
-    GuidelineToolAssociationStore,
+from parlant.core.rule_tool_associations import (
+    RuleToolAssociation,
+    RuleToolAssociationStore,
 )
 from parlant.core.glossary import GlossaryStore, Term
+from parlant.core.loggers import Logger
 from parlant.core.app_modules.sessions import SessionUpdateParamsModel
 from parlant.core.sessions import (
     SessionId,
@@ -57,44 +48,178 @@ from parlant.core.sessions import (
     Event,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import Tag
-from parlant.core.tools import ToolId, ToolService
-from parlant.core.canned_responses import CannedResponse, CannedResponseStore
+from parlant.core.groups import GroupIds, GroupId
+from parlant.core.tools import ToolService
+from parlant.core.canned_responses import (
+    CannedResponse,
+    CannedResponseRelevanceResult,
+    CannedResponseStore,
+)
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
+
+
+_TEntity = TypeVar("_TEntity")
+
+
+@dataclass(frozen=True)
+class TurnCannedResponses:
+    """The canned responses in scope for a turn, split by precedence tier:
+    ``rule_scoped`` are attached to rules that matched this turn; ``agent_wide``
+    are the agent's own responses that are not tied to any matched rule."""
+
+    rule_scoped: Sequence[CannedResponse]
+    agent_wide: Sequence[CannedResponse]
+
+
+def _take_unranked(
+    turn: TurnCannedResponses,
+    tool_provided: Sequence[CannedResponse],
+    max_count: int,
+    logger: Logger,
+) -> Sequence[CannedResponseRelevanceResult]:
+    """Every eligible response, in precedence order, capped at ``max_count``.
+
+    Nothing is ranked, so the score carries no relevance signal: tool-provided
+    responses keep their 1.0, and the rest are marked 0.0 to say "unscored"."""
+    eligible = [
+        *((response, 1.0) for response in tool_provided),
+        *((response, 0.0) for response in turn.rule_scoped),
+        *((response, 0.0) for response in turn.agent_wide),
+    ]
+
+    if (left_out := len(eligible) - max_count) > 0:
+        logger.warning(
+            f"Canned responses: {len(eligible)} are in scope for this turn but "
+            f"only {max_count} fit the unranked cap, so {left_out} were left "
+            "out. Raise Responder.max_unranked_canned_responses, or scope some "
+            "of these responses to rules so they only compete when relevant."
+        )
+
+    return [
+        CannedResponseRelevanceResult(canned_response=response, score=score)
+        for response, score in eligible[:max_count]
+    ]
+
+
+async def select_turn_canned_responses(
+    store: CannedResponseStore,
+    query: str,
+    turn: TurnCannedResponses,
+    max_count: int,
+    logger: Logger,
+    tool_provided: Sequence[CannedResponse] = (),
+    rank: bool = True,
+) -> Sequence[CannedResponseRelevanceResult]:
+    """Pick up to ``max_count`` canned responses for a turn, in precedence
+    order: ``tool_provided`` responses first (literal texts a tool or
+    retriever returned for THIS turn — already maximally relevant, so they
+    skip relevance ranking and fill the budget outright), then rule-scoped
+    responses (ranked by relevance to ``query``), then agent-wide responses
+    for whatever slots remain.
+
+    With ``rank=False`` nothing is ranked and ``query`` goes unused: every
+    eligible response is taken in the same precedence order, up to
+    ``max_count``. That path issues no store query and embeds nothing, which
+    is what low-effort turns want."""
+    if max_count <= 0:
+        return []
+
+    if not rank:
+        return _take_unranked(turn, tool_provided, max_count, logger)
+
+    tool_hits: list[CannedResponseRelevanceResult] = [
+        CannedResponseRelevanceResult(canned_response=response, score=1.0)
+        for response in tool_provided[:max_count]
+    ]
+
+    remaining_for_rules = max_count - len(tool_hits)
+
+    rule_hits: Sequence[CannedResponseRelevanceResult] = (
+        await store.filter_relevant_canned_responses(
+            query=query,
+            available_canned_responses=turn.rule_scoped,
+            max_count=remaining_for_rules,
+        )
+        if remaining_for_rules > 0 and turn.rule_scoped
+        else []
+    )
+
+    remaining = max_count - len(tool_hits) - len(rule_hits)
+
+    agent_hits: Sequence[CannedResponseRelevanceResult] = (
+        await store.filter_relevant_canned_responses(
+            query=query,
+            available_canned_responses=turn.agent_wide,
+            max_count=remaining,
+        )
+        if remaining > 0 and turn.agent_wide
+        else []
+    )
+
+    return [*tool_hits, *rule_hits, *agent_hits]
 
 
 class EntityQueries:
     def __init__(
         self,
-        agent_store: AgentStore,
-        session_store: SessionStore,
-        guideline_store: GuidelineStore,
-        customer_store: CustomerStore,
-        context_variable_store: ContextVariableStore,
-        relationship_store: RelationshipStore,
-        guideline_tool_association_store: GuidelineToolAssociationStore,
-        glossary_store: GlossaryStore,
-        journey_store: JourneyStore,
-        service_registry: ServiceRegistry,
-        canned_response_store: CannedResponseStore,
-        capability_store: CapabilityStore,
-        journey_guideline_projection: JourneyGuidelineProjection,
+        store_provider: StoreProvider,
     ) -> None:
-        self._agent_store = agent_store
-        self._session_store = session_store
-        self._guideline_store = guideline_store
-        self._customer_store = customer_store
-        self._context_variable_store = context_variable_store
-        self._relationship_store = relationship_store
-        self._guideline_tool_association_store = guideline_tool_association_store
-        self._glossary_store = glossary_store
-        self._journey_store = journey_store
-        self._capability_store = capability_store
-        self._service_registry = service_registry
-        self._canned_response_store = canned_response_store
-        self._journey_guideline_projection = journey_guideline_projection
+        self._store_provider = store_provider
 
-        self.guideline_and_journeys_it_depends_on = TTLCache[GuidelineId, list[Journey]](
-            maxsize=1024, ttl=120
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider.get_store(SessionStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def session_store(self) -> SessionStore:
+        """Return the authoritative session store used by engine queries."""
+
+        return self._session_store
+
+    @property
+    def _rule_store(self) -> RuleStore:
+        return self._store_provider.get_store(RuleStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def _customer_store(self) -> CustomerStore:
+        return self._store_provider.get_store(CustomerStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def _context_variable_store(self) -> ContextVariableStore:
+        return self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="engine")
+        )
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
+
+    @property
+    def _rule_tool_association_store(self) -> RuleToolAssociationStore:
+        return self._store_provider.get_store(
+            RuleToolAssociationStore, StoreProviderHints(call_site="engine")
+        )
+
+    @property
+    def _glossary_store(self) -> GlossaryStore:
+        return self._store_provider.get_store(GlossaryStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
+
+    @property
+    def _canned_response_store(self) -> CannedResponseStore:
+        return self._store_provider.get_store(
+            CannedResponseStore, StoreProviderHints(call_site="engine")
         )
 
     async def read_agent(
@@ -115,116 +240,67 @@ class EntityQueries:
     ) -> Customer:
         return await self._customer_store.read_customer(customer_id)
 
-    async def find_guidelines_for_context(
+    async def _list_for_agent_groups(
+        self,
+        groups: Sequence[GroupId],
+        list_by_groups: Callable[[Sequence[GroupId]], Awaitable[Sequence[_TEntity]]],
+    ) -> Sequence[_TEntity]:
+        """The group-scoped read, skipped when the agent belongs to no group.
+
+        An empty group list means *global* to every store, and each caller has
+        already read the global entities alongside this one — so asking would
+        only repeat that query and union the same rows back in.
+        """
+        if not groups:
+            return []
+
+        return await list_by_groups(list(groups))
+
+    async def find_rules_for_context(
         self,
         agent_id: AgentId,
-        journeys: Sequence[Journey],
-    ) -> Sequence[Guideline]:
-        agent = await self._agent_store.read_agent(agent_id)
-        
-        async def _empty_list() -> list[Guideline]: return []
-        
-        tasks = [
-            self._guideline_store.list_guidelines(tags=[Tag.for_agent_id(agent_id).id]),
-            self._guideline_store.list_guidelines(tags=[]),
-            self._guideline_store.list_guidelines(tags=list(agent.tags)) if agent.tags else _empty_list(),
-            self._guideline_store.list_guidelines(tags=[Tag.for_journey_id(journey.id).id for journey in journeys]) if journeys else _empty_list(),
-        ]
-        
-        projection_tasks = [
-            self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
-            for journey in journeys
-            if journey.triggers
-        ]
-        
-        results = await async_utils.safe_gather(*tasks, *projection_tasks)
-        
-        agent_guidelines = results[0]
-        global_guidelines = results[1]
-        guidelines_for_agent_tags = results[2]
-        guidelines_for_journeys = results[3]
-        projected_journey_guidelines = results[4:]
-
-        all_guidelines = set(
-            chain(
-                agent_guidelines,
-                global_guidelines,
-                guidelines_for_agent_tags,
-                guidelines_for_journeys,
-                *projected_journey_guidelines,
-            )
+    ) -> Sequence[Rule]:
+        agent_rules, global_rules, agent = await async_utils.safe_gather(
+            self._rule_store.list_rules(groups=[GroupIds.for_agent_id(agent_id)]),
+            self._rule_store.list_rules(groups=[]),
+            self._agent_store.read_agent(agent_id),
         )
 
-        return list(all_guidelines)
-
-    async def find_journey_related_guidelines(
-        self,
-        journey: Journey,
-    ) -> Sequence[GuidelineId]:
-        """Return guidelines that are dependent or derived on the specified journey."""
-        iterated_relationships = set()
-
-        guideline_ids = set()
-
-        relationships = set(
-            await self._relationship_store.list_relationships(
-                kind=RelationshipKind.DEPENDENCY,
-                indirect=False,
-                target_id=Tag.for_journey_id(journey.id).id,
-            )
+        rules_for_agent_groups = await self._list_for_agent_groups(
+            agent.groups,
+            lambda groups: self._rule_store.list_rules(groups=groups),
         )
 
-        while relationships:
-            r = relationships.pop()
-
-            if r in iterated_relationships:
-                continue
-
-            if r.source.kind == RelationshipEntityKind.GUIDELINE:
-                guideline_ids.add(cast(GuidelineId, r.source.id))
-
-            new_relationships = await self._relationship_store.list_relationships(
-                kind=RelationshipKind.DEPENDENCY,
-                indirect=False,
-                target_id=r.source.id,
-            )
-            if new_relationships:
-                relationships.update(
-                    [rel for rel in new_relationships if rel not in iterated_relationships]
-                )
-
-            iterated_relationships.add(r)
-
-        for id in guideline_ids:
-            journeys = self.guideline_and_journeys_it_depends_on.get(id, [])
-            journeys.append(journey)
-
-            self.guideline_and_journeys_it_depends_on[id] = journeys
-
-        guideline_ids.update(
-            g.id
-            for g in await self._journey_guideline_projection.project_journey_to_guidelines(
-                journey.id
-            )
-        )
-
-        return list(guideline_ids)
+        return list(set(chain(agent_rules, global_rules, rules_for_agent_groups)))
 
     async def find_context_variables_for_context(
         self,
         agent_id: AgentId,
     ) -> Sequence[ContextVariable]:
-        agent = await self._agent_store.read_agent(agent_id)
-        
-        async def _empty_list() -> list[ContextVariable]: return []
-
-        results = await async_utils.safe_gather(
-            self._context_variable_store.list_variables(tags=[Tag.for_agent_id(agent_id).id]),
-            self._context_variable_store.list_variables(tags=[]),
-            self._context_variable_store.list_variables(tags=list(agent.tags)) if agent.tags else _empty_list(),
+        (
+            agent_context_variables,
+            global_context_variables,
+            agent,
+        ) = await async_utils.safe_gather(
+            self._context_variable_store.list_variables(
+                groups=[GroupIds.for_agent_id(agent_id)],
+            ),
+            self._context_variable_store.list_variables(groups=[]),
+            self._agent_store.read_agent(agent_id),
         )
 
-        all_context_variables = set(chain(*results))
+        context_variables_for_agent_groups = await self._list_for_agent_groups(
+            agent.groups,
+            lambda groups: self._context_variable_store.list_variables(groups=groups),
+        )
+
+        all_context_variables = set(
+            chain(
+                agent_context_variables,
+                global_context_variables,
+                context_variables_for_agent_groups,
+            )
+        )
         return list(all_context_variables)
 
     async def read_context_variable_value(
@@ -240,61 +316,50 @@ class EntityQueries:
     ) -> Sequence[Event]:
         return await self._session_store.list_events(session_id)
 
-    async def find_guideline_tool_associations(
+    async def find_rule_tool_associations(
         self,
-    ) -> Sequence[GuidelineToolAssociation]:
-        return await self._guideline_tool_association_store.list_associations()
-
-    async def find_journey_node_tool_associations(
-        self,
-        node_id: JourneyNodeId,
-    ) -> Sequence[ToolId]:
-        return (await self._journey_store.read_node(node_id=node_id)).tools
-
-    async def find_capabilities_for_agent(
-        self,
-        agent_id: AgentId,
-        query: str,
-        max_count: int,
-    ) -> Sequence[Capability]:
-        agent = await self._agent_store.read_agent(agent_id)
-        
-        async def _empty_list() -> list[Capability]: return []
-
-        results = await async_utils.safe_gather(
-            self._capability_store.list_capabilities(tags=[Tag.for_agent_id(agent_id).id]),
-            self._capability_store.list_capabilities(tags=[]),
-            self._capability_store.list_capabilities(tags=list(agent.tags)) if agent.tags else _empty_list(),
-        )
-
-        all_capabilities = set(chain(*results))
-
-        result = await self._capability_store.find_relevant_capabilities(
-            query,
-            list(all_capabilities),
-            max_count=max_count,
-        )
-
-        return result
+    ) -> Sequence[RuleToolAssociation]:
+        return await self._rule_tool_association_store.list_associations()
 
     async def find_glossary_terms_for_context(
         self,
         agent_id: AgentId,
         query: str,
+        max_terms: int = 20,
     ) -> Sequence[Term]:
-        agent = await self._agent_store.read_agent(agent_id)
-        
-        async def _empty_list() -> list[Term]: return []
-
-        results = await async_utils.safe_gather(
-            self._glossary_store.list_terms(tags=[Tag.for_agent_id(agent_id).id]),
-            self._glossary_store.list_terms(tags=[]),
-            self._glossary_store.list_terms(tags=list(agent.tags)) if agent.tags else _empty_list(),
+        agent_terms, global_terms, agent = await async_utils.safe_gather(
+            self._glossary_store.list_terms(groups=[GroupIds.for_agent_id(agent_id)]),
+            self._glossary_store.list_terms(groups=[]),
+            self._agent_store.read_agent(agent_id),
         )
 
-        all_terms = set(chain(*results))
+        glossary_for_agent_groups = await self._list_for_agent_groups(
+            agent.groups,
+            lambda groups: self._glossary_store.list_terms(groups=groups),
+        )
 
-        return await self._glossary_store.find_relevant_terms(query, list(all_terms))
+        all_terms = set(chain(agent_terms, global_terms, glossary_for_agent_groups))
+
+        return await self._glossary_store.find_relevant_terms(
+            query, list(all_terms), max_terms=max_terms
+        )
+
+    async def list_glossary_terms_for_context(
+        self,
+        agent_id: AgentId,
+    ) -> Sequence[Term]:
+        agent_terms, global_terms, agent = await async_utils.safe_gather(
+            self._glossary_store.list_terms(groups=[GroupIds.for_agent_id(agent_id)]),
+            self._glossary_store.list_terms(groups=[]),
+            self._agent_store.read_agent(agent_id),
+        )
+
+        glossary_for_agent_groups = await self._list_for_agent_groups(
+            agent.groups,
+            lambda groups: self._glossary_store.list_terms(groups=groups),
+        )
+
+        return list(set(chain(agent_terms, global_terms, glossary_for_agent_groups)))
 
     async def read_tool_service(
         self,
@@ -302,201 +367,61 @@ class EntityQueries:
     ) -> ToolService:
         return await self._service_registry.read_tool_service(service_name)
 
-    async def finds_journeys_for_context(
+    def _rule_group_ids(self, rules: Sequence[Rule]) -> list[GroupId]:
+        groups: list[GroupId] = []
+
+        for g in rules:
+            groups.append(GroupIds.for_rule_id(g.id))
+
+        return groups
+
+    async def find_canned_responses_for_turn(
         self,
+        rules: Sequence[Rule],
         agent_id: AgentId,
-    ) -> Sequence[Journey]:
-        agent = await self._agent_store.read_agent(agent_id)
-        
-        async def _empty_list() -> list[Journey]: return []
+    ) -> TurnCannedResponses:
+        """Canned responses in scope for a Compass turn, split by precedence tier:
+        those attached to the turn's matched rules, and the agent's own agent-wide
+        responses that aren't already attached to a matched rule.
 
-        results = await async_utils.safe_gather(
-            self._journey_store.list_journeys(tags=[Tag.for_agent_id(agent_id).id]),
-            self._journey_store.list_journeys(tags=[]),
-            self._journey_store.list_journeys(tags=list(agent.tags)) if agent.tags else _empty_list(),
+        A response attached to a matched rule counts as rule-scoped even when it is
+        also filed under the agent (deduplicated toward the higher-precedence tier).
+        """
+        rule_groups = self._rule_group_ids(rules)
+
+        # An empty group list would match *global* (ungrouped) responses, which are
+        # not in scope here — so only query when the turn actually matched rules.
+        rule_scoped, agent_scoped = await async_utils.safe_gather(
+            self._canned_response_store.list_canned_responses(groups=rule_groups)
+            if rule_groups
+            else async_utils.completed_task(cast(Sequence[CannedResponse], [])),
+            self._canned_response_store.list_canned_responses(
+                groups=[GroupIds.for_agent_id(agent_id)]
+            ),
         )
 
-        return list(set(chain(*results)))
+        rule_scoped_ids = {c.id for c in rule_scoped}
+        agent_wide = [c for c in agent_scoped if c.id not in rule_scoped_ids]
 
-    async def sort_journeys_by_contextual_relevance(
-        self,
-        available_journeys: Sequence[Journey],
-        query: str,
-    ) -> Sequence[Journey]:
-        return await self._journey_store.find_relevant_journeys(
-            query=query,
-            available_journeys=available_journeys,
-            max_journeys=len(available_journeys),
-        )
-
-    async def find_canned_responses_for_context(
-        self,
-        agent: Agent,
-        journeys: Sequence[Journey],
-        guidelines: Sequence[Guideline],
-    ) -> Sequence[CannedResponse]:
-        agent_canreps = await self._canned_response_store.list_canned_responses(
-            tags=[Tag.for_agent_id(agent.id).id],
-        )
-        global_canreps = await self._canned_response_store.list_canned_responses(tags=[])
-
-        canreps_for_agent_tags = await self._canned_response_store.list_canned_responses(
-            tags=[tag for tag in agent.tags]
-        )
-
-        journey_canreps = await self._canned_response_store.list_canned_responses(
-            tags=[Tag.for_journey_id(journey.id).id for journey in journeys]
-        )
-
-        guideline_canreps = await self.find_canned_responses_for_guidelines(guidelines)
-
-        all_canreps = set(
-            chain(
-                agent_canreps,
-                global_canreps,
-                canreps_for_agent_tags,
-                journey_canreps,
-                guideline_canreps,
-            )
-        )
-
-        return list(all_canreps)
-
-    async def find_canned_responses_for_guidelines(
-        self,
-        guidelines: Sequence[Guideline],
-    ) -> Sequence[CannedResponse]:
-        tags = []
-
-        for g in guidelines:
-            if g.id.startswith("journey_node:"):
-                tags.append(
-                    Tag.for_journey_node_id(extract_node_id_from_journey_node_guideline_id(g.id)).id
-                )
-
-            else:
-                tags.append(Tag.for_guideline_id(g.id).id)
-
-        return await self._canned_response_store.list_canned_responses(tags=tags)
-
-    async def find_guidelines_that_need_reevaluation(
-        self,
-        available_guidelines: dict[GuidelineId, Guideline],
-        active_journeys: Sequence[Journey],
-        tool_insights: ToolInsights,
-    ) -> Sequence[Guideline]:
-        """Find guidelines that need reevaluation based on the tool calls made."""
-
-        if not tool_insights.evaluations:
-            return []
-
-        executed_tool_ids = [
-            tid for tid, e in tool_insights.evaluations if e == ToolCallEvaluation.NEEDS_TO_RUN
-        ]
-
-        active_journeys_mapping = {journey.id: journey for journey in active_journeys}
-        guidelines: list[Guideline] = []
-
-        tasks = [
-            self._relationship_store.list_relationships(
-                kind=RelationshipKind.REEVALUATION,
-                indirect=False,
-                target_id=tool_id,
-            )
-            for tool_id in set(tid for tid, _ in tool_insights.evaluations)
-        ]
-
-        reevaluation_relationships = list(
-            chain.from_iterable(await async_utils.safe_gather(*tasks))
-        )
-
-        for relationship in reevaluation_relationships:
-            matched_guidelines: list[Guideline] = []
-
-            # Check by guideline ID prefix (existing behavior for GUIDELINE and
-            # journey-node TAG sources).
-            by_id = [
-                g
-                for gid, g in available_guidelines.items()
-                if gid.startswith(relationship.source.id)
-            ]
-            matched_guidelines.extend(by_id)
-
-            # For TAG sources that didn't match by ID prefix, check by tag
-            # membership so that custom tags can trigger reevaluation for all
-            # guidelines that carry that tag.
-            if not by_id and relationship.source.kind.is_tag:
-                by_tag = [
-                    g for g in available_guidelines.values() if relationship.source.id in g.tags
-                ]
-                matched_guidelines.extend(by_tag)
-
-            for guideline_to_reevaluate in matched_guidelines:
-                the_id_of_the_tool_related_to_the_guideline_to_reevaluate = relationship.target.id
-
-                # At this point we know that one of the guidelines given to us
-                # has a reevaluation relationship with one of the relevant tools.
-
-                if guideline_to_reevaluate.metadata.get("journey_node"):
-                    # We found a journey node that has a reevaluation relationship with one of the tools.
-                    #
-                    # This journey node is by definition a tool node.
-                    #
-                    # Now, this actually means we need to reevaluate the entire journey,
-                    # so we'll need to add all of its projected guidelines to the list.
-
-                    # The only exception to this rule here is if the tool was deliberately skipped
-                    # because the context already existed in the session.
-
-                    # FIXME: Strictly speaking, we should only reevaluate the journey if the tool
-                    # was called ON BEHALF OF THE JOURNEY NODE — since it could have been called
-                    # for some other reason, e.g. due to an unrelated guideline.
-
-                    tool_should_be_considered_as_having_been_called = all(
-                        e
-                        in [
-                            ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT,
-                            ToolCallEvaluation.NEEDS_TO_RUN,
-                        ]
-                        for tool_id, e in tool_insights.evaluations
-                        if tool_id == the_id_of_the_tool_related_to_the_guideline_to_reevaluate
-                    )
-
-                    if tool_should_be_considered_as_having_been_called:
-                        journey_id = cast(
-                            JourneyId,
-                            cast(
-                                Mapping[str, JSONSerializable],
-                                guideline_to_reevaluate.metadata["journey_node"],
-                            ).get("journey_id"),
-                        )
-
-                        if journey_id in active_journeys_mapping:
-                            projected_journey_guidelines = await self._journey_guideline_projection.project_journey_to_guidelines(
-                                journey_id
-                            )
-
-                            guidelines.extend(projected_journey_guidelines)
-                else:
-                    # For normal guidelines, we only reevaluate them if their related
-                    # tool WAS JUST executed -- not if it was skipped.
-                    if (
-                        the_id_of_the_tool_related_to_the_guideline_to_reevaluate
-                        in executed_tool_ids
-                    ):
-                        guidelines.append(guideline_to_reevaluate)
-
-        return list(set(guidelines))
+        return TurnCannedResponses(rule_scoped=rule_scoped, agent_wide=agent_wide)
 
 
 class EntityCommands:
     def __init__(
         self,
-        session_store: SessionStore,
-        context_variable_store: ContextVariableStore,
+        store_provider: StoreProvider,
     ) -> None:
-        self._session_store = session_store
-        self._context_variable_store = context_variable_store
+        self._store_provider = store_provider
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider.get_store(SessionStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def _context_variable_store(self) -> ContextVariableStore:
+        return self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="engine")
+        )
 
     async def update_session(
         self,

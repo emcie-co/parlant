@@ -16,18 +16,18 @@ import os
 import uuid
 from typing import AsyncIterator, TypedDict, cast
 
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture, mark
 from typing_extensions import Required
 
-from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.vector_db.mongo import MongoVectorCollection, MongoVectorDatabase
-from parlant.core.common import Version, md5_checksum
-from parlant.core.nlp.embedding import EmbedderFactory, NullEmbeddingCache
+from parlant.core.common import Version, xxh3_checksum
+from parlant.core.nlp.embedding import Embedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.tracer import Tracer
+from tests.test_utilities import DeterministicEmbedder
 
 from pymongo import AsyncMongoClient
 
@@ -43,6 +43,10 @@ class _TestDocument(TypedDict, total=False):
     content: str
     checksum: Required[str]
     name: str
+
+
+async def _default_embedder() -> Embedder:
+    return DeterministicEmbedder()
 
 
 async def _identity_loader(doc: BaseDocument) -> _TestDocument:
@@ -75,7 +79,6 @@ async def mongo_database(
         database_name=db_name,
         logger=container[Logger],
         tracer=container[Tracer],
-        embedder_factory=EmbedderFactory(container),
         embedding_cache_provider=NullEmbeddingCache,
     ) as db:
         yield db
@@ -87,11 +90,12 @@ async def mongo_database(
 @fixture
 async def mongo_collection(
     mongo_database: MongoVectorDatabase,
+    container: Container,
 ) -> AsyncIterator[MongoVectorCollection[_TestDocument]]:
     collection = await mongo_database.get_or_create_collection(
         "test_collection",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
     yield collection
@@ -138,7 +142,7 @@ async def test_that_update_one_without_upsert_updates_existing_document(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await mongo_collection.insert_one(document)
@@ -148,7 +152,7 @@ async def test_that_update_one_without_upsert_updates_existing_document(
         version=doc_version,
         content="test content",
         name="new name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await mongo_collection.update_one(
@@ -174,7 +178,7 @@ async def test_that_update_one_without_upsert_and_no_preexisting_document_does_n
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     result = await mongo_collection.update_one(
@@ -196,7 +200,7 @@ async def test_that_update_one_with_upsert_and_no_preexisting_document_inserts_n
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await mongo_collection.update_one(
@@ -219,7 +223,7 @@ async def test_that_delete_one_removes_document(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await mongo_collection.insert_one(document)
@@ -246,7 +250,7 @@ async def test_that_find_similar_documents_returns_ranked_results(
         version=doc_version,
         content="apple",
         name="Apple",
-        checksum=md5_checksum("apple"),
+        checksum=xxh3_checksum("apple"),
     )
 
     banana_document = _TestDocument(
@@ -254,7 +258,7 @@ async def test_that_find_similar_documents_returns_ranked_results(
         version=doc_version,
         content="banana",
         name="Banana",
-        checksum=md5_checksum("banana"),
+        checksum=xxh3_checksum("banana"),
     )
 
     cherry_document = _TestDocument(
@@ -262,7 +266,7 @@ async def test_that_find_similar_documents_returns_ranked_results(
         version=doc_version,
         content="cherry",
         name="Cherry",
-        checksum=md5_checksum("cherry"),
+        checksum=xxh3_checksum("cherry"),
     )
 
     await mongo_collection.insert_one(apple_document)
@@ -274,7 +278,7 @@ async def test_that_find_similar_documents_returns_ranked_results(
             version=doc_version,
             content="date",
             name="Date",
-            checksum=md5_checksum("date"),
+            checksum=xxh3_checksum("date"),
         )
     )
     await mongo_collection.insert_one(
@@ -283,7 +287,7 @@ async def test_that_find_similar_documents_returns_ranked_results(
             version=doc_version,
             content="elderberry",
             name="Elderberry",
-            checksum=md5_checksum("elderberry"),
+            checksum=xxh3_checksum("elderberry"),
         )
     )
 
@@ -328,18 +332,19 @@ async def test_that_metadata_operations_work(
 
 async def test_that_get_or_create_collection_is_idempotent(
     mongo_database: MongoVectorDatabase,
+    container: Container,
 ) -> None:
     collection1 = await mongo_database.get_or_create_collection(
         "idempotent_test",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
     collection2 = await mongo_database.get_or_create_collection(
         "idempotent_test",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
@@ -350,11 +355,12 @@ async def test_that_get_or_create_collection_is_idempotent(
 
 async def test_that_delete_collection_removes_it(
     mongo_database: MongoVectorDatabase,
+    container: Container,
 ) -> None:
     await mongo_database.get_or_create_collection(
         "to_delete",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
@@ -373,7 +379,7 @@ async def test_that_loading_collection_preserves_documents(
     collection = await mongo_database.get_or_create_collection(
         "persist_test",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
@@ -382,7 +388,7 @@ async def test_that_loading_collection_preserves_documents(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await collection.insert_one(document)
@@ -393,13 +399,12 @@ async def test_that_loading_collection_preserves_documents(
         database_name=mongo_database._database_name,
         logger=container[Logger],
         tracer=container[Tracer],
-        embedder_factory=EmbedderFactory(container),
         embedding_cache_provider=NullEmbeddingCache,
     ) as second_db:
         fetched_collection: MongoVectorCollection[_TestDocument] = await second_db.get_collection(
             "persist_test",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 

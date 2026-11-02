@@ -10,6 +10,8 @@ import {useAtom} from 'jotai';
 import {agentAtom, dialogAtom, sessionAtom, sessionsAtom} from '@/store';
 import {twMerge} from 'tailwind-merge';
 import SessionView from '../session-view/session-view';
+import TopNav from '../top-nav/top-nav';
+import {MINIMAL_UI} from '@/config';
 import {spaceClick} from '@/utils/methods';
 
 export const SessionProvider = createContext({});
@@ -72,24 +74,38 @@ export default function Chatbot(): ReactElement {
 			<SessionProvider.Provider value={{}}>
 				<Helmet defaultTitle={`${sessionName}`} />
 				<div data-testid='chatbot' className={'main bg-green-light h-screen flex flex-col rounded-[16px]'}>
-					<div className='hidden max-mobile:block rounded-[16px]'>
-						<ChatHeader setFilterSessionVal={setFilterSessionVal} filterSessionVal={filterSessionVal} />
-					</div>
+					{MINIMAL_UI ? (
+						<div className='pt-[14px] px-[14px]'>
+							<TopNav />
+						</div>
+					) : (
+						<div className='hidden max-mobile:block rounded-[16px]'>
+							<ChatHeader setFilterSessionVal={setFilterSessionVal} filterSessionVal={filterSessionVal} />
+						</div>
+					)}
 					<div className={twMerge('flex bg-green-light flex-1 gap-[14px] w-full overflow-auto flex-row py-[14px] px-[14px]')}>
-						<SessionsSection />
+						{!MINIMAL_UI && <SessionsSection />}
 						{session?.id ? (
-							<div className='h-full w-[calc(100vw-352px-40px)] bg-white rounded-[16px] max-w-[calc(100vw-352px-40px)] max-[800px]:max-w-full max-[800px]:w-full '>
+							<div
+								className={twMerge(
+									'h-full bg-white rounded-[16px]',
+									MINIMAL_UI
+										? 'w-full max-w-full'
+										: 'w-[calc(100vw-352px-40px)] max-w-[calc(100vw-352px-40px)] max-[800px]:max-w-full max-[800px]:w-full'
+								)}>
 								<SessionView />
 							</div>
 						) : (
 							<div className='flex-1 flex flex-col gap-[27px] items-center justify-center'>
 								<img className='pointer-events-none' src='select-session.svg' fetchPriority='high' alt='' />
 								<div className='text-[#3C8C71] select-none font-light text-[18px] flex flex-col gap-[10px] items-center'>
-									{showMessage && !sessions.length ? 'Start a session to begin chatting' : 'Select or start a session to begin chatting'}
-									<div className='group'>
-										<img src='buttons/new-session.svg' alt='add session' className='shadow-main cursor-pointer group-hover:hidden w-[76px]' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
-										<img src='buttons/new-session-hover.svg' alt='add session' className='shadow-main cursor-pointer hidden group-hover:block w-[76px]' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
-									</div>
+									{MINIMAL_UI || (showMessage && !sessions.length) ? 'Start a session to begin chatting' : 'Select or start a session to begin chatting'}
+									{!MINIMAL_UI && (
+										<div className='group'>
+											<img src='buttons/new-session.svg' alt='add session' className='shadow-main cursor-pointer group-hover:hidden w-[76px]' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
+											<img src='buttons/new-session-hover.svg' alt='add session' className='shadow-main cursor-pointer hidden group-hover:block w-[76px]' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
+										</div>
+									)}
 								</div>
 							</div>
 						)}

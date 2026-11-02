@@ -14,7 +14,11 @@
 
 from enum import Enum
 
-from parlant.core.tools import split_arg_list, cast_tool_argument
+import pytest
+
+from parlant.core.services.tools.mcp_service import split_arg_list as mcp_split_arg_list
+
+from parlant.core.tools import ToolExecutionError, split_arg_list, cast_tool_argument
 
 
 class Color(Enum):
@@ -122,3 +126,34 @@ def test_that_cast_tool_argument_handles_bracketless_string_list() -> None:
 def test_that_cast_tool_argument_handles_bracketless_enum_list() -> None:
     result = cast_tool_argument(list[Color], "red, green")
     assert result == [Color.RED, Color.GREEN]
+
+
+@pytest.mark.parametrize(
+    "argument, expected",
+    [
+        ("['red,green', 'blue']", ["red,green", "blue"]),
+        ("'red,green', 'blue'", ["red,green", "blue"]),
+        ("'red,green'", ["red,green"]),
+        ('"red,green"', ["red,green"]),
+    ],
+)
+def test_that_quoted_commas_remain_one_string_list_item(argument: str, expected: list[str]) -> None:
+    assert cast_tool_argument(list[str], argument) == expected
+
+
+@pytest.mark.parametrize("argument", [[], "[]", "[ ]"])
+def test_that_empty_list_arguments_remain_empty(argument: str | list[str]) -> None:
+    assert cast_tool_argument(list[int], argument) == []
+
+
+@pytest.mark.parametrize("argument", ["1, nope", "[1, nope]", "[[1], [2]]"])
+def test_that_malformed_numeric_list_arguments_are_rejected(argument: str) -> None:
+    with pytest.raises(ToolExecutionError):
+        cast_tool_argument(list[int], argument)
+
+
+@pytest.mark.parametrize("argument", ["red, green", "'red,green', 'blue'", "['red,green', 'blue']"])
+def test_that_mcp_and_local_list_normalization_preserve_quoted_items(argument: str) -> None:
+    expected = ["red", "green"] if argument == "red, green" else ["red,green", "blue"]
+    assert split_arg_list(argument, str) == expected
+    assert mcp_split_arg_list(argument, "string") == expected

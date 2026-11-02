@@ -13,12 +13,10 @@
 # limitations under the License.
 
 import asyncio
-import os
 from typing import Any, AsyncIterator, Optional, TypedDict, cast
 from pymongo import AsyncMongoClient
-import pytest
 from typing_extensions import Self
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture, raises
 
 from parlant.core.common import Version
@@ -50,16 +48,11 @@ async def pymongo_tasks_still_running() -> None:
 
 
 @fixture
-async def test_mongo_client() -> AsyncIterator[AsyncMongoClient[Any]]:
-    test_mongo_server = os.environ.get("TEST_MONGO_SERVER")
-    if test_mongo_server:
-        client = AsyncMongoClient[Any](test_mongo_server)
-        yield client
-        await client.close()
-        await pymongo_tasks_still_running()
-    else:
-        print("could not find `TEST_MONGO_SERVER` in environment, skipping mongo tests...")
-        raise pytest.skip()
+async def test_mongo_client(mongo_server_uri: str) -> AsyncIterator[AsyncMongoClient[Any]]:
+    client = AsyncMongoClient[Any](mongo_server_uri)
+    yield client
+    await client.close()
+    await pymongo_tasks_still_running()
 
 
 class MongoTestDocument(TypedDict, total=False):
@@ -138,9 +131,16 @@ class DummyStore:
     ) -> FindResult[DummyDocumentV2]:
         if sort_direction is not None:
             return await self._collection.find(
-                {}, limit=limit, cursor=cursor, sort_direction=sort_direction
+                {},
+                limit=limit,
+                cursor=cursor,
+                sort_direction=sort_direction,
             )
-        return await self._collection.find({}, limit=limit, cursor=cursor)
+        return await self._collection.find(
+            {},
+            limit=limit,
+            cursor=cursor,
+        )
 
     async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
         from datetime import datetime, timezone
@@ -565,9 +565,15 @@ async def test_that_dummy_documents_can_be_listed_with_pagination_limit(
             result = await dummy_store.list_dummy(limit=3)
 
             assert len(result.items) == 3
-            assert result.total_count == 4  # 3 returned items + 1 extra for has_more check
+            assert result.total_count == 5
             assert result.has_more
             assert result.next_cursor is not None
+
+            second_page = await dummy_store.list_dummy(limit=3, cursor=result.next_cursor)
+
+            assert len(second_page.items) == 2
+            assert second_page.total_count == 5
+            assert second_page.has_more is False
 
 
 async def test_that_dummy_documents_are_sorted_by_creation_time_descending(
@@ -623,7 +629,7 @@ async def test_that_dummy_documents_can_be_paginated_using_cursor(
 
             # Create cursor from doc1 (the oldest document, which will be first in asc order)
             # This should return the documents that come after it in the sorted list
-            cursor = Cursor(creation_utc=doc1["creation_utc"], id=doc1["id"])
+            cursor = Cursor(sort_value=doc1["creation_utc"], id=doc1["id"])
 
             # Find documents after cursor
             result = await dummy_store.list_dummy(cursor=cursor)
@@ -1020,7 +1026,7 @@ async def test_that_cursor_pagination_uses_document_id_as_tiebreaker(
 
         assert len(first_page.items) == 1
         assert first_page.items[0]["id"] == ObjectId("doc1")
-        assert first_page.next_cursor == Cursor(creation_utc=creation_utc, id=ObjectId("doc1"))
+        assert first_page.next_cursor == Cursor(sort_value=creation_utc, id=ObjectId("doc1"))
 
         second_page = await collection.find(
             {},
@@ -1239,9 +1245,9 @@ async def test_that_session_store_creates_indexes_for_session_hot_paths(
             session_index_keys = await index_keys(session_collection)
             event_index_keys = await index_keys(event_collection)
 
-            assert (("creation_utc", 1),) in session_index_keys
             assert (("id", 1),) in session_index_keys
             assert (("creation_utc", 1), ("id", 1)) in session_index_keys
+            assert (("modified_utc", 1), ("id", 1)) in session_index_keys
             assert (
                 ("agent_id", 1),
                 ("creation_utc", 1),
@@ -1253,9 +1259,9 @@ async def test_that_session_store_creates_indexes_for_session_hot_paths(
                 ("id", 1),
             ) in session_index_keys
 
-            assert (("creation_utc", 1),) in event_index_keys
             assert (("id", 1),) in event_index_keys
             assert (("session_id", 1), ("offset", 1)) in event_index_keys
+            assert (("modified_utc", 1), ("session_id", 1)) in event_index_keys
             assert (("session_id", 1), ("deleted", 1), ("offset", 1)) in event_index_keys
 
 
@@ -1283,13 +1289,12 @@ async def test_that_customer_store_creates_indexes_for_customer_and_tag_lookups(
             customer_index_keys = await index_keys(customer_collection)
             tag_association_index_keys = await index_keys(tag_association_collection)
 
-            assert (("creation_utc", 1),) in customer_index_keys
             assert (("id", 1),) in customer_index_keys
+            assert (("modified_utc", 1), ("id", 1)) in customer_index_keys
 
-            assert (("creation_utc", 1),) in tag_association_index_keys
             assert (("customer_id", 1),) in tag_association_index_keys
-            assert (("tag_id", 1),) in tag_association_index_keys
+            assert (("group_id", 1),) in tag_association_index_keys
             assert (
                 ("customer_id", 1),
-                ("tag_id", 1),
+                ("group_id", 1),
             ) in tag_association_index_keys

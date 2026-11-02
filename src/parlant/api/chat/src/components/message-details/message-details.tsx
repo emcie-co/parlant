@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 import {EventInterface, Log} from '@/utils/interfaces';
-import React, {memo, ReactNode, useEffect, useRef, useState} from 'react';
-import {getMessageLogs, getMessageLogsWithFilters} from '@/utils/logs';
+import React, {memo, ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {getMessageLogs, filterLogs} from '@/utils/logs';
 import {twJoin, twMerge} from 'tailwind-merge';
 import clsx from 'clsx';
 import {useLocalStorage} from '@/hooks/useLocalStorage';
@@ -88,31 +88,31 @@ const MessageDetails = ({
 	}, [event?.id]);
 
 	useEffect(() => {
-		const setLogsFn = async () => {
-			const hasFilters = Object.keys(filters || {}).length;
-			if (logs && filters) {
-				if (!hasFilters && filters) setFilteredLogs(logs);
-				else {
-					const filtered = await getMessageLogsWithFilters(event?.trace_id as string, filters as {level: string; types?: string[]; content?: string[]});
-					setFilteredLogs(filtered);
-					(setFilterTabs as React.Dispatch<React.SetStateAction<Filter[]>>)((tabFilters: Filter[]) => {
-						if (!tabFilters.length && hasFilters) {
-							const filter = {id: Date.now(), def: filters, name: 'Logs'};
-							setCurrFilterTabs(filter.id);
-							return [filter];
-						}
-						const tab = tabFilters.find((t) => t.id === currFilterTabs);
-						if (!tab) return tabFilters;
-						tab.def = filters;
-						return [...tabFilters];
-					});
-				}
+		const hasFilters = Object.keys(filters || {}).length;
+		if (logs && filters) {
+			if (!hasFilters) setFilteredLogs(logs);
+			else {
+				// Filter the already-loaded logs in memory rather than re-reading
+				// IndexedDB on every change. The previous per-change DB re-read, on
+				// top of the per-log refresh below, was O(n^2) over a live turn and
+				// kept the panel blank until the log stream stopped.
+				setFilteredLogs(filterLogs(logs, filters as {level: string; types?: string[]; content?: string[]}));
+				(setFilterTabs as React.Dispatch<React.SetStateAction<Filter[]>>)((tabFilters: Filter[]) => {
+					if (!tabFilters.length && hasFilters) {
+						const filter = {id: Date.now(), def: filters, name: 'Logs'};
+						setCurrFilterTabs(filter.id);
+						return [filter];
+					}
+					const tab = tabFilters.find((t) => t.id === currFilterTabs);
+					if (!tab) return tabFilters;
+					tab.def = filters;
+					return [...tabFilters];
+				});
 			}
-			if (!filters && logs?.length) {
-				setFilters({});
-			}
-		};
-		setLogsFn();
+		}
+		if (!filters && logs?.length) {
+			setFilters({});
+		}
 	}, [logs, filters]);
 
 	useEffect(() => {
@@ -133,28 +133,54 @@ const MessageDetails = ({
 
 	useEffect(() => {
 		if (!event?.trace_id) return;
+		const traceId = event.trace_id;
+		// Coalesce refreshes: a live, in-progress turn can emit hundreds of logs in a
+		// burst, and re-reading the whole IndexedDB bucket on every single `new-log`
+		// is O(n^2) and starves the main thread — which is why the panel stayed blank
+		// for the duration of the turn and then filled in all at once. Read at most
+		// once per window instead, with a trailing read so the final state lands.
+		let timer: ReturnType<typeof setTimeout> | null = null;
 		const handler = (e: Event) => {
 			const detail = (e as CustomEvent).detail;
-			if (detail.trace_id === event.trace_id) {
-				getMessageLogs(event.trace_id).then(setLogs);
-			}
+			if (detail.trace_id !== traceId) return;
+			if (timer) return;
+			timer = setTimeout(() => {
+				timer = null;
+				getMessageLogs(traceId).then(setLogs);
+			}, 120);
 		};
 		window.addEventListener('new-log', handler);
-		return () => window.removeEventListener('new-log', handler);
+		return () => {
+			window.removeEventListener('new-log', handler);
+			if (timer) clearTimeout(timer);
+		};
 	}, [event?.trace_id]);
 
-	const deleteFilterTab = (id: number | undefined) => {
-		const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
-		if (filterIndex === -1) return;
-		const filteredTabs = (filterTabs as Filter[]).filter((t) => t.id !== id);
-		(setFilterTabs as any)(filteredTabs);
+	const deleteFilterTab = useCallback(
+		(id: number | undefined) => {
+			const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
+			if (filterIndex === -1) return;
+			const filteredTabs = (filterTabs as Filter[]).filter((t) => t.id !== id);
+			(setFilterTabs as any)(filteredTabs);
 
-		if (currFilterTabs === id) {
-			const newTab = filteredTabs?.[(filterIndex || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
-			setCurrFilterTabs(newTab);
-		}
-		if (!filteredTabs.length) setFilters({});
-	};
+			if (currFilterTabs === id) {
+				const newTab = filteredTabs?.[(filterIndex || 1) - 1]?.id || filteredTabs?.[0]?.id || null;
+				setCurrFilterTabs(newTab);
+			}
+			if (!filteredTabs.length) setFilters({});
+		},
+		[filterTabs, currFilterTabs, setFilterTabs]
+	);
+
+	// Stable across re-renders so memo(LogFilters) isn't defeated. During streaming
+	// status updates `setLogs` re-renders this component on every `new-log`; a fresh
+	// `applyFn`/`def` each time would force LogFilters (and its "Edit Filters"
+	// popover) to re-render needlessly.
+	const applyFn = useCallback((types: string[], level: string, content: string[]) => {
+		setTimeout(() => setFilters({types, level, content}), 0);
+	}, []);
+
+	const currentDef = useMemo(() => structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null), [filterTabs, currFilterTabs]);
 
 	const shouldRenderTabs = event && !!logs?.length && !!filterTabs?.length;
 	const showCannedResponse = false;
@@ -184,14 +210,7 @@ const MessageDetails = ({
 					{showCannedResponse && !!cannedResponseEntries.length && <CannedResponses cannedResponses={cannedResponseEntries} />}
 					<div className={twMerge('flex justify-between bg-white z-[1] items-center min-h-[58px] h-[58px] p-[10px] pb-[4px] pe-0', shouldRenderTabs && 'min-h-0 h-0')}>
 						{!shouldRenderTabs && (
-							<LogFilters
-								showDropdown
-								filterId={currFilterTabs || undefined}
-								def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
-								applyFn={(types, level, content) => {
-									setTimeout(() => setFilters({types, level, content}), 0);
-								}}
-							/>
+							<LogFilters showDropdown filterId={currFilterTabs || undefined} def={currentDef} applyFn={applyFn} />
 						)}
 					</div>
 					{shouldRenderTabs && <FilterTabs currFilterTabs={currFilterTabs} filterTabs={filterTabs as Filter[]} setFilterTabs={setFilterTabs as any} setCurrFilterTabs={setCurrFilterTabs} />}
@@ -202,10 +221,8 @@ const MessageDetails = ({
 							deleteFilterTab={deleteFilterTab}
 							className={twMerge(!filteredLogs?.length && '', !logs?.length && 'absolute')}
 							filterId={currFilterTabs || undefined}
-							def={structuredClone((filterTabs as Filter[]).find((t: Filter) => currFilterTabs === t.id)?.def || null)}
-							applyFn={(types, level, content) => {
-								setTimeout(() => setFilters({types, level, content}), 0);
-							}}
+							def={currentDef}
+							applyFn={applyFn}
 						/>
 					)}
 					{!event && <EmptyState title='Feeling curious?' subTitle='Select a message for additional actions and information about its process.' />}

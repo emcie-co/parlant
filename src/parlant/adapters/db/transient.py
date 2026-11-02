@@ -124,12 +124,11 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
         # Sort by creation_utc with id as tiebreaker according to sort_direction
         sort_direction = sort_direction or SortDirection.ASC
         filtered_docs = self._apply_sort(filtered_docs, sort_direction)
+        total_count = len(filtered_docs)
 
         # Apply cursor-based pagination if cursor is provided
         if cursor:
             filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
-
-        total_count = len(filtered_docs)
 
         # Apply limit
         has_more = False
@@ -144,7 +143,7 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
             if result_docs:
                 last_doc = result_docs[-1]
                 next_cursor = Cursor(
-                    creation_utc=str(last_doc.get("creation_utc", "")),
+                    sort_value=str(last_doc.get("creation_utc", "")),
                     id=ObjectId(str(last_doc.get("id", ""))),
                 )
         else:
@@ -197,7 +196,7 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
         cursor: Cursor,
         sort_direction: SortDirection,
     ) -> list[TDocument]:
-        cursor_creation_utc = str(cursor.creation_utc)
+        cursor_creation_utc = str(cursor.sort_value)
         cursor_id = str(cursor.id)
 
         result = []

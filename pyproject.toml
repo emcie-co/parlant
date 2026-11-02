@@ -153,6 +153,30 @@ build-backend = "hatchling.build"
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.hatch.build.targets.sdist]
+# The sdist otherwise takes the whole project directory. The wheel's exclude
+# list below does not cover it, and force-include ignores excludes entirely,
+# so scripts/publish.py re-checks every artifact before uploading.
+# Gitignore-style patterns: the leading slashes anchor these to the project
+# root, so "dist" does not also match src/parlant/api/chat/dist. uv builds the
+# wheel from the sdist, so anything excluded here is absent from both.
+exclude = [
+    "/pro",
+    "/pro/**",
+    "/tests/pro",
+    "/tests/pro/**",
+    "/dist",
+    "/dist/**",
+    "/widget/dist",
+    "/widget/dist/**",
+    "**/node_modules",
+    "**/node_modules/**",
+    "**/parlant-data",
+    "**/parlant-data/**",
+    "**/.env",
+    "**/*.tsbuildinfo",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/parlant"]
 # The chat widget ships inside the package so `parlant widget init` can vendor

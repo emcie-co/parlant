@@ -190,7 +190,19 @@ def _to_usage_info(usage: Any) -> UsageInfo:
 
 
 def _uses_adaptive_thinking(model: str) -> bool:
-    return model.startswith(("claude-opus-", "claude-sonnet-5", "claude-haiku-5"))
+    return model.startswith(("claude-opus-", "claude-sonnet-5", "claude-haiku-5", "claude-fable-"))
+
+
+def _accepts_sampling_parameters(model: str) -> bool:
+    """Whether the model still accepts ``temperature`` (and the other sampling
+    parameters). Claude 3.x and Claude 4 up to 4.6 do; Opus 4.7 and later and the
+    whole Claude 5 family reject it with a 400 ("`temperature` is deprecated for
+    this model."). Unknown and future models are assumed not to: leaving the
+    parameter out is always a valid request, sending it may not be."""
+    if model.startswith("claude-3"):
+        return True
+    m = re.match(r"claude-(?:opus|sonnet|haiku)-4(?:-(\d{1,2}))?(?:-\d{8})?$", model)
+    return m is not None and int(m.group(1) or 0) <= 6
 
 
 class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
@@ -277,42 +289,8 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        if isinstance(prompt, PromptBuilder):
-            prompt = prompt.build()
-
-        anthropic_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
-
-        max_tokens = 8192
-        effort = hints.get(REASONING_EFFORT_HINT)
-        reasoning_arguments = (
-            self._reasoning_arguments(effort, max_tokens) if effort is not None else {}
-        )
-        if "thinking" in reasoning_arguments:
-            # Anthropic rejects a custom temperature when thinking is enabled.
-            anthropic_api_arguments = {
-                k: v for k, v in anthropic_api_arguments.items() if k != "temperature"
-            }
-
-        # output_config holds the (Opus) reasoning effort and — on models that
-        # support structured outputs — a JSON schema constraining the reply. The
-        # latter is dropped on models that reject it (and the result memoized).
-        output_config: dict[str, Any] = dict(reasoning_arguments.pop("output_config", {}))
-        final_max_tokens = reasoning_arguments.pop("max_tokens", max_tokens)
-        if self._structured_outputs_supported is not False:
-            output_config["format"] = {
-                "type": "json_schema",
-                "schema": _to_anthropic_output_schema(self.schema.model_json_schema()),
-            }
-
-        create_kwargs: dict[str, Any] = dict(
-            messages=[{"role": "user", "content": prompt}],
-            model=self.model_name,
-            max_tokens=final_max_tokens,
-            **anthropic_api_arguments,
-            **reasoning_arguments,
-        )
-        if output_config:
-            create_kwargs["output_config"] = output_config
+        create_kwargs = self._build_request(prompt, hints)
+        output_config: dict[str, Any] = create_kwargs.get("output_config", {})
 
         t_start = time.time()
         try:
@@ -403,6 +381,58 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
+
+    def _build_request(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> dict[str, Any]:
+        """The arguments for ``messages.create``: the prompt, the hints this model
+        accepts, its thinking configuration and the structured-output schema."""
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
+        # Current models reject sampling parameters outright, so the hints that
+        # carry them (indexing's retry temperatures) only reach older models.
+        anthropic_api_arguments = (
+            {k: v for k, v in hints.items() if k in self.supported_hints}
+            if _accepts_sampling_parameters(self.model_name)
+            else {}
+        )
+
+        max_tokens = 8192
+        effort = hints.get(REASONING_EFFORT_HINT)
+        reasoning_arguments = (
+            self._reasoning_arguments(effort, max_tokens) if effort is not None else {}
+        )
+        if "thinking" in reasoning_arguments:
+            # Anthropic rejects a custom temperature when thinking is enabled.
+            anthropic_api_arguments = {
+                k: v for k, v in anthropic_api_arguments.items() if k != "temperature"
+            }
+
+        # output_config holds the (Opus) reasoning effort and — on models that
+        # support structured outputs — a JSON schema constraining the reply. The
+        # latter is dropped on models that reject it (and the result memoized).
+        output_config: dict[str, Any] = dict(reasoning_arguments.pop("output_config", {}))
+        final_max_tokens = reasoning_arguments.pop("max_tokens", max_tokens)
+        if self._structured_outputs_supported is not False:
+            output_config["format"] = {
+                "type": "json_schema",
+                "schema": _to_anthropic_output_schema(self.schema.model_json_schema()),
+            }
+
+        create_kwargs: dict[str, Any] = dict(
+            messages=[{"role": "user", "content": prompt}],
+            model=self.model_name,
+            max_tokens=final_max_tokens,
+            **anthropic_api_arguments,
+            **reasoning_arguments,
+        )
+        if output_config:
+            create_kwargs["output_config"] = output_config
+
+        return create_kwargs
 
     @staticmethod
     def _uses_adaptive_thinking(model: str) -> bool:

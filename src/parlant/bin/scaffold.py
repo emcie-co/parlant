@@ -520,7 +520,7 @@ def sign_in_to_read_orders() -> p.ToolResult | None:
     )
 
 
-@p.tool
+@p.tool(narration="Checking your order")
 async def check_order_status(order_id: str) -> p.ToolResult:
     """Look up one order's current status.
 
@@ -548,7 +548,7 @@ async def check_order_status(order_id: str) -> p.ToolResult:
     )
 
 
-@p.tool
+@p.tool(narration="Looking up your open orders")
 async def list_open_orders(context: p.ToolContext) -> p.ToolResult:
     """Every order of this customer's that hasn't been delivered yet.
 
@@ -574,7 +574,7 @@ async def list_open_orders(context: p.ToolContext) -> p.ToolResult:
     )
 
 
-@p.tool
+@p.tool(narration="Tracking your shipment")
 async def track_shipment(order_id: str) -> p.ToolResult:
     """Look up the carrier and tracking number for an order's shipment."""
     if sign_in := sign_in_to_read_orders():
@@ -1007,7 +1007,7 @@ def photo_from_conversation() -> str | None:
     return None
 
 
-@p.tool
+@p.tool(narration="Filing your dispute")
 async def file_dispute(order_id: str, reason: str) -> p.ToolResult:
     """File a dispute on a delivered order.
 
@@ -1080,7 +1080,7 @@ async def file_dispute(order_id: str, reason: str) -> p.ToolResult:
     )
 
 
-@p.tool
+@p.tool(narration="Checking whether this order can be disputed")
 async def check_dispute_eligibility(order_id: str) -> p.ToolResult:
     """Say whether a dispute can be opened on an order, and what it still needs."""
     if sign_in := sign_in_to_dispute():
@@ -1125,7 +1125,7 @@ async def check_dispute_eligibility(order_id: str) -> p.ToolResult:
     )
 
 
-@p.tool
+@p.tool(narration="Checking your dispute")
 async def check_dispute_status(order_id: str) -> p.ToolResult:
     """Look up the dispute on one of this customer's orders."""
     if sign_in := sign_in_to_dispute():
@@ -1322,6 +1322,8 @@ LEAD_GEN_MAIN_PY = '''"""The entry point: build the server, create the agent, in
 
 import asyncio
 
+import parlant.sdk as p
+
 from config import can_measure_spend, conversation_cap, create_server
 from domains import handoff, leadgen
 
@@ -1385,6 +1387,9 @@ async def main() -> None:
                 'their own words; one small offer instead of a list; say "anytime" or "good luck '
                 'with it" when they leave.'
             ),
+            # One short line before the agent's first tool call ("Let me check that"),
+            # so the visitor isn't left waiting in silence; at most one per 15 seconds.
+            preamble_config=p.PreambleConfiguration.encourage(),
         )
 
         # The personality's agent-wide canned responses: examples of its
@@ -2110,7 +2115,7 @@ def typed_phone(phone: str, typed: str) -> str | None:
     return phone if len(digits) >= 7 and digits in re.sub(r"\\D", "", typed) else None
 
 
-@p.tool
+@p.tool(narration="Noting your details")
 async def record_lead(
     goal: str,
     buying_for: Annotated[
@@ -2274,7 +2279,7 @@ VisitorAsked = Annotated[
 ]
 
 
-@p.tool
+@p.tool(narration="Checking which days are free")
 async def find_meeting_dates(
     start_date: Annotated[
         str,
@@ -2311,7 +2316,7 @@ async def find_meeting_dates(
     return p.ToolResult(data=result.data, metadata=result.metadata or None)
 
 
-@p.tool
+@p.tool(narration="Checking the times that day")
 async def find_meeting_times(
     date: Annotated[
         str,
@@ -2382,7 +2387,7 @@ async def book_meeting(
     )
 
 
-@p.tool
+@p.tool(narration="Passing this to our team")
 async def request_team_follow_up(
     note: Annotated[
         str,

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from __future__ import annotations
-from typing import Awaitable, Callable, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Optional, Sequence, cast
 from typing_extensions import override
 from typing_extensions import get_type_hints
 
@@ -26,6 +26,8 @@ from parlant.core.persistence.common import (
     ensure_is_total,
 )
 from parlant.core.persistence.document_database import (
+    CollectionIndex,
+    CollectionSort,
     BaseDocument,
     DeleteResult,
     DocumentCollection,
@@ -122,12 +124,11 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
         # Sort by creation_utc with id as tiebreaker according to sort_direction
         sort_direction = sort_direction or SortDirection.ASC
         filtered_docs = self._apply_sort(filtered_docs, sort_direction)
+        total_count = len(filtered_docs)
 
         # Apply cursor-based pagination if cursor is provided
         if cursor:
             filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
-
-        total_count = len(filtered_docs)
 
         # Apply limit
         has_more = False
@@ -142,7 +143,7 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
             if result_docs:
                 last_doc = result_docs[-1]
                 next_cursor = Cursor(
-                    creation_utc=str(last_doc.get("creation_utc", "")),
+                    sort_value=str(last_doc.get("creation_utc", "")),
                     id=ObjectId(str(last_doc.get("id", ""))),
                 )
         else:
@@ -174,13 +175,28 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
 
         return docs
 
+    def _apply_field_sort(
+        self,
+        documents: Sequence[TDocument],
+        sort: CollectionSort,
+    ) -> list[TDocument]:
+        docs = list(documents)
+
+        for field_name, direction in reversed(sort):
+            docs.sort(
+                key=lambda d: cast(Any, d.get(field_name)),
+                reverse=direction == SortDirection.DESC,
+            )
+
+        return docs
+
     def _apply_cursor_filter(
         self,
         documents: list[TDocument],
         cursor: Cursor,
         sort_direction: SortDirection,
     ) -> list[TDocument]:
-        cursor_creation_utc = str(cursor.creation_utc)
+        cursor_creation_utc = str(cursor.sort_value)
         cursor_id = str(cursor.id)
 
         result = []
@@ -216,11 +232,23 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
     async def find_one(
         self,
         filters: Where,
+        sort: Optional[CollectionSort] = None,
     ) -> Optional[TDocument]:
-        for doc in self._documents:
-            if matches_filters(filters, doc):
-                return doc
+        matching_documents = [doc for doc in self._documents if matches_filters(filters, doc)]
 
+        if sort:
+            matching_documents = self._apply_field_sort(matching_documents, sort)
+
+        for doc in matching_documents:
+            return doc
+
+        return None
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[CollectionIndex],
+    ) -> None:
         return None
 
     @override

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,22 +20,23 @@ from tests.sdk.utils import Context, SDKTest
 
 
 class Test_that_hooks_can_access_current_sdk_entities(SDKTest):
-    async def configure_hooks(self, hooks: p.EngineHooks) -> p.EngineHooks:
+    async def configure_hooks(self, hooks: p.CompassHooks) -> p.CompassHooks:
         async def on_acknowledged(
             context: p.EngineContext, payload: Any, exception: Exception | None
-        ) -> p.EngineHookResult:
+        ) -> p.CompassHookResult:
             self.captured_server = p.Server.current
             self.captured_agent = p.Agent.current
             self.captured_customer = p.Customer.current
-            return p.EngineHookResult.CALL_NEXT
+            return p.CompassHookResult.CALL_NEXT
 
         hooks.on_acknowledged.append(on_acknowledged)
         return hooks
 
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="current-entities-agent-1",
             name="Test Agent",
-            description="A test agent",
+            instructions="A test agent",
         )
 
     async def run(self, ctx: Context) -> None:

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,6 +72,37 @@ async def test_latch_behavior_with_cancellation_after_suppression() -> None:
     await t
 
     # When latch is enabled and cancellation is suppressed, ALL code should execute
+    assert execution_log == ["started", "finished"]
+
+
+async def test_latch_reraises_deferred_cancellation_after_suppression_is_disabled() -> None:
+    """Cancellation during suppression should be raised once suppression is disabled."""
+    ready_to_cancel = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    execution_log = []
+
+    async def shielded_task(suppression_latch: CancellationSuppressionLatch[None]) -> None:
+        execution_log.append("started")
+        suppression_latch.enable()
+        ready_to_cancel.set()
+        await cancelled.wait()
+        await asyncio.sleep(0.1)
+        execution_log.append("finished")
+        suppression_latch.disable()
+
+    async def test_task() -> None:
+        await latched_shield(shielded_task)
+
+    t = asyncio.create_task(test_task())
+
+    await ready_to_cancel.wait()
+    t.cancel()
+    cancelled.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await t
+
     assert execution_log == ["started", "finished"]
 
 

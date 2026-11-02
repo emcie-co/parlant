@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import httpx
-from lagom import Container
+from parlant.core.container import Container
 
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.services.tools.plugins import PluginServer, tool

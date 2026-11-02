@@ -17,6 +17,10 @@ module.exports = {
 					'0%': {opacity: 0},
 					'100%': {opacity: 1},
 				},
+				'fade-in-fast': {
+					'0%': {opacity: 0, transform: 'translateY(6px) scale(0.98)', filter: 'blur(1px)'},
+					'100%': {opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)'},
+				},
 				'scroll-down': {
 					'0%': {height: 0},
 					'100%': {height: '100%'},
@@ -32,6 +36,10 @@ module.exports = {
 			},
 			animation: {
 				'fade-in': 'fade-in 300ms linear',
+				// 500ms delay (held invisible via `backwards`) then a 500ms fade — so
+				// a fast-resolving action never flashes the indicator.
+				'fade-in-delayed': 'fade-in 500ms ease-out 500ms backwards',
+				'fade-in-fast': 'fade-in-fast 400ms ease-out',
 				'scroll-down': 'scroll-down 300ms linear',
 				'background-shift': 'background-shift 5s linear infinite',
 				rotate: 'rotate 5s linear infinite',
@@ -96,6 +104,7 @@ module.exports = {
 				'ubuntu-sans': 'Ubuntu Sans',
 				'ubuntu-mono': 'Ubuntu Mono',
 				inter: 'inter',
+				manrope: 'Manrope',
 				'ibm-plex-mono': 'IBM Plex Mono',
 			},
 		},

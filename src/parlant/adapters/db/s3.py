@@ -13,12 +13,13 @@
 # limitations under the License.
 
 from __future__ import annotations
-import json
 import asyncio
-from typing import Any, Awaitable, Callable, List, Optional, Sequence, cast
-from typing_extensions import override, Self
-import boto3
-from botocore.exceptions import ClientError
+import json
+from copy import deepcopy
+from typing import Any, Awaitable, Callable, Optional, Sequence, cast
+from typing_extensions import Self, override
+import boto3  # type: ignore[import-untyped]
+from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
 from parlant.core.persistence.common import (
     Cursor,
@@ -26,10 +27,11 @@ from parlant.core.persistence.common import (
     Where,
     matches_filters,
     ensure_is_total,
-    ObjectId,
 )
 from parlant.core.persistence.document_database import (
     BaseDocument,
+    CollectionIndex,
+    CollectionSort,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
@@ -37,12 +39,21 @@ from parlant.core.persistence.document_database import (
     InsertResult,
     TDocument,
     UpdateResult,
-    identity_loader,
 )
 from parlant.core.loggers import Logger
 
 
+def _conflict(error: ClientError) -> bool:
+    return error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") in (409, 412)
+
+
 class S3DocumentDatabase(DocumentDatabase):
+    """Document-per-object storage. General queries scan the collection; no secondary indexes.
+
+    The bucket/endpoint must support S3 conditional PUT and DELETE requests. Credentials
+    default to boto3's standard credential chain. Use a dedicated bucket for this database.
+    """
+
     def __init__(
         self,
         logger: Logger,
@@ -54,32 +65,36 @@ class S3DocumentDatabase(DocumentDatabase):
     ) -> None:
         self.bucket_name = bucket_name
         self._logger = logger
-
-        self._s3_client = boto3.client(
+        self._s3_client: Any = boto3.client(
             "s3",
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name,
             endpoint_url=endpoint_url,
         )
-
         self._collections: dict[str, S3DocumentCollection[Any]] = {}
+        self._read_slots = asyncio.Semaphore(16)
 
-    async def _ensure_bucket_exists(self) -> None:
+    async def __aenter__(self) -> Self:
         def check_and_create() -> None:
             try:
                 self._s3_client.head_bucket(Bucket=self.bucket_name)
-            except ClientError as e:
-                error_code = e.response.get("Error", {}).get("Code")
-                if error_code == "404":
-                    self._s3_client.create_bucket(Bucket=self.bucket_name)
-                else:
+            except ClientError as error:
+                if error.response.get("Error", {}).get("Code") not in ("404", "NoSuchBucket"):
                     raise
+                region = self._s3_client.meta.region_name
+                configuration = (
+                    {"CreateBucketConfiguration": {"LocationConstraint": region}}
+                    if region and region != "us-east-1"
+                    else {}
+                )
+                self._s3_client.create_bucket(Bucket=self.bucket_name, **configuration)
 
-        await asyncio.to_thread(check_and_create)
-
-    async def __aenter__(self) -> Self:
-        await self._ensure_bucket_exists()
+        try:
+            await asyncio.to_thread(check_and_create)
+        except BaseException:
+            self._s3_client.close()
+            raise
         return self
 
     async def __aexit__(
@@ -88,21 +103,89 @@ class S3DocumentDatabase(DocumentDatabase):
         exc_value: Optional[BaseException],
         traceback: Optional[object],
     ) -> bool:
+        await asyncio.to_thread(self._s3_client.close)
         return False
+
+    async def _read(self, key: str) -> tuple[BaseDocument, str] | None:
+        def fetch() -> tuple[BaseDocument, str] | None:
+            try:
+                response = self._s3_client.get_object(Bucket=self.bucket_name, Key=key)
+            except ClientError as error:
+                if error.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                    return None
+                raise
+            body = response["Body"]
+            try:
+                value = json.loads(body.read())
+            finally:
+                body.close()
+            if not isinstance(value, dict):
+                raise ValueError("S3 document must contain a JSON object")
+            return cast(BaseDocument, value), str(response["ETag"])
+
+        async with self._read_slots:
+            return await asyncio.to_thread(fetch)
+
+    async def _put(self, key: str, document: BaseDocument, etag: str | None = None) -> None:
+        condition = {"IfMatch": etag} if etag is not None else {"IfNoneMatch": "*"}
+        await asyncio.to_thread(
+            self._s3_client.put_object,
+            Bucket=self.bucket_name,
+            Key=key,
+            Body=json.dumps(document, ensure_ascii=False).encode("utf-8"),
+            **condition,
+        )
+
+    async def _delete(self, key: str, etag: str) -> None:
+        await asyncio.to_thread(
+            self._s3_client.delete_object,
+            Bucket=self.bucket_name,
+            Key=key,
+            IfMatch=etag,
+        )
+
+    async def _list_keys(self, name: str) -> list[str]:
+        def list_keys() -> list[str]:
+            return [
+                str(item["Key"])
+                for page in self._s3_client.get_paginator("list_objects_v2").paginate(
+                    Bucket=self.bucket_name, Prefix=f"{name}/"
+                )
+                for item in page.get("Contents", [])
+                if str(item["Key"]).endswith(".json")
+            ]
+
+        return await asyncio.to_thread(list_keys)
+
+    async def _collection_exists(self, name: str) -> bool:
+        def check() -> bool:
+            result = self._s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=f"{name}/",
+                MaxKeys=1,
+            )
+            return bool(result.get("Contents"))
+
+        return await asyncio.to_thread(check)
+
+    async def _mark_collection(self, name: str) -> None:
+        try:
+            await self._put(f"{name}/.collection", {})
+        except ClientError as error:
+            if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 412:
+                raise
 
     @override
     async def create_collection(
-        self,
-        name: str,
-        schema: type[TDocument],
+        self, name: str, schema: type[TDocument]
     ) -> S3DocumentCollection[TDocument]:
-        if name not in self._collections:
-            self._collections[name] = S3DocumentCollection(
-                database=self,
-                name=name,
-                schema=schema,
-                document_loader=identity_loader,
+        if not name or name.startswith("/") or ".." in name.split("/"):
+            raise ValueError(
+                "Provide a non-empty S3 collection name without parent path components"
             )
+        await self._mark_collection(name)
+        if name not in self._collections:
+            self._collections[name] = S3DocumentCollection(self, name, schema)
         return cast(S3DocumentCollection[TDocument], self._collections[name])
 
     @override
@@ -112,20 +195,11 @@ class S3DocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> S3DocumentCollection[TDocument]:
-        exists = await self._collection_exists(name)
-        if not exists and name not in self._collections:
-            raise ValueError(f'Collection "{name}" does not exists')
-
         if name not in self._collections:
-            # Run upfront migration
+            if not await self._collection_exists(name):
+                raise ValueError(f'Collection "{name}" does not exist')
             await self._migrate_collection_documents(name, document_loader)
-            
-            self._collections[name] = S3DocumentCollection(
-                database=self,
-                name=name,
-                schema=schema,
-                document_loader=identity_loader,
-            )
+            return await self.create_collection(name, schema)
         return cast(S3DocumentCollection[TDocument], self._collections[name])
 
     @override
@@ -136,199 +210,95 @@ class S3DocumentDatabase(DocumentDatabase):
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> S3DocumentCollection[TDocument]:
         if name not in self._collections:
-            exists = await self._collection_exists(name)
-            if exists:
+            if await self._collection_exists(name):
                 await self._migrate_collection_documents(name, document_loader)
-            
-            self._collections[name] = S3DocumentCollection(
-                database=self,
-                name=name,
-                schema=schema,
-                document_loader=identity_loader,
-            )
+            return await self.create_collection(name, schema)
         return cast(S3DocumentCollection[TDocument], self._collections[name])
 
     @override
-    async def delete_collection(
-        self,
-        name: str,
-    ) -> None:
-        await self._delete_prefix(name)
-        if name in self._collections:
-            del self._collections[name]
-
-    async def _collection_exists(self, name: str) -> bool:
-        def check() -> bool:
-            response = self._s3_client.list_objects_v2(
-                Bucket=self.bucket_name, Prefix=f"{name}/", MaxKeys=1
-            )
-            return "Contents" in response
-
-        return await asyncio.to_thread(check)
-
-    async def _delete_prefix(self, prefix: str) -> None:
+    async def delete_collection(self, name: str) -> None:
         def delete() -> None:
             paginator = self._s3_client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=f"{prefix}/")
-
-            for page in pages:
-                if "Contents" in page:
-                    objects = [{"Key": obj["Key"]} for obj in page["Contents"]]
-                    for i in range(0, len(objects), 1000):
-                        batch = objects[i : i + 1000]
-                        self._s3_client.delete_objects(
-                            Bucket=self.bucket_name, Delete={"Objects": batch}
-                        )
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=f"{name}/"):
+                objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+                if objects:
+                    result = self._s3_client.delete_objects(
+                        Bucket=self.bucket_name,
+                        Delete={"Objects": objects},
+                    )
+                    if result.get("Errors"):
+                        raise RuntimeError("S3 could not delete every document in the collection")
 
         await asyncio.to_thread(delete)
+        self._collections.pop(name, None)
 
     async def _migrate_collection_documents(
         self,
-        collection_name: str,
+        name: str,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
-    ) -> Sequence[TDocument]:
-        """Migrate all documents in a collection upfront.
-        
-        Returns successfully migrated documents.
-        Failed migrations are stored in failed_migrations/{collection_name}/ prefix.
-        """
-        failed_migrations_prefix = f"failed_migrations/{collection_name}"
-        if await self._collection_exists(failed_migrations_prefix):
-            self._logger.info(f"deleting old failed_migrations for collection '{collection_name}'")
-            await self._delete_prefix(failed_migrations_prefix)
-        
-        migrated_docs: list[TDocument] = []
-        
-        def list_keys() -> list[str]:
-            keys = []
-            paginator = self._s3_client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=f"{collection_name}/"):
-                if "Contents" in page:
-                    for obj in page["Contents"]:
-                        keys.append(obj["Key"])
-            return keys
-        
-        keys = await asyncio.to_thread(list_keys)
-        
-        for key in keys:
-            def fetch() -> Optional[dict[str, Any]]:
-                try:
-                    response = self._s3_client.get_object(Bucket=self.bucket_name, Key=key)
-                    return json.loads(response["Body"].read().decode("utf-8"))
-                except ClientError as e:
-                    if e.response["Error"]["Code"] == "NoSuchKey":
-                        return None
-                    raise
-            
-            raw_doc = await asyncio.to_thread(fetch)
-            if raw_doc is None:
+    ) -> None:
+        for key in await self._list_keys(name):
+            entry = await self._read(key)
+            if entry is None:
                 continue
-            
+            original, etag = entry
             try:
-                loaded_doc = await document_loader(cast(BaseDocument, raw_doc))
-                if loaded_doc:
-                    migrated_docs.append(loaded_doc)
-                    
-                    def put() -> None:
-                        self._s3_client.put_object(
-                            Bucket=self.bucket_name,
-                            Key=key,
-                            Body=json.dumps(loaded_doc, ensure_ascii=False).encode("utf-8"),
-                        )
-                    await asyncio.to_thread(put)
-                else:
-                    self._logger.warning(f'Failed to load document "{raw_doc}"')
-                    await self._handle_failed_migration(collection_name, cast(BaseDocument, raw_doc))
-                    def delete() -> None:
-                        self._s3_client.delete_object(Bucket=self.bucket_name, Key=key)
-                    await asyncio.to_thread(delete)
-            except Exception as e:
-                self._logger.error(f"Failed to load document '{raw_doc}': {e}")
-                await self._handle_failed_migration(collection_name, cast(BaseDocument, raw_doc))
-                def delete() -> None:
-                    self._s3_client.delete_object(Bucket=self.bucket_name, Key=key)
-                await asyncio.to_thread(delete)
-        
-        return migrated_docs
-    
-    async def _handle_failed_migration(self, collection_name: str, doc: BaseDocument) -> None:
-        """Store failed migration in failed_migrations/{collection_name}/ prefix."""
-        doc_id = doc.get("id")
-        if doc_id:
-            key = f"failed_migrations/{collection_name}/{doc_id}.json"
-            def put() -> None:
-                self._s3_client.put_object(
-                    Bucket=self.bucket_name,
-                    Key=key,
-                    Body=json.dumps(doc, ensure_ascii=False).encode("utf-8"),
+                loaded = await document_loader(deepcopy(original))
+            except Exception:
+                # Only conversion failures are quarantined. Storage errors propagate
+                # outside this block and never cause the original to be removed.
+                loaded = None
+            if loaded is not None:
+                if loaded != original:
+                    await self._put(key, loaded, etag)
+            else:
+                quarantine = f"failed_migrations/{name}/{original['id']}/{etag.strip(chr(34))}.json"
+                try:
+                    await self._put(quarantine, original)
+                except ClientError as error:
+                    if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 412:
+                        raise
+                await self._delete(key, etag)
+                self._logger.warning(
+                    f"Quarantined an unmigratable S3 document in collection '{name}'"
                 )
-            await asyncio.to_thread(put)
 
 
 class S3DocumentCollection(DocumentCollection[TDocument]):
-    def __init__(
-        self,
-        database: S3DocumentDatabase,
-        name: str,
-        schema: type[TDocument],
-        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
-    ) -> None:
+    def __init__(self, database: S3DocumentDatabase, name: str, schema: type[TDocument]) -> None:
         self._database = database
         self._name = name
         self._schema = schema
-        self._document_loader = document_loader
-        self._s3_client = database._s3_client
-        self._bucket = database.bucket_name
 
-    def _get_key(self, doc_id: str) -> str:
-        return f"{self._name}/{doc_id}.json"
+    def _get_key(self, document_id: str) -> str:
+        return f"{self._name}/{document_id}.json"
 
-    async def _get_object_content(self, key: str) -> Optional[TDocument]:
-        """Fetch document from S3. No migration logic - documents are already migrated."""
-        def fetch() -> Optional[dict[str, Any]]:
-            try:
-                response = self._s3_client.get_object(Bucket=self._bucket, Key=key)
-                return json.loads(response["Body"].read().decode("utf-8"))
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "NoSuchKey":
-                    return None
-                raise
-
-        raw_doc = await asyncio.to_thread(fetch)
-        if raw_doc is None:
-            return None
-        
-        return cast(TDocument, raw_doc)
-
-
-
-    async def _put_object_content(self, key: str, content: dict[str, Any]) -> None:
-        def put() -> None:
-            self._s3_client.put_object(
-                Bucket=self._bucket,
-                Key=key,
-                Body=json.dumps(content, ensure_ascii=False).encode("utf-8"),
+    async def _entries(self, filters: Where) -> list[tuple[TDocument, str]]:
+        condition = filters.get("id")
+        if isinstance(condition, dict) and isinstance(condition.get("$eq"), str):
+            keys = [self._get_key(str(condition["$eq"]))]
+        else:
+            keys = await self._database._list_keys(self._name)
+        entries: list[tuple[TDocument, str]] = []
+        # Bound both scheduled tasks and concurrent requests, even for large collections.
+        for start in range(0, len(keys), 16):
+            batch = await asyncio.gather(
+                *(self._database._read(key) for key in keys[start : start + 16])
             )
+            entries.extend(
+                (cast(TDocument, entry[0]), entry[1])
+                for entry in batch
+                if entry is not None and matches_filters(filters, entry[0])
+            )
+        return entries
 
-        await asyncio.to_thread(put)
-
-    async def _delete_object(self, key: str) -> None:
-        def delete() -> None:
-            self._s3_client.delete_object(Bucket=self._bucket, Key=key)
-
-        await asyncio.to_thread(delete)
-
-    async def _list_keys(self) -> List[str]:
-        def list_objs() -> List[str]:
-            keys = []
-            paginator = self._s3_client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self._bucket, Prefix=f"{self._name}/"):
-                if "Contents" in page:
-                    for obj in page["Contents"]:
-                        keys.append(obj["Key"])
-            return keys
-
-        return await asyncio.to_thread(list_objs)
+    @override
+    async def ensure_indexes(self, indexes: Sequence[CollectionIndex]) -> None:
+        # Non-unique indexes are query hints, as with the JSON/transient adapters.
+        if any(index.unique for index in indexes):
+            raise NotImplementedError(
+                "S3 document collections do not support unique secondary indexes"
+            )
 
     @override
     async def find(
@@ -338,172 +308,87 @@ class S3DocumentCollection(DocumentCollection[TDocument]):
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
-        keys = await self._list_keys()
-        tasks = [self._get_object_content(key) for key in keys]
-        docs_or_none = await asyncio.gather(*tasks)
-        documents = [doc for doc in docs_or_none if doc is not None]
-        filtered_docs = [doc for doc in documents if matches_filters(filters, doc)]
-        sort_direction = sort_direction or SortDirection.ASC
-        filtered_docs = self._apply_sort(filtered_docs, sort_direction)
+        documents = [doc for doc, _ in await self._entries(filters)]
+        descending = sort_direction == SortDirection.DESC
+        documents.sort(
+            key=lambda d: (str(d.get("creation_utc", "")), str(d["id"])), reverse=descending
+        )
+        total_count = len(documents)
         if cursor:
-            filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
-
-        total_count = len(filtered_docs)
-
-        has_more = False
-        next_cursor = None
-
-        if limit is not None and len(filtered_docs) > limit:
-            has_more = True
-            result_docs = filtered_docs[:limit]
-            if result_docs:
-                last_doc = result_docs[-1]
-                next_cursor = Cursor(
-                    creation_utc=str(last_doc.get("creation_utc", "")),
-                    id=ObjectId(str(last_doc.get("id", ""))),
+            position = (cursor.sort_value, str(cursor.id))
+            documents = [
+                d
+                for d in documents
+                if (
+                    (str(d.get("creation_utc", "")), str(d["id"])) < position
+                    if descending
+                    else (str(d.get("creation_utc", "")), str(d["id"])) > position
                 )
-        else:
-            result_docs = filtered_docs
-
+            ]
+        items = documents[:limit] if limit is not None else documents
+        more = limit is not None and len(documents) > limit
+        next_cursor = (
+            Cursor(sort_value=str(items[-1].get("creation_utc", "")), id=items[-1]["id"])
+            if more and items
+            else None
+        )
         return FindResult(
-            items=result_docs,
-            total_count=total_count,
-            has_more=has_more,
-            next_cursor=next_cursor,
+            items=items, total_count=total_count, has_more=more, next_cursor=next_cursor
         )
-
-    def _apply_sort(
-        self, documents: list[TDocument], sort_direction: SortDirection
-    ) -> list[TDocument]:
-        docs = list(documents)
-        reverse_order = sort_direction == SortDirection.DESC
-        docs.sort(
-            key=lambda d: (
-                d.get("creation_utc") or "",
-                d.get("id") or "",
-            ),
-            reverse=reverse_order,
-        )
-        return docs
-
-    def _apply_cursor_filter(
-        self, documents: list[TDocument], cursor: Cursor, sort_direction: SortDirection
-    ) -> list[TDocument]:
-        result = []
-        for doc in documents:
-            doc_creation_utc = str(doc.get("creation_utc", ""))
-            doc_id = str(doc.get("id", ""))
-            if sort_direction == SortDirection.DESC:
-                if doc_creation_utc < cursor.creation_utc or (
-                    doc_creation_utc == cursor.creation_utc and doc_id < cursor.id
-                ):
-                    result.append(doc)
-            else:
-                if doc_creation_utc > cursor.creation_utc or (
-                    doc_creation_utc == cursor.creation_utc and doc_id > cursor.id
-                ):
-                    result.append(doc)
-        return result
 
     @override
     async def find_one(
-        self,
-        filters: Where,
+        self, filters: Where, sort: Optional[CollectionSort] = None
     ) -> Optional[TDocument]:
-        doc_id = None
-        if "id" in filters and isinstance(filters["id"], dict) and "$eq" in filters["id"]:
-            doc_id = filters["id"]["$eq"]
-
-        if doc_id:
-            key = self._get_key(str(doc_id))
-            doc = await self._get_object_content(key)
-            if doc and matches_filters(filters, doc):
-                return doc
-            return None
-
-        # Fallback to scan
-        keys = await self._list_keys()
-        tasks = [self._get_object_content(key) for key in keys]
-        docs_or_none = await asyncio.gather(*tasks)
-        documents = [doc for doc in docs_or_none if doc is not None]
-
-        for doc in documents:
-            if matches_filters(filters, doc):
-                return doc
-        return None
+        entries = await self._entries(filters)
+        for field, direction in reversed(sort or []):
+            entries.sort(
+                key=lambda e: cast(Any, e[0].get(field)), reverse=direction == SortDirection.DESC
+            )
+        return entries[0][0] if entries else None
 
     @override
-    async def insert_one(
-        self,
-        document: TDocument,
-    ) -> InsertResult:
+    async def insert_one(self, document: TDocument) -> InsertResult:
         ensure_is_total(document, self._schema)
-
-        doc_id = document.get("id")
-        if not doc_id:
+        if not document.get("id"):
             raise ValueError("Document must have an 'id' field")
-
-        key = self._get_key(str(doc_id))
-        await self._put_object_content(key, document)
-
+        await self._database._put(self._get_key(document["id"]), document)
         return InsertResult(acknowledged=True)
 
     @override
     async def update_one(
-        self,
-        filters: Where,
-        params: TDocument,
-        upsert: bool = False,
+        self, filters: Where, params: TDocument, upsert: bool = False
     ) -> UpdateResult[TDocument]:
-        existing_doc = await self.find_one(filters)
-
-        if existing_doc:
-            updated_doc = cast(TDocument, {**existing_doc, **params})
-            doc_id = updated_doc.get("id")
-            key = self._get_key(str(doc_id))
-            await self._put_object_content(key, updated_doc)
-
-            return UpdateResult(
-                acknowledged=True,
-                matched_count=1,
-                modified_count=1,
-                updated_document=updated_doc,
-            )
-
-        if upsert:
-            await self.insert_one(params)
-            return UpdateResult(
-                acknowledged=True,
-                matched_count=0,
-                modified_count=0,
-                updated_document=params,
-            )
-
-        return UpdateResult(
-            acknowledged=True,
-            matched_count=0,
-            modified_count=0,
-            updated_document=None,
-        )
+        for _ in range(8):
+            entries = await self._entries(filters)
+            if not entries:
+                if upsert:
+                    await self.insert_one(params)
+                    return UpdateResult(True, 0, 0, params)
+                return UpdateResult(True, 0, 0, None)
+            original, etag = entries[0]
+            if "id" in params and params["id"] != original["id"]:
+                raise ValueError("A document's ID cannot be changed")
+            updated = cast(TDocument, {**original, **params})
+            try:
+                await self._database._put(self._get_key(original["id"]), updated, etag)
+                return UpdateResult(True, 1, int(updated != original), updated)
+            except ClientError as error:
+                if not _conflict(error):
+                    raise
+        raise RuntimeError("S3 document changed concurrently; retry the update")
 
     @override
-    async def delete_one(
-        self,
-        filters: Where,
-    ) -> DeleteResult[TDocument]:
-        existing_doc = await self.find_one(filters)
-        if existing_doc:
-            doc_id = existing_doc.get("id")
-            key = self._get_key(str(doc_id))
-            await self._delete_object(key)
-            return DeleteResult(
-                deleted_count=1,
-                acknowledged=True,
-                deleted_document=existing_doc,
-            )
-
-        return DeleteResult(
-            acknowledged=True,
-            deleted_count=0,
-            deleted_document=None,
-        )
+    async def delete_one(self, filters: Where) -> DeleteResult[TDocument]:
+        for _ in range(8):
+            entries = await self._entries(filters)
+            if not entries:
+                return DeleteResult(True, 0, None)
+            document, etag = entries[0]
+            try:
+                await self._database._delete(self._get_key(document["id"]), etag)
+                return DeleteResult(True, 1, document)
+            except ClientError as error:
+                if not _conflict(error):
+                    raise
+        raise RuntimeError("S3 document changed concurrently; retry the deletion")

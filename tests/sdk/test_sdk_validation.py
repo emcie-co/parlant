@@ -12,659 +12,133 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import inspect
+from types import SimpleNamespace
+from typing import Callable, cast
+
 import pytest
 
-from parlant.core.services.tools.plugins import tool
+from parlant.core.async_utils import default_done_callback
 from parlant.core.tools import ToolContext, ToolResult
-from tests.sdk.utils import SDKTest
+from tests.sdk.utils import Context, SDKTest, get_message
 
 from parlant import sdk as p
 
 
-class Test_that_transition_to_validates_invalid_combinations_like_state_and_tool_instruction(
-    SDKTest
-):
-    """Test that transition_to methods catch invalid parameter combinations like state + tool_instruction"""
+async def test_that_match_always_is_exported_at_module_level_only() -> None:
+    assert callable(p.MATCH_ALWAYS)
+    assert "MATCH_ALWAYS" in p.__all__
+    assert not hasattr(p.Rule, "MATCH_ALWAYS")
 
+    result = await p.MATCH_ALWAYS(
+        cast(p.RuleEvaluationContext, object()),
+        cast(p.Rule, SimpleNamespace(id="always-rule")),
+    )
+
+    assert result.id == "always-rule"
+    assert result.is_relevant
+
+
+class Test_that_agent_utter_defaults_to_the_current_session(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.utter_done = asyncio.Event()
+        self.uttered_message: str | None = None
+
+        self.agent = await server.create_agent(
+            id="sdk-validation-agent-1",
+            name="Utter Session Default Agent",
+            instructions="Agent for testing that utter defaults to the current session",
+        )
+
+        @p.tool
+        async def confirm_booking(context: ToolContext) -> ToolResult:
+            async def utter_without_session() -> None:
+                self.uttered_message = await p.Agent.current.utter(
+                    rules=[{"content": "Tell the customer the booking is confirmed."}],
+                )
+
+                self.utter_done.set()
+
+            asyncio.create_task(utter_without_session()).add_done_callback(default_done_callback())
+
+            return ToolResult(data={"status": "confirming"})
+
+        await self.agent.create_observation(
+            condition="the customer asks to confirm their booking",
+            tools=[confirm_booking],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message_event(
+            customer_message="Please confirm my booking",
+            recipient=self.agent,
+        )
+
+        await asyncio.wait_for(self.utter_done.wait(), timeout=30)
+        assert self.uttered_message
+
+        session_events = await ctx.receive_message_events(min_offset=0)
+        assert any(get_message(event) == self.uttered_message for event in session_events)
+
+
+def test_that_observation_condition_is_required_in_sdk_signatures() -> None:
+    assert (
+        inspect.signature(p.Agent.create_observation).parameters["condition"].default
+        is inspect.Parameter.empty
+    )
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        p.Agent.create_policy,
+        p.Agent.create_observation,
+    ],
+)
+def test_that_match_handler_sdk_signatures_use_only_on_matched(method: object) -> None:
+    parameters = inspect.signature(cast(Callable[..., object], method)).parameters
+
+    assert "on_matched" in parameters
+    assert "on_selected" not in parameters
+    assert "on_message" not in parameters
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        p.Agent.create_policy,
+        p.Agent.create_observation,
+    ],
+)
+def test_that_rule_sdk_signatures_use_evaluation_and_discovery_terms(method: object) -> None:
+    parameters = inspect.signature(cast(Callable[..., object], method)).parameters
+
+    assert "evaluation_func" in parameters
+    assert "evaluator" not in parameters
+    assert "matcher" not in parameters
+    assert "on_discovered" in parameters
+
+
+class Test_that_create_observation_rejects_an_empty_condition(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Validation Agent",
-            description="Agent for testing parameter validation",
+            id="sdk-validation-agent-2",
+            name="Observation validation agent",
+            instructions="Agent for testing observation validation",
         )
 
-        self.journey = await self.agent.create_journey(
-            title="Validation Journey",
-            triggers=["Customer needs help"],
-            description="Journey for testing validation",
-        )
-
-        @tool
-        def test_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        # Test invalid combination: state + tool_instruction
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                condition="state and tool test",
-                state=p.END_JOURNEY,
-                tool_instruction="Use this tool",
-            )
-        assert "tool_instruction cannot be used with state" in str(exc_info.value)
-
-        # Test invalid combination: chat_state + tool_instruction
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                condition="chat and tool test",
-                chat_state="Help customer",
-                tool_instruction="Use this tool",
-            )
-        assert "tool_instruction cannot be used with chat_state" in str(exc_info.value)
-
-        # Test invalid combination: tool_instruction without tool_state
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                condition="tool instruction only test", tool_instruction="Use this tool"
-            )
-        assert "Must provide at least one target parameter" in str(exc_info.value)
-
-        # Test valid combination: tool_instruction with tool_state (should work)
-        await self.journey.initial_state.transition_to(
-            tool_instruction="Use this tool", tool_state=test_tool
-        )
-
-
-class Test_that_transition_to_validates_conflicting_parameters(SDKTest):
-    """Test that transition_to methods catch conflicting parameter combinations"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Validation Agent",
-            description="Agent for testing parameter validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Validation Journey",
-            triggers=["Customer needs help"],
-            description="Journey for testing validation",
-        )
-
-        @tool
-        def test_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        self.test_tool = test_tool
-
-        # Test conflict: chat_state + tool_state
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                chat_state="Help customer", tool_state=self.test_tool
-            )
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-        assert "chat_state, tool_state" in str(exc_info.value)
-
-        # Test conflict: chat_state + state
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                chat_state="Help customer", state=p.END_JOURNEY
-            )
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-        assert "chat_state, state" in str(exc_info.value)
-
-        # Test conflict: tool_state + journey
-        sub_journey = await self.agent.create_journey(
-            title="Sub Journey",
-            triggers=[],
-            description="Sub journey for testing",
-        )
-
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                tool_state=self.test_tool, journey=sub_journey
-            )
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-        assert "tool_state, journey" in str(exc_info.value)
-
-        # Test conflict: state + journey
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(state=p.END_JOURNEY, journey=sub_journey)  # type: ignore[call-overload]
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-        assert "state, journey" in str(exc_info.value)
-
-        # Test conflict: all three main parameters
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                chat_state="Help customer", tool_state=self.test_tool, state=p.END_JOURNEY
-            )
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-
-
-class Test_that_transition_to_requires_at_least_one_target_parameter(SDKTest):
-    """Test that transition_to methods require at least one target parameter"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Validation Agent",
-            description="Agent for testing parameter validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Validation Journey",
-            triggers=["Customer needs help"],
-            description="Journey for testing validation",
-        )
-
-        # Test no target parameters provided
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(condition="if customer is happy")  # type: ignore[call-overload]
-        assert "Must provide at least one target parameter" in str(exc_info.value)
-        assert "chat_state, state, tool_state, or journey" in str(exc_info.value)
-
-        # Test empty tool_state (should be treated as no parameter)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(tool_state=[])  # type: ignore[call-overload]
-        assert "Must provide at least one target parameter" in str(exc_info.value)
-
-
-class Test_that_fork_journey_state_requires_condition_except_for_journey_transitions(SDKTest):
-    """Test that ForkJourneyState requires conditions for non-journey transitions"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Fork Validation Agent",
-            description="Agent for testing fork state validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Fork Validation Journey",
-            triggers=["Customer needs routing"],
-            description="Journey for testing fork validation",
-        )
-
-        # Create a fork state
-        self.fork_transition = await self.journey.initial_state.transition_to(
-            chat_state="Ask what kind of help they need"
-        )
-        self.fork_state = await self.fork_transition.target.fork()
-
-        # Test ForkJourneyState without condition for chat_state - should fail
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_state.target.transition_to(chat_state="Provide general help")  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # Test ForkJourneyState without condition for tool_state - should fail
-        @tool
-        def help_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_state.target.transition_to(tool_state=help_tool)  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # Test ForkJourneyState without condition for state - should fail
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_state.target.transition_to(state=p.END_JOURNEY)  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # Test ForkJourneyState with condition for chat_state - should succeed
-        await self.fork_state.target.transition_to(
-            condition="if customer needs general help", chat_state="Provide general help"
-        )
-
-        # Test ForkJourneyState without condition for journey - should succeed (exception case)
-        sub_journey = await self.agent.create_journey(
-            title="Sub Journey",
-            triggers=[],
-            description="Sub journey for testing",
-        )
-
-        await self.fork_state.target.transition_to(
-            condition="fork journey test", journey=sub_journey
-        )
-
-
-class Test_that_tool_journey_state_validates_parameters(SDKTest):
-    """Test parameter validation specifically for ToolJourneyState"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Tool Validation Agent",
-            description="Agent for testing tool state validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Tool Validation Journey",
-            triggers=["Customer needs tool assistance"],
-            description="Journey for testing tool state validation",
-        )
-
-        @tool
-        def initial_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        @tool
-        def next_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        self.initial_tool = initial_tool
-        self.next_tool = next_tool
-
-        # Create a tool state
-        self.tool_transition = await self.journey.initial_state.transition_to(
-            tool_state=self.initial_tool
-        )
-
-        # Test conflicting parameters in ToolJourneyState
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.tool_transition.target.transition_to(  # type: ignore[call-overload]
-                chat_state="Ask for details", tool_state=self.next_tool
-            )
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-
-        # Test valid transition from ToolJourneyState
-        await self.tool_transition.target.transition_to(chat_state="Ask for details")
-
-
-class Test_that_chat_journey_state_validates_parameters(SDKTest):
-    """Test parameter validation specifically for ChatJourneyState"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Chat Validation Agent",
-            description="Agent for testing chat state validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Chat Validation Journey",
-            triggers=["Customer needs chat assistance"],
-            description="Journey for testing chat state validation",
-        )
-
-        # Create a chat state
-        self.chat_transition = await self.journey.initial_state.transition_to(
-            chat_state="Welcome the customer"
-        )
-
-        # Test conflicting parameters in ChatJourneyState
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.chat_transition.target.transition_to(  # type: ignore[call-overload]
-                chat_state="Ask for details", state=p.END_JOURNEY
-            )
-        assert "Cannot provide multiple target parameters simultaneously" in str(exc_info.value)
-
-        # Test valid transition from ChatJourneyState
-        await self.chat_transition.target.transition_to(chat_state="Ask for details")
-
-
-class Test_that_unknown_parameters_are_caught(SDKTest):
-    """Test validation logic works correctly for valid parameters"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Valid Param Agent",
-            description="Agent for testing valid parameter validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Valid Param Journey",
-            triggers=["Customer needs help"],
-            description="Journey for testing valid parameter validation",
-        )
-
-        # Test that valid parameters work correctly
-        await self.journey.initial_state.transition_to(chat_state="Help customer")
-
-
-class Test_that_all_journey_state_types_have_validation(SDKTest):
-    """Test that all journey state types (Initial, Tool, Chat, Fork) have proper validation"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="All States Agent",
-            description="Agent for testing all state types validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="All States Journey",
-            triggers=["Customer needs comprehensive help"],
-            description="Journey for testing all state types",
-        )
-
-        @tool
-        def test_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        self.test_tool = test_tool
-
-        # Create transitions to get different state types
-        chat_transition = await self.journey.initial_state.transition_to(
-            chat_state="Welcome customer"
-        )
-
-        tool_transition = await chat_transition.target.transition_to(tool_state=self.test_tool)
-
-        fork_transition = await tool_transition.target.fork()
+    async def run(self, ctx: object) -> None:
+        with pytest.raises(
+            p.SDKError,
+            match="create_observation requires 'condition' to be provided",
+        ):
+            await self.agent.create_observation(condition="")
 
-        # Test ForkJourneyState condition requirement
-        with pytest.raises(p.SDKError) as exc_info:
-            await fork_transition.target.transition_to(chat_state="Help without condition")  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-
-class Test_that_valid_parameters_still_work_after_validation_added(SDKTest):
-    """Test that adding validation doesn't break existing valid usage"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Valid Usage Agent",
-            description="Agent for testing that valid usage still works",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Valid Usage Journey",
-            triggers=["Customer needs help"],
-            description="Journey for testing valid parameter usage",
-        )
-
-        @tool
-        def help_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={"status": "helped"})
-
-        self.help_tool = help_tool
-
-        # Test valid chat_state from initial state
-        chat_transition = await self.journey.initial_state.transition_to(
-            condition="start chat", chat_state="Welcome to our service"
-        )
-
-        # Test valid tool_state from chat state
-        tool_transition = await chat_transition.target.transition_to(
-            condition="use help tool", tool_state=self.help_tool
-        )
-
-        # Test valid state (END_JOURNEY) from tool state
-        await tool_transition.target.transition_to(condition="end journey", state=p.END_JOURNEY)
-
-        # Test valid journey transition from initial state (second branch)
-        sub_journey = await self.agent.create_journey(
-            title="Sub Journey",
-            triggers=[],
-            description="Sub journey for testing",
-        )
-
-        await self.journey.initial_state.transition_to(
-            condition="go to sub journey", journey=sub_journey
-        )
-
-        # Test valid fork with condition from initial state (third branch)
-        fork_transition = await self.journey.initial_state.transition_to(
-            condition="start fork flow", chat_state="Ask for preference"
-        )
-        fork_state_transition = await fork_transition.target.fork()
-
-        # Valid fork transition with condition
-        await fork_state_transition.target.transition_to(
-            condition="if customer prefers phone support", chat_state="Transfer to phone support"
-        )
-
-        # Test valid parameters with all optional fields
-        await self.journey.initial_state.transition_to(
-            condition="if customer needs detailed help",
-            chat_state="Provide detailed assistance",
-            metadata={"priority": "high"},
-            canned_responses=[],
-        )
-
-
-class Test_that_journey_transitions_reject_invalid_parameters(SDKTest):
-    """Test that journey transitions only accept condition and journey parameters"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Journey Param Agent",
-            description="Agent for testing journey parameter validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Journey Param Journey",
-            triggers=["Customer needs help"],
-            description="Journey for testing journey parameter validation",
-        )
-
-        self.sub_journey = await self.agent.create_journey(
-            title="Sub Journey",
-            triggers=[],
-            description="Sub journey for testing",
-        )
-
-        # Test journey + metadata (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                journey=self.sub_journey, metadata={"test": "value"}
-            )
-        assert "Journey transitions do not support the following parameters: metadata" in str(
-            exc_info.value
-        )
-        assert "Only 'condition' and 'journey' are allowed for journey transitions" in str(
-            exc_info.value
-        )
-
-        # Test journey + canned_responses (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                journey=self.sub_journey, canned_responses=["response1"]
-            )
-        assert (
-            "Journey transitions do not support the following parameters: canned_responses"
-            in str(exc_info.value)
-        )
-
-        # Test journey + on_selected (should fail)
-        async def on_selected_handler(ctx: object, match: object) -> None:
-            pass
-
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                journey=self.sub_journey, on_selected=on_selected_handler
-            )
-        assert "Journey transitions do not support the following parameters: on_selected" in str(
-            exc_info.value
-        )
-
-        # Test journey + tool_instruction (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                journey=self.sub_journey, tool_instruction="Use this tool"
-            )
-        assert (
-            "Journey transitions do not support the following parameters: tool_instruction"
-            in str(exc_info.value)
-        )
-
-        # Test journey + multiple invalid params (should fail and list all)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                journey=self.sub_journey,
-                metadata={"test": "value"},
-                canned_responses=["response1"],
-                on_selected=on_selected_handler,
-            )
-        error_msg = str(exc_info.value)
-        assert "Journey transitions do not support the following parameters:" in error_msg
-        assert "metadata" in error_msg
-        assert "canned_responses" in error_msg
-        assert "on_selected" in error_msg
-
-        # Test valid journey transition (should succeed)
-        await self.journey.initial_state.transition_to(journey=self.sub_journey)
-
-        # Test valid journey transition with condition (should succeed)
-        await self.journey.initial_state.transition_to(
-            condition="if customer needs sub-journey help", journey=self.sub_journey
-        )
-
 
-class Test_that_tool_instruction_parameter_validation_works_correctly(SDKTest):
-    """Test that tool_instruction parameter is validated correctly for different state types"""
+def test_that_create_agent_requires_an_explicit_id() -> None:
+    parameters = inspect.signature(p.Server.create_agent).parameters
 
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Tool Instruction Agent",
-            description="Agent for testing tool_instruction validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Tool Instruction Journey",
-            triggers=["Customer needs tool help"],
-            description="Journey for testing tool_instruction validation",
-        )
-
-        @tool
-        def test_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        self.test_tool = test_tool
-
-        # Test tool_instruction with state parameter (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                state=p.END_JOURNEY, tool_instruction="Use this tool"
-            )
-        assert "tool_instruction cannot be used with state" in str(exc_info.value)
-        assert "tool_instruction is only valid when using tool_state" in str(exc_info.value)
-
-        # Test tool_instruction with chat_state parameter (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(  # type: ignore[call-overload]
-                chat_state="Help customer", tool_instruction="Use this tool"
-            )
-        assert "tool_instruction cannot be used with chat_state" in str(exc_info.value)
-        assert "tool_instruction is only valid when using tool_state" in str(exc_info.value)
-
-        # Test tool_instruction without tool_state (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.journey.initial_state.transition_to(tool_instruction="Use this tool")  # type: ignore[call-overload]
-        assert "Must provide at least one target parameter" in str(exc_info.value)
-
-        # Test valid tool_instruction with tool_state (should succeed)
-        tool_transition = await self.journey.initial_state.transition_to(
-            tool_state=self.test_tool, tool_instruction="Use this tool to help customer"
-        )
-
-        # Test tool_state without tool_instruction (should also succeed)
-        await tool_transition.target.transition_to(
-            condition="if customer needs another tool", tool_state=self.test_tool
-        )
-
-        # Test with metadata, canned_responses, on_selected for tool_state (should succeed)
-        async def on_selected_handler(ctx: object, match: object) -> None:
-            pass
-
-        await tool_transition.target.transition_to(  # type: ignore[call-overload]
-            condition="if customer needs advanced tool",
-            tool_state=self.test_tool,
-            tool_instruction="Use tool with extras",
-            metadata={"priority": "high"},
-            canned_responses=[],
-            on_selected=on_selected_handler,
-        )
-
-
-class Test_that_fork_state_condition_validation_is_comprehensive(SDKTest):
-    """Test comprehensive condition validation for ForkJourneyState"""
-
-    async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(
-            name="Fork Condition Agent",
-            description="Agent for testing fork condition validation",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Fork Condition Journey",
-            triggers=["Customer needs routing"],
-            description="Journey for testing fork condition validation",
-        )
-
-        @tool
-        def routing_tool(context: ToolContext) -> ToolResult:
-            return ToolResult(data={})
-
-        self.routing_tool = routing_tool
-
-        # Create a fork state to test with
-        chat_transition = await self.journey.initial_state.transition_to(
-            chat_state="Ask what kind of help they need"
-        )
-        self.fork_transition = await chat_transition.target.fork()
-
-        self.sub_journey = await self.agent.create_journey(
-            title="Sub Journey",
-            triggers=[],
-            description="Sub journey for fork testing",
-        )
-
-        # Test all target types require condition except journey
-
-        # chat_state without condition (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_transition.target.transition_to(chat_state="Provide general help")  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # state without condition (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_transition.target.transition_to(state=p.END_JOURNEY)  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # tool_state without condition (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_transition.target.transition_to(tool_state=self.routing_tool)  # type: ignore[call-overload]
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # tool_state + tool_instruction without condition (should fail)
-        with pytest.raises(p.SDKError) as exc_info:
-            await self.fork_transition.target.transition_to(  # type: ignore[call-overload]
-                tool_state=self.routing_tool, tool_instruction="Route customer"
-            )
-        assert "ForkJourneyState requires a condition (except when transition to a journey)" in str(
-            exc_info.value
-        )
-
-        # journey without condition (should succeed - this is the exception)
-        await self.fork_transition.target.transition_to(journey=self.sub_journey)
-
-        # All target types WITH condition should succeed
-        await self.fork_transition.target.transition_to(
-            condition="if customer needs chat help", chat_state="Provide chat help"
-        )
-
-        await self.fork_transition.target.transition_to(
-            condition="if customer wants to end", state=p.END_JOURNEY
-        )
-
-        await self.fork_transition.target.transition_to(
-            condition="if customer needs tool help", tool_state=self.routing_tool
-        )
-
-        await self.fork_transition.target.transition_to(
-            condition="if customer needs complex routing",
-            tool_state=self.routing_tool,
-            tool_instruction="Perform complex routing",
-        )
-
-        # journey with condition should also succeed
-        await self.fork_transition.target.transition_to(
-            condition="if customer needs sub-journey help", journey=self.sub_journey
-        )
+    id_parameter = parameters["id"]
+    assert id_parameter.default is inspect.Parameter.empty, "id must have no default"
+    assert id_parameter.kind is inspect.Parameter.KEYWORD_ONLY, "id must be keyword-only"

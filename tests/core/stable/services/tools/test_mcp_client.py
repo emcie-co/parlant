@@ -1,6 +1,6 @@
 import asyncio
 
-from lagom import Container
+from parlant.core.container import Container
 
 from parlant.core.agents import Agent
 from parlant.core.emissions import EventEmitterFactory
@@ -8,8 +8,29 @@ from parlant.core.loggers import StdoutLogger
 from parlant.core.services.tools.mcp_service import MCPToolClient, MCPToolServer
 from parlant.core.tracer import LocalTracer
 from parlant.sdk import ToolContext
-from tests.core.stable.engines.alpha.test_mcp import create_client, greet_me_like_pirate
 from tests.test_utilities import SERVER_BASE_URL, get_random_port
+
+
+def create_client(
+    server: MCPToolServer,
+    container: Container,
+) -> MCPToolClient:
+    tracer = LocalTracer()
+    logger = StdoutLogger(tracer)
+    return MCPToolClient(
+        url=SERVER_BASE_URL,
+        event_emitter_factory=container[EventEmitterFactory],
+        logger=logger,
+        tracer=tracer,
+        port=server._port,
+    )
+
+
+async def greet_me_like_pirate(name: str, lucky_number: int, am_i_the_goat: bool = True) -> str:
+    message = f"Ahoy {name}! I doubled your lucky number to {lucky_number * 2} !"
+    if am_i_the_goat:
+        message += " You are the GOAT!"
+    return message
 
 
 async def test_that_mcp_client_reconnects_after_its_session_is_closed(

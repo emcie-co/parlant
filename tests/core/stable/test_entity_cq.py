@@ -12,271 +12,118 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import random
-from lagom import Container
+from typing import Any, Sequence, cast
+
+from parlant.core.container import Container
 
 from parlant.core.agents import Agent, AgentStore
-from parlant.core.capabilities import CapabilityStore
-from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
-from parlant.core.entity_cq import EntityQueries
-from parlant.core.glossary import GlossaryStore
-from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.relationships import (
-    RelationshipEntity,
-    RelationshipStore,
-    RelationshipKind,
-    RelationshipEntityKind,
+import pytest
+
+from parlant.core.entity_cq import (
+    EntityQueries,
+    TurnCannedResponses,
+    select_turn_canned_responses,
 )
+from parlant.core.glossary import GlossaryStore
+from parlant.core.rules import RuleStore
+from parlant.core.canned_responses import (
+    CannedResponse,
+    CannedResponseRelevanceResult,
+)
+from parlant.core.groups import GroupIds, GroupId
+from parlant.core.context_variables import ContextVariableStore
 from parlant.core.canned_responses import CannedResponseStore
-from parlant.core.guidelines import GuidelineStore
-from parlant.core.journeys import JourneyStore
-from parlant.core.tags import Tag, TagId, TagStore
-from parlant.core.tools import ToolId
+from tests.core.stable.query_instrumentation import instrument_queries
 
 
-async def test_that_list_guidelines_with_mutual_agent_tag_are_returned(
+async def test_that_list_rules_with_mutual_agent_group_are_returned(
     container: Container,
     agent: Agent,
 ) -> None:
     entity_queries = container[EntityQueries]
     agent_store = container[AgentStore]
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    await agent_store.upsert_tag(
+    await agent_store.upsert_group(
         agent_id=agent.id,
-        tag_id=TagId("tag_1"),
+        group_id=GroupId("tag_1"),
     )
 
-    first_guideline = await guideline_store.create_guideline(
+    first_rule = await rule_store.create_rule(
         condition="condition 1",
-        action="action 1",
+        content="action 1",
     )
 
-    second_guideline = await guideline_store.create_guideline(
+    second_rule = await rule_store.create_rule(
         condition="condition 2",
-        action="action 2",
+        content="action 2",
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=first_guideline.id,
-        tag_id=TagId("tag_1"),
+    await rule_store.upsert_group(
+        rule_id=first_rule.id,
+        group_id=GroupId("tag_1"),
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=second_guideline.id,
-        tag_id=TagId("tag_2"),
+    await rule_store.upsert_group(
+        rule_id=second_rule.id,
+        group_id=GroupId("tag_2"),
     )
 
-    result = await entity_queries.find_guidelines_for_context(agent.id, [])
+    result = await entity_queries.find_rules_for_context(agent.id)
 
     assert len(result) == 1
-    assert result[0].id == first_guideline.id
+    assert result[0].id == first_rule.id
 
 
-async def test_that_list_guidelines_global_guideline_is_returned(
+async def test_that_list_rules_global_rule_is_returned(
     container: Container,
     agent: Agent,
 ) -> None:
     entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    global_guideline = await guideline_store.create_guideline(
+    global_rule = await rule_store.create_rule(
         condition="condition 1",
-        action="action 1",
+        content="action 1",
     )
 
-    result = await entity_queries.find_guidelines_for_context(agent.id, [])
+    result = await entity_queries.find_rules_for_context(agent.id)
 
     assert len(result) == 1
-    assert result[0].id == global_guideline.id
+    assert result[0].id == global_rule.id
 
 
-async def test_that_guideline_with_not_hierarchy_tag_is_not_returned(
+async def test_that_rule_with_not_hierarchy_tag_is_not_returned(
     container: Container,
     agent: Agent,
 ) -> None:
     entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    first_guideline = await guideline_store.create_guideline(
+    first_rule = await rule_store.create_rule(
         condition="condition 1",
-        action="action 1",
+        content="action 1",
     )
 
-    second_guideline = await guideline_store.create_guideline(
+    second_rule = await rule_store.create_rule(
         condition="condition 2",
-        action="action 2",
+        content="action 2",
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=first_guideline.id,
-        tag_id=Tag.for_agent_id(agent.id).id,
+    await rule_store.upsert_group(
+        rule_id=first_rule.id,
+        group_id=GroupIds.for_agent_id(agent.id),
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=second_guideline.id,
-        tag_id=TagId("tag_2"),
+    await rule_store.upsert_group(
+        rule_id=second_rule.id,
+        group_id=GroupId("tag_2"),
     )
 
-    result = await entity_queries.find_guidelines_for_context(agent.id, [])
+    result = await entity_queries.find_rules_for_context(agent.id)
 
     assert len(result) == 1
-    assert result[0].id == first_guideline.id
-
-
-async def test_that_guideline_matches_are_not_filtered_by_enabled_journeys(
-    container: Container,
-    agent: Agent,
-) -> None:
-    entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
-    journey_store = container[JourneyStore]
-
-    journey_guideline = await guideline_store.create_guideline(
-        condition="condition 1",
-    )
-
-    journey = await journey_store.create_journey(
-        title="Customer Onboarding",
-        description="Guide new customers",
-        triggers=[journey_guideline.id],
-    )
-
-    guideline = await guideline_store.create_guideline(
-        condition="condition 2",
-    )
-
-    await guideline_store.upsert_tag(
-        guideline_id=journey_guideline.id,
-        tag_id=Tag.for_journey_id(journey.id).id,
-    )
-
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id,
-        tag_id=Tag.for_journey_id(journey.id).id,
-    )
-
-    result = await entity_queries.find_guidelines_for_context(
-        agent.id,
-        [journey],
-    )
-
-    assert len(result) == 3
-    assert any(journey_guideline.id == g.id for g in result)
-    assert any(guideline.id == g.id for g in result)
-
-
-async def test_that_guideline_tagged_with_disabled_journey_is_filtered_out_when_matched(
-    container: Container,
-    agent: Agent,
-) -> None:
-    entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
-    journey_store = container[JourneyStore]
-
-    journey_guideline = await guideline_store.create_guideline(
-        condition="condition 1",
-    )
-
-    journey = await journey_store.create_journey(
-        title="Customer Onboarding",
-        description="Guide new customers",
-        triggers=[journey_guideline.id],
-    )
-
-    guideline = await guideline_store.create_guideline(
-        condition="condition 2",
-    )
-
-    await guideline_store.upsert_tag(
-        guideline_id=journey_guideline.id,
-        tag_id=Tag.for_journey_id(journey.id).id,
-    )
-
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id,
-        tag_id=Tag.for_journey_id(journey.id).id,
-    )
-
-    result = await entity_queries.find_guidelines_for_context(
-        agent.id,
-        [],
-    )
-
-    assert len(result) == 0
-
-
-async def test_that_find_canned_responses_for_agent_returns_global_canned_responses(
-    container: Container,
-    agent: Agent,
-) -> None:
-    canrep_store: CannedResponseStore = container[CannedResponseStore]
-    entity_queries = container[EntityQueries]
-
-    untagged_canrep = await canrep_store.create_canned_response(
-        value="Hello world",
-        fields=[],
-    )
-
-    results = await entity_queries.find_canned_responses_for_context(
-        agent=agent,
-        journeys=[],
-        guidelines=[],
-    )
-    assert len(results) == 1
-    assert results[0].id == untagged_canrep.id
-
-
-async def test_that_find_canned_responses_for_agent_returns_none_for_non_matching_tag(
-    container: Container, agent: Agent
-) -> None:
-    canrep_store: CannedResponseStore = container[CannedResponseStore]
-    entity_queries = container[EntityQueries]
-
-    tag1 = TagId("tag1")
-    await canrep_store.create_canned_response(
-        value="Tagged canned response",
-        fields=[],
-        tags=[tag1],
-    )
-
-    await container[AgentStore].upsert_tag(agent_id=agent.id, tag_id=TagId("non_matching_tag"))
-
-    results = await entity_queries.find_canned_responses_for_context(
-        agent=agent,
-        journeys=[],
-        guidelines=[],
-    )
-    assert len(results) == 0
-
-
-async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_canned_responses(
-    container: Container, agent: Agent
-) -> None:
-    canrep_store: CannedResponseStore = container[CannedResponseStore]
-    journey_store = container[JourneyStore]
-    entity_queries = container[EntityQueries]
-
-    journey = await journey_store.create_journey(
-        title="Test Journey",
-        description="A test journey",
-        triggers=[],
-    )
-
-    journey_tag = Tag.for_journey_id(journey.id).id
-    journey_canrep = await canrep_store.create_canned_response(
-        value="Journey canrep",
-        fields=[],
-        tags=[journey_tag],
-    )
-
-    results = await entity_queries.find_canned_responses_for_context(
-        agent=agent,
-        journeys=[journey],
-        guidelines=[],
-    )
-    assert len(results) == 1
-    assert results[0].id == journey_canrep.id
+    assert result[0].id == first_rule.id
 
 
 async def test_that_find_glossary_terms_for_agent_returns_all_when_no_tags(
@@ -289,14 +136,14 @@ async def test_that_find_glossary_terms_for_agent_returns_all_when_no_tags(
     untagged_term = await glossary_store.create_term(
         name="Hello world",
         description="A greeting",
-        tags=[],
+        groups=[],
     )
 
-    tag = TagId("tag1")
+    group = GroupId("group1")
     await glossary_store.create_term(
-        name="Tagged term",
-        description="A tagged glossary entry",
-        tags=[tag],
+        name="Grouped term",
+        description="A grouped glossary entry",
+        groups=[group],
     )
 
     results = await entity_queries.find_glossary_terms_for_context(agent_id=agent.id, query="Hello")
@@ -311,348 +158,354 @@ async def test_that_find_glossary_terms_for_agent_returns_none_for_non_matching_
     glossary_store = container[GlossaryStore]
     entity_queries = container[EntityQueries]
 
-    tag1 = TagId("tag1")
+    group1 = GroupId("group1")
     await glossary_store.create_term(
-        name="Tagged term",
-        description="A tagged glossary entry",
-        tags=[tag1],
+        name="Grouped term",
+        description="A grouped glossary entry",
+        groups=[group1],
     )
 
-    await container[AgentStore].upsert_tag(agent_id=agent.id, tag_id=TagId("non_matching_tag"))
+    await container[AgentStore].upsert_group(
+        agent_id=agent.id, group_id=GroupId("non_matching_tag")
+    )
 
     results = await entity_queries.find_glossary_terms_for_context(
-        agent_id=agent.id, query="Tagged"
+        agent_id=agent.id, query="Grouped"
     )
     assert len(results) == 0
 
 
-async def test_that_find_capabilities_for_agent_returns_unique_capabilities(
-    container: Container,
-    agent: Agent,
-) -> None:
-    def random_unicode_string() -> str:
-        return "".join(chr(random.randint(0, 255)) for _ in range(10))
+class _RankByOrderStore:
+    """Fake store whose relevance ranking is just the order it's given the
+    candidates, capped at ``max_count``. Enough to observe how the precedence
+    tiers are filled without embeddings."""
 
-    capability_store = container[CapabilityStore]
-    entity_queries = container[EntityQueries]
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[CannedResponse], int]] = []
 
-    for i in range(10):
-        capability = {
-            "title": random_unicode_string(),
-            "description": random_unicode_string(),
-            "signals": [random_unicode_string() for _ in range(5)],
-        }
-
-        await capability_store.create_capability(
-            title=str(capability["title"]),
-            description=str(capability["description"]),
-            signals=capability["signals"],
-        )
-
-    relevant_capabilities = await entity_queries.find_capabilities_for_agent(
-        agent_id=agent.id,
-        query=random_unicode_string(),
-        max_count=3,
-    )
-
-    assert len(relevant_capabilities) == 3
-    assert len({c.id for c in relevant_capabilities}) == 3
-
-
-async def test_find_relevant_journeys_for_agent_returns_most_relevant(
-    container: Container,
-    agent: Agent,
-) -> None:
-    entity_queries = container[EntityQueries]
-    journey_store = container[JourneyStore]
-    guideline_store = container[GuidelineStore]
-
-    condition = await guideline_store.create_guideline(
-        condition="the customer wants to reset their password",
-    )
-
-    onboarding_journey = await journey_store.create_journey(
-        title="Reset Password Journey",
-        description="""follow these steps to reset a customers password:
-        1. ask for their account name
-        2. ask for their email or phone number
-        3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort.
-        4. use the tool reset_password with the provided information
-        5. report the result to the customer""",
-        triggers=[condition.id],
-    )
-
-    support_journey = await journey_store.create_journey(
-        title="Change Credit Limits",
-        description="Remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch",
-        triggers=[],
-    )
-
-    results = await entity_queries.sort_journeys_by_contextual_relevance(
-        [onboarding_journey, support_journey], "I'd like to reset my password"
-    )
-
-    assert len(results) == 2
-    assert results[0].id == onboarding_journey.id
-    assert results[1].id == support_journey.id
-
-
-async def test_list_guidelines_dependent_directly_on_journey(
-    container: Container,
-) -> None:
-    entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
-    journey_store = container[JourneyStore]
-    relationship_store = container[RelationshipStore]
-
-    journey = await journey_store.create_journey(
-        title="Test Journey",
-        description="A journey for testing dependencies",
-        triggers=[],
-    )
-
-    guideline1 = await guideline_store.create_guideline(
-        condition="condition 1",
-        action="action 1",
-    )
-    _ = await guideline_store.create_guideline(
-        condition="condition 2",
-        action="action 2",
-    )
-
-    await relationship_store.create_relationship(
-        source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
-        ),
-        kind=RelationshipKind.DEPENDENCY,
-    )
-
-    result = await entity_queries.find_journey_related_guidelines(journey)
-
-    assert len(result) == 2
-    assert any([guideline1.id in g for g in result])
-    assert any([journey.root_id in g for g in result])
-
-
-async def test_list_guidelines_dependent_indirectly_on_journey(
-    container: Container,
-) -> None:
-    entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
-    journey_store = container[JourneyStore]
-    relationship_store = container[RelationshipStore]
-    tag_store = container[TagStore]
-
-    journey = await journey_store.create_journey(
-        title="Test Journey",
-        description="A journey for testing dependencies",
-        triggers=[],
-    )
-
-    guideline1 = await guideline_store.create_guideline(
-        condition="condition 1",
-        action="action 1",
-    )
-    guideline2 = await guideline_store.create_guideline(
-        condition="condition 2",
-        action="action 2",
-    )
-    guideline3 = await guideline_store.create_guideline(
-        condition="condition 3",
-        action="action 3",
-    )
-    tag = await tag_store.create_tag(name="test tag")
-
-    await relationship_store.create_relationship(
-        source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
-        ),
-        kind=RelationshipKind.DEPENDENCY,
-    )
-
-    await relationship_store.create_relationship(
-        source=RelationshipEntity(id=guideline2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
-        kind=RelationshipKind.DEPENDENCY,
-    )
-
-    await relationship_store.create_relationship(
-        source=RelationshipEntity(id=guideline3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG_ALL),
-        kind=RelationshipKind.DEPENDENCY,
-    )
-    await relationship_store.create_relationship(
-        source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
-        ),
-        kind=RelationshipKind.DEPENDENCY,
-    )
-
-    result = await entity_queries.find_journey_related_guidelines(journey)
-
-    assert len(result) == 4
-
-    assert any(guideline1.id == g for g in result)
-    assert any(guideline2.id == g for g in result)
-    assert any(guideline3.id == g for g in result)
-
-
-async def test_that_canned_responses_can_be_found_for_a_guideline(
-    container: Container,
-    agent: Agent,
-) -> None:
-    entity_queries = container[EntityQueries]
-    canned_response_store = container[CannedResponseStore]
-    guideline_store = container[GuidelineStore]
-    journey_store = container[JourneyStore]
-
-    g1 = await guideline_store.create_guideline(
-        condition="condition 1",
-        action="action 1",
-    )
-
-    g2 = await guideline_store.create_guideline(
-        condition="condition 2",
-        action="action 2",
-    )
-
-    journey = await journey_store.create_journey(
-        title="Test Journey",
-        description="A journey for testing canned responses",
-        triggers=[],
-    )
-
-    node = await journey_store.create_node(
-        journey_id=journey.id,
-        action="Test Node",
-        tools=[],
-    )
-
-    await journey_store.create_edge(
-        journey_id=journey.id,
-        source=journey.root_id,
-        target=node.id,
-        condition=None,
-    )
-
-    projection = await container[JourneyGuidelineProjection].project_journey_to_guidelines(
-        journey_id=journey.id,
-    )
-
-    assert len(projection) == 2
-
-    canrep_1 = await canned_response_store.create_canned_response(
-        value="Canned response for guideline",
-        fields=[],
-    )
-
-    canrep_2 = await canned_response_store.create_canned_response(
-        value="Another canned response",
-        fields=[],
-    )
-
-    canrep_3 = await canned_response_store.create_canned_response(
-        value="Canned response not for guideline",
-        fields=[],
-    )
-
-    canrep_4 = await canned_response_store.create_canned_response(
-        value="Canned response for journey",
-        fields=[],
-    )
-
-    await canned_response_store.upsert_tag(
-        canned_response_id=canrep_1.id,
-        tag_id=Tag.for_guideline_id(g1.id).id,
-    )
-
-    await canned_response_store.upsert_tag(
-        canned_response_id=canrep_2.id,
-        tag_id=Tag.for_guideline_id(g2.id).id,
-    )
-
-    await canned_response_store.upsert_tag(
-        canned_response_id=canrep_4.id,
-        tag_id=Tag.for_journey_node_id(node.id).id,
-    )
-
-    results = await entity_queries.find_canned_responses_for_guidelines(
-        guidelines=[
-            g1,
-            g2,
-            projection[1],
+    async def filter_relevant_canned_responses(
+        self,
+        query: str,
+        available_canned_responses: Sequence[CannedResponse],
+        max_count: int,
+    ) -> Sequence[CannedResponseRelevanceResult]:
+        candidates = list(available_canned_responses)
+        self.calls.append((candidates, max_count))
+        return [
+            CannedResponseRelevanceResult(canned_response=c, score=1.0)
+            for c in candidates[:max_count]
         ]
+
+
+class _RecordingLogger:
+    """Keeps the warnings it is given, so a test can read them back."""
+
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def warning(self, message: str) -> None:
+        self.warnings.append(message)
+
+
+def _logger() -> Any:
+    return cast(Any, _RecordingLogger())
+
+
+def _transient_canrep(value: str) -> CannedResponse:
+    return CannedResponse.create_transient(value=value)
+
+
+async def test_that_rule_scoped_canned_responses_take_the_slots_before_agent_wide_ones() -> None:
+    store = cast(Any, _RankByOrderStore())
+    rule = _transient_canrep("rule response")
+    agent_a = _transient_canrep("agent response A")
+    agent_b = _transient_canrep("agent response B")
+    turn = TurnCannedResponses(rule_scoped=[rule], agent_wide=[agent_a, agent_b])
+
+    # A single slot goes to the rule-scoped response; agent-wide ones are excluded.
+    only_one = await select_turn_canned_responses(
+        store, "query", turn, max_count=1, logger=_logger()
+    )
+    assert [r.canned_response.value for r in only_one] == ["rule response"]
+
+    # With room to spare, the rule-scoped response still comes first and agent-wide
+    # ones fill the remaining slots in relevance order.
+    with_room = await select_turn_canned_responses(
+        store, "query", turn, max_count=3, logger=_logger()
+    )
+    assert [r.canned_response.value for r in with_room] == [
+        "rule response",
+        "agent response A",
+        "agent response B",
+    ]
+
+
+async def test_that_agent_wide_canned_responses_are_used_when_no_rules_contribute() -> None:
+    store = cast(Any, _RankByOrderStore())
+    agent_a = _transient_canrep("agent response A")
+    turn = TurnCannedResponses(rule_scoped=[], agent_wide=[agent_a])
+
+    result = await select_turn_canned_responses(store, "query", turn, max_count=5, logger=_logger())
+    assert [r.canned_response.value for r in result] == ["agent response A"]
+
+
+async def test_that_empty_canned_response_tiers_are_not_queried() -> None:
+    store = _RankByOrderStore()
+    turn = TurnCannedResponses(rule_scoped=[], agent_wide=[])
+
+    result = await select_turn_canned_responses(
+        cast(Any, store), "query", turn, max_count=5, logger=_logger()
     )
 
-    assert len(results) == 3
-    assert any(canrep_1.id == r.id for r in results)
-    assert any(canrep_2.id == r.id for r in results)
-    assert any(canrep_4.id == r.id for r in results)
-
-    assert all(canrep_3.id != r.id for r in results)
+    assert result == []
+    assert store.calls == []
 
 
-async def test_that_find_guidelines_that_need_reevaluation_finds_guidelines_by_tag(
+async def test_that_unranked_selection_returns_every_eligible_canned_response() -> None:
+    store = _RankByOrderStore()
+    rule = _transient_canrep("rule response")
+    agent_a = _transient_canrep("agent response A")
+    agent_b = _transient_canrep("agent response B")
+    turn = TurnCannedResponses(rule_scoped=[rule], agent_wide=[agent_a, agent_b])
+
+    result = await select_turn_canned_responses(
+        cast(Any, store),
+        "query",
+        turn,
+        max_count=20,
+        logger=_logger(),
+        rank=False,
+    )
+
+    assert [r.canned_response.value for r in result] == [
+        "rule response",
+        "agent response A",
+        "agent response B",
+    ]
+
+
+async def test_that_unranked_selection_never_queries_the_store() -> None:
+    # Ranking is what embeds the customer's message and searches the vector
+    # store. Low-effort turns must do neither.
+    store = _RankByOrderStore()
+    turn = TurnCannedResponses(
+        rule_scoped=[_transient_canrep("rule response")],
+        agent_wide=[_transient_canrep("agent response")],
+    )
+
+    await select_turn_canned_responses(
+        cast(Any, store),
+        "query",
+        turn,
+        max_count=20,
+        logger=_logger(),
+        rank=False,
+    )
+
+    assert store.calls == []
+
+
+async def test_that_unranked_selection_keeps_precedence_order_when_it_clips() -> None:
+    store = _RankByOrderStore()
+    tool_provided = [_transient_canrep("tool response")]
+    turn = TurnCannedResponses(
+        rule_scoped=[_transient_canrep("rule response")],
+        agent_wide=[_transient_canrep("agent response A"), _transient_canrep("agent response B")],
+    )
+
+    result = await select_turn_canned_responses(
+        cast(Any, store),
+        "query",
+        turn,
+        max_count=2,
+        logger=_logger(),
+        tool_provided=tool_provided,
+        rank=False,
+    )
+
+    assert [r.canned_response.value for r in result] == ["tool response", "rule response"]
+
+
+async def test_that_clipping_warns_with_the_number_left_out() -> None:
+    logger = _RecordingLogger()
+    turn = TurnCannedResponses(
+        rule_scoped=[],
+        agent_wide=[_transient_canrep(f"response {i}") for i in range(5)],
+    )
+
+    await select_turn_canned_responses(
+        cast(Any, _RankByOrderStore()),
+        "query",
+        turn,
+        max_count=3,
+        logger=cast(Any, logger),
+        rank=False,
+    )
+
+    assert len(logger.warnings) == 1
+    assert "2 were left" in logger.warnings[0]
+
+
+async def test_that_a_set_that_fits_the_cap_is_not_warned_about() -> None:
+    logger = _RecordingLogger()
+    turn = TurnCannedResponses(rule_scoped=[], agent_wide=[_transient_canrep("response")])
+
+    await select_turn_canned_responses(
+        cast(Any, _RankByOrderStore()),
+        "query",
+        turn,
+        max_count=3,
+        logger=cast(Any, logger),
+        rank=False,
+    )
+
+    assert logger.warnings == []
+
+
+async def test_that_ranked_selection_still_queries_the_store_for_every_tier() -> None:
+    # Guards the default path: MEDIUM and above must keep ranking exactly as
+    # they do today.
+    store = _RankByOrderStore()
+    turn = TurnCannedResponses(
+        rule_scoped=[_transient_canrep("rule response")],
+        agent_wide=[_transient_canrep("agent response")],
+    )
+
+    result = await select_turn_canned_responses(
+        cast(Any, store),
+        "query",
+        turn,
+        max_count=5,
+        logger=_logger(),
+    )
+
+    assert [r.canned_response.value for r in result] == ["rule response", "agent response"]
+    assert len(store.calls) == 2
+
+
+# ──────────────────────────── concurrent loading ────────────────────────────
+#
+# Each of these queries several stores for one turn. The calls don't depend on
+# each other (bar the agent read that the group query needs), so they should go
+# out together rather than one after another. Only the query boundary shows the
+# difference — the results are identical either way. See query_instrumentation.
+
+
+async def _agent_with_a_group(container: Container, agent: Agent) -> Agent:
+    await container[AgentStore].upsert_group(agent_id=agent.id, group_id=GroupId("shared"))
+    return await container[AgentStore].read_agent(agent.id)
+
+
+async def test_that_rules_for_context_are_loaded_concurrently(
     container: Container,
     agent: Agent,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    entity_queries = container[EntityQueries]
-    guideline_store = container[GuidelineStore]
-    relationship_store = container[RelationshipStore]
-    agent_store = container[AgentStore]
-
-    custom_tag_id = TagId("custom-tag")
-    tool_id = ToolId(service_name="built-in", tool_name="verify_account")
-
-    await agent_store.upsert_tag(
-        agent_id=agent.id,
-        tag_id=TagId("agent-tag"),
+    await _agent_with_a_group(container, agent)
+    await container[RuleStore].create_rule(content="global rule")
+    await container[RuleStore].create_rule(
+        content="agent rule",
+        groups=[GroupIds.for_agent_id(agent.id)],
     )
 
-    guideline = await guideline_store.create_guideline(
-        condition="the customer's account has been verified",
-        action="Offer a Pepsi",
+    log = instrument_queries(monkeypatch)
+
+    await container[EntityQueries].find_rules_for_context(agent.id)
+
+    assert log.max_queries_in_flight >= 2
+
+
+async def test_that_context_variables_for_context_are_loaded_concurrently(
+    container: Container,
+    agent: Agent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _agent_with_a_group(container, agent)
+    await container[ContextVariableStore].create_variable(name="global variable")
+
+    log = instrument_queries(monkeypatch)
+
+    await container[EntityQueries].find_context_variables_for_context(agent.id)
+
+    assert log.max_queries_in_flight >= 2
+
+
+async def test_that_glossary_terms_for_context_are_loaded_concurrently(
+    container: Container,
+    agent: Agent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _agent_with_a_group(container, agent)
+    await container[GlossaryStore].create_term(name="term", description="a term")
+
+    log = instrument_queries(monkeypatch)
+
+    await container[EntityQueries].list_glossary_terms_for_context(agent.id)
+
+    assert log.max_queries_in_flight >= 2
+
+
+async def test_that_turn_canned_responses_are_loaded_concurrently(
+    container: Container,
+    agent: Agent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rule = await container[RuleStore].create_rule(content="a rule")
+
+    await container[CannedResponseStore].create_canned_response(
+        value="rule response",
+        groups=[GroupIds.for_rule_id(rule.id)],
+    )
+    await container[CannedResponseStore].create_canned_response(
+        value="agent response",
+        groups=[GroupIds.for_agent_id(agent.id)],
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id,
-        tag_id=TagId("agent-tag"),
+    log = instrument_queries(monkeypatch)
+
+    await container[EntityQueries].find_canned_responses_for_turn([rule], agent.id)
+
+    assert log.max_queries_in_flight >= 2
+
+
+async def test_that_an_agent_without_groups_skips_the_redundant_global_query(
+    container: Container,
+    agent: Agent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An agent in no groups makes the group query `list_rules(groups=[])`, which
+    # is the global query already issued alongside it. Asking twice is pure
+    # waste, and the union is identical either way.
+    assert not agent.groups
+
+    await container[RuleStore].create_rule(content="global rule")
+    await container[RuleStore].create_rule(
+        content="agent rule",
+        groups=[GroupIds.for_agent_id(agent.id)],
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id,
-        tag_id=custom_tag_id,
+    log = instrument_queries(monkeypatch)
+
+    await container[EntityQueries].find_rules_for_context(agent.id)
+
+    assert log.count_for("rules") == 2
+
+
+async def test_that_a_failing_store_still_fails_the_whole_concurrent_load(
+    container: Container,
+    agent: Agent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Gathering must not swallow or defer an error: a caller that used to see a
+    # store failure has to keep seeing it.
+    async def failing_read_agent(*args: Any, **kwargs: Any) -> Agent:
+        raise RuntimeError("store is down")
+
+    monkeypatch.setattr(
+        container[AgentStore],
+        "read_agent",
+        failing_read_agent,
     )
 
-    await relationship_store.create_relationship(
-        source=RelationshipEntity(
-            id=custom_tag_id,
-            kind=RelationshipEntityKind.TAG_ALL,
-        ),
-        target=RelationshipEntity(
-            id=tool_id,
-            kind=RelationshipEntityKind.TOOL,
-        ),
-        kind=RelationshipKind.REEVALUATION,
-    )
-
-    tool_insights = ToolInsights(
-        evaluations=[(tool_id, ToolCallEvaluation.NEEDS_TO_RUN)],
-    )
-
-    # Re-read the guideline after tags were upserted
-    guideline = await guideline_store.read_guideline(guideline.id)
-
-    available_guidelines = {guideline.id: guideline}
-
-    result = await entity_queries.find_guidelines_that_need_reevaluation(
-        available_guidelines=available_guidelines,
-        active_journeys=[],
-        tool_insights=tool_insights,
-    )
-
-    assert len(result) == 1
-    assert result[0].id == guideline.id
+    with pytest.raises(RuntimeError, match="store is down"):
+        await container[EntityQueries].find_rules_for_context(agent.id)

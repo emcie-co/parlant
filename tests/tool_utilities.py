@@ -122,6 +122,10 @@ def schedule() -> ToolResult:
     return ToolResult("Meeting got scheduled!")
 
 
+def book_taxi(destination: str) -> ToolResult:
+    return ToolResult(f"Taxi to {destination} booked successfully")
+
+
 def check_fruit_price(fruit: str) -> ToolResult:
     return ToolResult(f"1 kg of {fruit} costs 10$")
 
@@ -318,7 +322,10 @@ async def search_electronic_products(
 
     # Apply optional filters
     if product_type:
-        products = [item for item in products if item["type"] == product_type]
+        # product_type arrives as an enum member; the database stores the raw
+        # string, and these product-type enums are not str-enums.
+        type_value = product_type.value if isinstance(product_type, Enum) else product_type
+        products = [item for item in products if item["type"] == type_value]
 
     if min_price is not None:
         products = [item for item in products if item["price"] >= min_price]
@@ -337,7 +344,9 @@ async def search_electronic_products(
 
 async def search_products(
     keyword: str,
-    product_type: Optional[ElectronicProductType] = None,
+    # Deliberately a plain string: the registered schema constrains it to the
+    # general product categories (Clothing, Home, ...), not the electronics enum.
+    product_type: Optional[str] = None,
     min_price: Optional[int] = None,
     max_price: Optional[int] = None,
     in_stock_only: Optional[bool] = False,
@@ -359,7 +368,10 @@ async def search_products(
 
     # Apply optional filters
     if product_type:
-        products = [item for item in products if item["type"] == product_type]
+        # product_type arrives as an enum member; the database stores the raw
+        # string, and these product-type enums are not str-enums.
+        type_value = product_type.value if isinstance(product_type, Enum) else product_type
+        products = [item for item in products if item["type"] == type_value]
 
     if min_price is not None:
         products = [item for item in products if item["price"] >= min_price]
@@ -395,7 +407,9 @@ def class_access_validator(age: int) -> ToolResult:
         return ToolResult(data={"class": "economy class"})
 
 
-def send_email(to: str, subject: str, body: Optional[str], forward: Optional[str]) -> ToolResult:
+def send_email(
+    to: str, subject: str, body: Optional[str] = None, forward: Optional[str] = None
+) -> ToolResult:
     return ToolResult(data=f"Email sent to {to} with subject '{subject}'.")
 
 

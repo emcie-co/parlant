@@ -1,11 +1,20 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Mapping, Sequence
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.loggers import Logger
-from parlant.core.customers import CustomerId, CustomerStore, Customer, CustomerListing
+from parlant.core.customers import (
+    CustomerId,
+    CustomerKind,
+    CustomerStore,
+    Customer,
+    CustomerListing,
+)
 from parlant.core.persistence.common import Cursor, SortDirection
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.groups import GroupIds, GroupId, GroupStore
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -25,48 +34,78 @@ class CustomerMetadataUpdateParams:
 
 
 @dataclass(frozen=True)
-class CustomerTagUpdateParams:
-    add: Sequence[TagId] | None = None
-    remove: Sequence[TagId] | None = None
+class CustomerGroupUpdateParams:
+    add: Sequence[GroupId] | None = None
+    remove: Sequence[GroupId] | None = None
 
 
 class CustomerModule:
     def __init__(
         self,
+        request_context: RequestContext,
         logger: Logger,
-        customer_store: CustomerStore,
-        agent_store: AgentStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ):
+        self._request_context = request_context
         self._logger = logger
-        self._customer_store = customer_store
-        self._agent_store = agent_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
 
-    async def _ensure_tag(self, tag_id: TagId) -> None:
-        if agent_id := Tag.extract_agent_id(tag_id):
+    @property
+    def _customer_store(self) -> CustomerStore:
+        return self._store_provider.get_store(
+            CustomerStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _group_store(self) -> GroupStore:
+        return self._store_provider.get_store(
+            GroupStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    async def _ensure_tag(self, group_id: GroupId) -> None:
+        if agent_id := GroupIds.extract_agent_id(group_id):
             _ = await self._agent_store.read_agent(agent_id=AgentId(agent_id))
         else:
-            _ = await self._tag_store.read_tag(tag_id=tag_id)
+            _ = await self._group_store.read_group(group_id=group_id)
 
     async def create(
         self,
         name: str,
-        extra: Mapping[str, str],
-        tags: Sequence[TagId] | None,
+        metadata: Mapping[str, str],
+        groups: Sequence[GroupId] | None,
         id: CustomerId | None = None,
+        kind: CustomerKind = CustomerKind.REAL,
     ) -> Customer:
-        if tags:
-            for tag_id in tags:
-                await self._ensure_tag(tag_id)
+        if groups:
+            for group_id in groups:
+                await self._ensure_tag(group_id)
 
-            tags = list(set(tags))
+            groups = list(set(groups))
 
         customer = await self._customer_store.create_customer(
             name=name,
-            extra=extra,
-            tags=tags or [],
+            metadata=metadata,
+            groups=groups or [],
             id=id,
+            kind=kind,
         )
         return customer
 
@@ -79,11 +118,20 @@ class CustomerModule:
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
+        min_modified_utc: datetime | None = None,
+        name_prefix: str | None = None,
+        kind: CustomerKind | None = None,
     ) -> CustomerListing:
+        if limit is not None and not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer between 1 and 100")
+
         result = await self._customer_store.list_customers(
             limit=limit,
             cursor=cursor,
             sort_direction=sort_direction,
+            min_modified_utc=min_modified_utc,
+            name_prefix=name_prefix,
+            kind=kind,
         )
         return result
 
@@ -92,7 +140,7 @@ class CustomerModule:
         customer_id: CustomerId,
         name: str | None,
         metadata: CustomerMetadataUpdateParams | None,
-        tags: CustomerTagUpdateParams | None,
+        groups: CustomerGroupUpdateParams | None,
     ) -> Customer:
         if name:
             _ = await self._customer_store.update_customer(
@@ -102,18 +150,18 @@ class CustomerModule:
 
         if metadata:
             if metadata.set:
-                await self._customer_store.upsert_extra(customer_id, metadata.set)
+                await self._customer_store.upsert_metadata(customer_id, metadata.set)
             if metadata.unset:
-                await self._customer_store.remove_extra(customer_id, metadata.unset)
+                await self._customer_store.remove_metadata(customer_id, metadata.unset)
 
-        if tags:
-            if tags.add:
-                for tag_id in tags.add:
-                    await self._ensure_tag(tag_id)
-                    await self._customer_store.upsert_tag(customer_id, tag_id)
-            if tags.remove:
-                for tag_id in tags.remove:
-                    await self._customer_store.remove_tag(customer_id, tag_id)
+        if groups:
+            if groups.add:
+                for group_id in groups.add:
+                    await self._ensure_tag(group_id)
+                    await self._customer_store.upsert_group(customer_id, group_id)
+            if groups.remove:
+                for group_id in groups.remove:
+                    await self._customer_store.remove_group(customer_id, group_id)
 
         customer = await self.read(customer_id)
         return customer

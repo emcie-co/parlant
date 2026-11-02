@@ -13,28 +13,26 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+import asyncio
 from collections import OrderedDict
-from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
 import zlib
-from lagom import Container
-from typing import Any, Callable, Optional, Sequence, TypedDict, cast
-from typing_extensions import override
+from typing import Any, Awaitable, Callable, Optional, Mapping, Sequence, TypedDict, cast
+from typing_extensions import NotRequired, override
 
 from parlant.core.async_utils import Stopwatch
 from parlant.core.common import Version
-from parlant.core.health import (
-    NLP_EMBED_KIND,
-    NLP_REQUESTS_COUNTER,
-    HealthReporter,
-    NLPHealthView,
-)
+from parlant.core.nlp.common import ModelSize, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
-from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
+from parlant.core.nlp.tokenization import (
+    EstimatingTokenizer,
+    ZeroEstimatingTokenizer,
+    estimate_tokens,
+)
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -42,6 +40,11 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
 )
 from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
+
+
+class EmbedderHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,9 @@ class EmbeddingResult:
     """Result of an embedding operation."""
 
     vectors: Sequence[Sequence[float]]
+    usage: UsageInfo = field(
+        default_factory=lambda: UsageInfo(input_tokens=0, output_tokens=0, requests=0)
+    )
 
 
 @dataclass
@@ -58,6 +64,9 @@ class _EmbeddingCacheEntry:
     text_length: int
     checksum: int
     vector: Sequence[float]
+    # The text's input-token count (provider-reported share, or a gpt-5 estimate
+    # when the provider reports none) — surfaced as cached_input_tokens on a hit.
+    input_tokens: int = 0
 
 
 _EMBEDDING_CACHE_MAX_SIZE = 1000
@@ -90,6 +99,45 @@ class Embedder(ABC):
     def dimensions(self) -> int: ...
 
 
+EmbedderProvider = Callable[[], Awaitable[Embedder]]
+
+# Fraction of an embedder's max_tokens used as the effective chunking budget.
+# Tokenizers are estimating by contract, so chunks are sized under the model's
+# hard cap to absorb estimation error.
+_EMBEDDING_BUDGET_HEADROOM = 0.75
+
+
+async def chunk_to_embedder_budget(text: str, embedder: Embedder) -> list[str]:
+    """Fit ``text`` to ``embedder``'s token budget.
+
+    Returns ``[text]`` verbatim when it fits — the common case, keeping
+    embedding-cache keys byte-stable — or whitespace-split chunks each within
+    the budget when it doesn't. Callers that score by pooling over query rows
+    can treat the chunks as additional rows.
+    """
+    if not text.strip():
+        return []
+
+    budget = max(1, int(embedder.max_tokens * _EMBEDDING_BUDGET_HEADROOM))
+    estimate = await embedder.tokenizer.estimate_token_count(text)
+
+    if estimate <= budget:
+        return [text]
+
+    words = text.split()
+    tokens_per_word = estimate / len(words)
+    words_per_chunk = max(int(budget / tokens_per_word), 1)
+
+    return [
+        " ".join(words[start : start + words_per_chunk])
+        for start in range(0, len(words), words_per_chunk)
+    ]
+
+
+def embedder_id_hash(embedder: Embedder) -> str:
+    return hashlib.sha256(embedder.id.encode("utf-8")).hexdigest()[:16]
+
+
 _EMBED_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
@@ -100,18 +148,25 @@ class BaseEmbedder(Embedder):
         tracer: Tracer,
         meter: Meter,
         model_name: str,
-        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+        *,
+        provider_name: str,
     ) -> None:
         self.logger = logger
         self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
-        self.health_reporter = health_reporter
+        self.usage_reporter = usage_reporter
+        self._provider_name = provider_name
 
         # LRU cache: checksum -> cache entry
         self._cache: OrderedDict[int, _EmbeddingCacheEntry] = OrderedDict()
         # Index for fast length-based lookup: length -> set of checksums
         self._cache_length_index: dict[int, set[int]] = {}
+        # Single-flight: checksum -> future resolving to (vector, input_tokens) for a
+        # text currently being embedded. Concurrent identical embeds await the same
+        # future instead of each hitting the provider (kills the recall stampede).
+        self._inflight: dict[int, asyncio.Future[tuple[Sequence[float], int]]] = {}
 
         global _EMBED_DURATION_HISTOGRAM
         if _EMBED_DURATION_HISTOGRAM is None:
@@ -120,19 +175,34 @@ class BaseEmbedder(Embedder):
                 description="Duration of embedding requests in milliseconds",
             )
 
+    @property
+    def provider_name(self) -> str:
+        """The provider this embedder reports usage under (``provider:model``).
+
+        Defaults to the adapter's own provider id; a hand-built instance may be
+        given another so that usage reached through a second provider is
+        accounted and priced apart.
+        """
+        return self._provider_name
+
     @abstractmethod
     async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
-    ) -> EmbeddingResult: ...
+    ) -> EmbeddingResult:
+        """Embed the texts with the provider.
+
+        Must return exactly one vector per text, in the order of ``texts``.
+        """
+        ...
 
     def _compute_checksum(self, text: str) -> int:
         """Compute a fast checksum for the given text."""
         return zlib.crc32(text.encode("utf-8"))
 
-    def _cache_get(self, text: str) -> Sequence[float] | None:
-        """Get a cached embedding vector for the given text.
+    def _cache_get(self, text: str) -> _EmbeddingCacheEntry | None:
+        """Get the cached entry (vector + token count) for the given text.
 
         Uses a two-tier lookup:
         1. Check if any cache entries have the same length (fast)
@@ -158,18 +228,19 @@ class BaseEmbedder(Embedder):
         # Cache hit - move to end for LRU
         if entry := self._cache.get(checksum):
             self._cache.move_to_end(checksum)
-            return entry.vector
+            return entry
 
         return None
 
-    def _cache_put(self, text: str, vector: Sequence[float]) -> None:
-        """Store an embedding vector in the cache."""
+    def _cache_put(self, text: str, vector: Sequence[float], input_tokens: int = 0) -> None:
+        """Store an embedding vector (and its token count) in the cache."""
         checksum = self._compute_checksum(text)
         text_length = len(text)
 
         # If already in cache, just update and move to end
         if checksum in self._cache:
             self._cache[checksum].vector = vector
+            self._cache[checksum].input_tokens = input_tokens
             self._cache.move_to_end(checksum)
             return
 
@@ -186,12 +257,37 @@ class BaseEmbedder(Embedder):
             text_length=text_length,
             checksum=checksum,
             vector=vector,
+            input_tokens=input_tokens,
         )
 
         # Update length index
         if text_length not in self._cache_length_index:
             self._cache_length_index[text_length] = set()
         self._cache_length_index[text_length].add(checksum)
+
+    @staticmethod
+    def _attribute_tokens(texts: Sequence[str], provider_total: int) -> list[int]:
+        """Per-text token counts to cache.
+
+        With a provider-reported ``provider_total`` (> 0), distribute it across
+        the texts by their gpt-5 estimate proportions so the per-text sum equals
+        the authoritative total (single-text batches — the common case — are
+        exact). When the provider reports nothing (e.g. Gemini embeddings), fall
+        back to the raw gpt-5 estimate per text.
+        """
+        estimates = [estimate_tokens(text) for text in texts]
+        if provider_total <= 0:
+            return estimates
+
+        estimate_total = sum(estimates)
+        if estimate_total == 0:
+            # Degenerate (all-empty) batch: put the whole total on the first text.
+            return [provider_total, *([0] * (len(texts) - 1))]
+
+        attributed = [round(provider_total * est / estimate_total) for est in estimates]
+        # Correct rounding drift so the per-text sum matches the provider total exactly.
+        attributed[0] += provider_total - sum(attributed)
+        return attributed
 
     @override
     async def embed(
@@ -201,106 +297,130 @@ class BaseEmbedder(Embedder):
     ) -> EmbeddingResult:
         assert _EMBED_DURATION_HISTOGRAM is not None
 
-        # Check cache for each text, collect hits and misses
-        cached_results: dict[int, Sequence[float]] = {}
-        texts_to_embed: list[tuple[int, str]] = []
+        # Phase 1 — classify each text, synchronously (no await between reading and
+        # registering in-flight, so two concurrent calls can never both lead the same
+        # text). A text is either an LRU hit, already in flight (this call coalesces
+        # onto it), or new (this call leads it).
+        loop = asyncio.get_running_loop()
+        vectors: dict[int, Sequence[float]] = {}
+        cached_input_tokens = 0  # LRU hits + coalesced awaiters (priced at zero)
+        awaiting: list[tuple[int, asyncio.Future[tuple[Sequence[float], int]]]] = []
+        leaders: list[tuple[int, str, int, asyncio.Future[tuple[Sequence[float], int]]]] = []
 
         for i, text in enumerate(texts):
-            cached = self._cache_get(text)
-            if cached is not None:
-                cached_results[i] = cached
+            entry = self._cache_get(text)
+            if entry is not None:
+                vectors[i] = entry.vector
+                cached_input_tokens += entry.input_tokens
+                continue
+            checksum = self._compute_checksum(text)
+            if (existing := self._inflight.get(checksum)) is not None:
+                awaiting.append((i, existing))
             else:
-                texts_to_embed.append((i, text))
+                future: asyncio.Future[tuple[Sequence[float], int]] = loop.create_future()
+                self._inflight[checksum] = future
+                leaders.append((i, text, checksum, future))
 
-        # If all texts were cached, return immediately
-        if not texts_to_embed:
-            return EmbeddingResult(vectors=[cached_results[i] for i in range(len(texts))])
-
-        async with _EMBED_DURATION_HISTOGRAM.measure(
-            {
-                "class.name": self.__class__.__qualname__,
-                "embedding.model.name": self.model_name,
-                **({"embedding.tag": hints["tag"]} if "tag" in hints else {}),
-            },
-        ):
-            start = Stopwatch.start()
-
+        # Phase 2 — embed the texts this call leads (one batched provider request).
+        # Resolve each leader's future for any concurrent awaiters; on failure, fail
+        # every unresolved future so awaiters don't hang; always drain the in-flight
+        # entries so the map holds only currently-embedding texts.
+        provider_usage: UsageInfo | None = None
+        if leaders:
+            leader_texts = [text for _, text, _, _ in leaders]
+            leader_checksums = [checksum for _, _, checksum, _ in leaders]
             try:
-                # Only embed texts that weren't in cache
-                result = await self.do_embed(
-                    [text for _, text in texts_to_embed],
-                    hints,
-                )
-            except Exception as exc:
-                self.tracer.add_event(
-                    "embed.request_failed",
-                    attributes={
+                async with _EMBED_DURATION_HISTOGRAM.measure(
+                    {
                         "class.name": self.__class__.__qualname__,
-                        "model.name": self.model_name,
-                        "duration": start.elapsed,
+                        "embedding.model.name": self.model_name,
+                        **({"embedding.tag": hints["tag"]} if "tag" in hints else {}),
                     },
-                )
-                self._report_health(start.elapsed, success=False, error=exc)
+                ):
+                    start = Stopwatch.start()
+                    try:
+                        result = await self.do_embed(leader_texts, hints)
+                        if len(result.vectors) != len(leader_texts):
+                            raise ValueError(
+                                f"Embedder '{self.model_name}' returned "
+                                f"{len(result.vectors)} vector(s) for {len(leader_texts)} "
+                                "text(s); a provider adapter must return exactly one "
+                                "vector per text, in order."
+                            )
+                    except Exception:
+                        self.tracer.add_event(
+                            "embed.request_failed",
+                            attributes={
+                                "class.name": self.__class__.__qualname__,
+                                "model.name": self.model_name,
+                                "duration": start.elapsed,
+                            },
+                        )
+                        raise
+                    self.tracer.add_event(
+                        "embed.request_completed",
+                        attributes={
+                            "class.name": self.__class__.__qualname__,
+                            "model.name": self.model_name,
+                            "duration": start.elapsed,
+                        },
+                    )
+                    provider_usage = replace(result.usage, requests=max(result.usage.requests, 1))
+                    # Attribute the provider's batch total across the embedded texts and
+                    # cache each vector with its token count, so a later hit can report it.
+                    miss_tokens = self._attribute_tokens(leader_texts, result.usage.input_tokens)
+                    for (idx, text, _checksum, future), vector, tokens in zip(
+                        leaders, result.vectors, miss_tokens
+                    ):
+                        self._cache_put(text, vector, tokens)
+                        vectors[idx] = vector
+                        if not future.done():
+                            future.set_result((vector, tokens))
+            except BaseException as exc:
+                for _, _, _, future in leaders:
+                    if not future.done():
+                        future.set_exception(exc)
                 raise
-            else:
-                self.tracer.add_event(
-                    "embed.request_completed",
-                    attributes={
-                        "class.name": self.__class__.__qualname__,
-                        "model.name": self.model_name,
-                        "duration": start.elapsed,
-                    },
-                )
-                self._report_health(start.elapsed, success=True, error=None)
+            finally:
+                for checksum in leader_checksums:
+                    self._inflight.pop(checksum, None)
 
-            # Cache new results and merge with cached results
-            for (orig_idx, text), vector in zip(texts_to_embed, result.vectors):
-                self._cache_put(text, vector)
-                cached_results[orig_idx] = vector
+        # Phase 3 — await texts a concurrent call is embedding. These made no provider
+        # request of their own, so their tokens count as cached (priced at zero).
+        for i, future in awaiting:
+            vector, tokens = await future
+            vectors[i] = vector
+            cached_input_tokens += tokens
 
-        # Reconstruct results in original order
-        return EmbeddingResult(vectors=[cached_results[i] for i in range(len(texts))])
-
-    def _report_health(
-        self,
-        duration_seconds: float,
-        *,
-        success: bool,
-        error: BaseException | None,
-    ) -> None:
-        self.health_reporter.report(
-            NLP_EMBED_KIND,
-            {
-                NLPHealthView.ATTR_SCHEMA: self.__class__.__qualname__,
-                NLPHealthView.ATTR_MODEL: self.model_name,
-                NLPHealthView.ATTR_SUCCESS: success,
-                NLPHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
-                NLPHealthView.ATTR_ERROR_CLASS: type(error).__name__ if error is not None else None,
-            },
-        )
-        self.health_reporter.increment_counter(NLP_REQUESTS_COUNTER, 1)
-
-
-class EmbedderFactory:
-    """Factory for creating embedder instances."""
-
-    # FIXME: The vector DB layer uses embedder_type.__name__ to name collections
-    # (e.g. "glossary_OpenAITextEmbedding3Large"). This works when each embedder
-    # class maps to a single model, but breaks for generic embedders like
-    # LiteLLMEmbedder where the model is configured via an env var. Changing
-    # LITELLM_EMBEDDING_MODEL_NAME between server restarts won't trigger
-    # re-indexing because the type name stays "LiteLLMEmbedder". The collection
-    # naming scheme needs to incorporate the model identity (e.g. embedder.id)
-    # rather than just the class name.
-
-    def __init__(self, container: Container):
-        self._container = container
-
-    def create_embedder(self, embedder_type: type[Embedder]) -> Embedder:
-        if embedder_type == NullEmbedder:
-            return NullEmbedder()
+        # Phase 4 — assemble usage. Leaders' tokens are freshly-billed input (keeping the
+        # provider's cost/extra); LRU hits and coalesced awaiters are cached input tokens.
+        if provider_usage is not None:
+            usage = replace(
+                provider_usage,
+                input_tokens=provider_usage.input_tokens + cached_input_tokens,
+                cached_input_tokens=provider_usage.cached_input_tokens + cached_input_tokens,
+            )
         else:
-            return self._container[embedder_type]
+            # A cache-served call (full LRU hit, or coalesced onto a concurrent embed):
+            # no provider call, but it IS a request the system made — count it as one so
+            # cache-served calls stay visible in the usage report.
+            usage = UsageInfo(
+                input_tokens=cached_input_tokens,
+                output_tokens=0,
+                cached_input_tokens=cached_input_tokens,
+                requests=1 if texts else 0,
+            )
+        if self.usage_reporter is not None and (provider_usage is not None or cached_input_tokens):
+            self.usage_reporter.report_usage(
+                self.model_name,
+                usage,
+                provider_name=self.provider_name,
+            )
+
+        return EmbeddingResult(
+            vectors=[vectors[i] for i in range(len(texts))],
+            usage=usage,
+        )
 
 
 class NullEmbedder(Embedder):
@@ -337,17 +457,13 @@ class NullEmbedder(Embedder):
         return 1536  # Standard embedding dimension
 
 
-class EmbedderResultDocument_v0_1_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    vectors: Sequence[Sequence[float]]
-
-
 class EmbedderResultDocument(TypedDict, total=False):
     id: ObjectId
     creation_utc: str
     version: Version.String
     vectors: Sequence[Sequence[float]]
+    # Per-text input-token counts, surfaced as cached_input_tokens on a hit.
+    input_tokens: Sequence[int]
 
 
 class EmbeddingCache(ABC):
@@ -356,7 +472,7 @@ class EmbeddingCache(ABC):
     @abstractmethod
     async def get(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> Optional[EmbeddingResult]:
@@ -365,9 +481,10 @@ class EmbeddingCache(ABC):
     @abstractmethod
     async def set(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         texts: list[str],
         vectors: Sequence[Sequence[float]],
+        input_tokens: Sequence[int] = (),
         hints: Mapping[str, Any] = {},
     ) -> None:
         pass
@@ -379,43 +496,37 @@ EmbeddingCacheProvider = Callable[[], EmbeddingCache]
 class BasicEmbeddingCache(EmbeddingCache):
     """A basic embedding cache that uses a document database to store results."""
 
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.1.0")
 
     def __init__(
         self,
         document_database: DocumentDatabase,
     ):
         self._database = document_database
-        self._collections: dict[type[Embedder], DocumentCollection[EmbedderResultDocument]] = {}
+        self._collections: dict[str, DocumentCollection[EmbedderResultDocument]] = {}
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[EmbedderResultDocument]:
-        if doc["version"] == "0.1.0":
-            d = cast(EmbedderResultDocument_v0_1_0, doc)
-            return EmbedderResultDocument(
-                id=d["id"],
-                creation_utc=datetime.now(timezone.utc).isoformat(),
-                version=d["version"],
-                vectors=d["vectors"],
-            )
-
-        if Version.from_string(doc["version"]) >= Version.from_string("0.2.0"):
+        # The embedding cache is a disposable derived artifact — no backward
+        # compatibility. Only the current schema is accepted; anything else is
+        # dropped and re-embedded on demand.
+        if doc["version"] == self.VERSION.to_string():
             return cast(EmbedderResultDocument, doc)
 
         return None
 
     async def _get_or_create_collection(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
     ) -> DocumentCollection[EmbedderResultDocument]:
-        if embedder_type not in self._collections:
+        if embedder.id not in self._collections:
             collection = await self._database.get_or_create_collection(
-                name=embedder_type.__name__,
+                name=f"embedding_{embedder_id_hash(embedder)}",
                 schema=EmbedderResultDocument,
                 document_loader=self._document_loader,
             )
-            self._collections[embedder_type] = collection
+            self._collections[embedder.id] = collection
 
-        return self._collections[embedder_type]
+        return self._collections[embedder.id]
 
     def _generate_id(
         self,
@@ -430,27 +541,40 @@ class BasicEmbeddingCache(EmbeddingCache):
         self,
         id: str,
         vectors: Sequence[Sequence[float]],
+        input_tokens: Sequence[int],
     ) -> EmbedderResultDocument:
         return EmbedderResultDocument(
             id=ObjectId(id),
             creation_utc=datetime.now(timezone.utc).isoformat(),
             version=self.VERSION.to_string(),
             vectors=vectors,
+            input_tokens=input_tokens,
         )
 
     def _deserialize_result(
         self,
         doc: EmbedderResultDocument,
     ) -> EmbeddingResult:
-        return EmbeddingResult(vectors=doc["vectors"])
+        # A hit serves the whole cached batch, so all its tokens are cached input
+        # tokens (priced at zero). No provider request is made.
+        cached_input_tokens = sum(doc.get("input_tokens", []))
+        return EmbeddingResult(
+            vectors=doc["vectors"],
+            usage=UsageInfo(
+                input_tokens=cached_input_tokens,
+                output_tokens=0,
+                cached_input_tokens=cached_input_tokens,
+                requests=0,
+            ),
+        )
 
     async def get(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> Optional[EmbeddingResult]:
-        collection = await self._get_or_create_collection(embedder_type)
+        collection = await self._get_or_create_collection(embedder)
 
         id = self._generate_id(texts, hints)
         doc = await collection.find_one({"id": {"$eq": ObjectId(id)}})
@@ -462,15 +586,16 @@ class BasicEmbeddingCache(EmbeddingCache):
 
     async def set(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         texts: list[str],
         vectors: Sequence[Sequence[float]],
+        input_tokens: Sequence[int] = (),
         hints: Mapping[str, Any] = {},
     ) -> None:
-        collection = await self._get_or_create_collection(embedder_type)
+        collection = await self._get_or_create_collection(embedder)
 
         id = self._generate_id(texts, hints)
-        doc = self._serialize_result(id, vectors)
+        doc = self._serialize_result(id, vectors, input_tokens)
 
         await collection.insert_one(doc)
 
@@ -480,7 +605,7 @@ class NullEmbeddingCache(EmbeddingCache):
 
     async def get(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> Optional[EmbeddingResult]:
@@ -488,9 +613,10 @@ class NullEmbeddingCache(EmbeddingCache):
 
     async def set(
         self,
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         texts: list[str],
         vectors: Sequence[Sequence[float]],
+        input_tokens: Sequence[int] = (),
         hints: Mapping[str, Any] = {},
     ) -> None:
         pass

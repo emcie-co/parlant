@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture
 
 from parlant.core.agents import AgentId

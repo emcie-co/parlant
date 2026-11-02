@@ -1684,3 +1684,75 @@ async def test_that_live_schematic_generation_succeeds_with_the_indexing_tempera
     )
 
     assert "Paris" in result.content.capital
+
+
+# ─────────────────── thinking shape on older Opus models ────────────────────
+
+# Opus 4.5 rejects adaptive thinking with a 400 ("adaptive thinking is not
+# supported on this model") and takes a thinking budget; adaptive starts at 4.6.
+
+
+@pytest.mark.parametrize("model", ["claude-opus-4-5", "claude-opus-4-5-20251101"])
+def test_that_a_reasoning_effort_on_claude_opus_4_5_uses_a_thinking_budget(
+    logger: Logger,
+    model: str,
+) -> None:
+    generator = _offline_schematic(logger, model)
+
+    request = generator._build_request(
+        "What is the capital of France?", {"reasoning_effort": "high"}
+    )
+
+    assert request["thinking"]["type"] == "enabled"
+    assert request["thinking"]["budget_tokens"] == generator._EFFORT_TO_THINKING_BUDGET["high"]
+    assert "effort" not in request.get("output_config", {})
+
+
+def test_that_the_react_generator_uses_a_thinking_budget_on_claude_opus_4_5(
+    logger: Logger,
+) -> None:
+    generator = AnthropicReactGenerator(
+        model="claude-opus-4-5",
+        logger=logger,
+        client=AsyncAnthropic(api_key="offline-encode-tests"),
+    )
+
+    request = generator._encode([], [], "auto", reasoning=ReasoningConfig(effort="high"))
+
+    assert request["thinking"]["type"] == "enabled"
+    assert request["thinking"]["budget_tokens"] == generator._EFFORT_TO_BUDGET["high"]
+    assert "output_config" not in request
+
+
+@pytest.mark.parametrize("model", ["claude-opus-4-6", "claude-opus-4-8", "claude-opus-5-5"])
+def test_that_a_reasoning_effort_stays_adaptive_on_claude_opus_4_6_and_later(
+    logger: Logger,
+    model: str,
+) -> None:
+    generator = _offline_schematic(logger, model)
+
+    request = generator._build_request(
+        "What is the capital of France?", {"reasoning_effort": "high"}
+    )
+
+    assert request["thinking"]["type"] == "adaptive"
+    assert request["output_config"]["effort"] == "high"
+
+
+@LIVE
+async def test_that_live_schematic_generation_with_a_reasoning_effort_succeeds_on_claude_opus_4_5(
+    logger: Logger,
+) -> None:
+    generator = RoutedAnthropicSchematicGenerator[_Capital](
+        model_name="claude-opus-4-5",
+        logger=logger,
+        tracer=LocalTracer(),
+        meter=LocalMeter(logger),
+    )
+
+    result = await generator.generate(
+        "What is the capital of France? Answer as JSON.",
+        hints={"temperature": 0.0, "reasoning_effort": "low"},
+    )
+
+    assert "Paris" in result.content.capital

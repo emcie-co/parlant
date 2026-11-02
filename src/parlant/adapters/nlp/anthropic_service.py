@@ -190,7 +190,13 @@ def _to_usage_info(usage: Any) -> UsageInfo:
 
 
 def _uses_adaptive_thinking(model: str) -> bool:
-    return model.startswith(("claude-opus-", "claude-sonnet-5", "claude-haiku-5", "claude-fable-"))
+    """Whether the model takes adaptive thinking rather than a thinking budget.
+    Opus 4.6 and later, Sonnet 5, Haiku 5 and Fable do; Opus 4.5 and earlier
+    reject it with a 400 ("adaptive thinking is not supported on this model")."""
+    if model.startswith(("claude-sonnet-5", "claude-haiku-5", "claude-fable-")):
+        return True
+    m = re.match(r"claude-opus-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$", model)
+    return m is not None and (int(m.group(1)), int(m.group(2) or 0)) >= (4, 6)
 
 
 def _accepts_sampling_parameters(model: str) -> bool:
@@ -436,9 +442,9 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
 
     @staticmethod
     def _uses_adaptive_thinking(model: str) -> bool:
-        # Opus 4.x+, Sonnet 5.x and Haiku 5.x use adaptive thinking (they reject
-        # "enabled" and need output_config.effort); older Sonnet / Haiku 4.5 use
-        # manual budgeted thinking.
+        # Opus 4.6+, Sonnet 5.x, Haiku 5.x and Fable use adaptive thinking (they reject
+        # "enabled" and need output_config.effort); Opus 4.5 and Sonnet / Haiku
+        # 4.5 use manual budgeted thinking.
         return _uses_adaptive_thinking(model)
 
     def _reasoning_arguments(self, effort: ReasoningEffort, max_tokens: int) -> dict[str, Any]:
@@ -878,9 +884,9 @@ class AnthropicReactGenerator(ReactGenerator):
 
     @staticmethod
     def _uses_adaptive_thinking(model: str) -> bool:
-        """Opus 4.x+, Sonnet 5.x and Haiku 5.x use adaptive thinking (they reject
-        ``enabled`` outright and need ``output_config.effort``; 4.5/4.6 deprecate
-        it). Older Sonnet and Haiku 4.5 still use the manual ``enabled`` shape."""
+        """Opus 4.6+, Sonnet 5.x, Haiku 5.x and Fable use adaptive thinking (they reject
+        ``enabled`` outright and need ``output_config.effort``). Opus 4.5 and
+        Sonnet / Haiku 4.5 still use the manual ``enabled`` shape."""
         return _uses_adaptive_thinking(model)
 
     @staticmethod

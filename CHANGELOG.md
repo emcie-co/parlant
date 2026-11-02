@@ -22,6 +22,9 @@ Each entry says what changed and what it means for you, under `Added`,
   Claude 3 models and Claude 4 models up to 4.6, which still accept it.
 - A reasoning effort on a Claude Fable model now uses adaptive thinking instead
   of a thinking budget, which Fable rejects.
+- A reasoning effort on Claude Opus 4.5 no longer fails. Parlant sent it
+  adaptive thinking, which it rejects ("adaptive thinking is not supported on
+  this model"); it now gets a thinking budget, as Sonnet and Haiku 4.5 do.
 
 ## [4.0.0] - 2026-11-02
 

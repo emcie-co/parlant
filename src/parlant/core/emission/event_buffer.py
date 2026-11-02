@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,81 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import cast
+from typing import Callable, Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
+from parlant.core import metadata as metadata_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
-from parlant.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
+from parlant.core.emissions import (
+    EmittedEvent,
+    EventEmitter,
+    EventEmitterFactory,
+    MessageEventHandle,
+    StatusEventHandle,
+)
 from parlant.core.sessions import (
     EventKind,
     EventSource,
     MessageEventData,
+    Participant,
     SessionId,
     StatusEventData,
     ToolEventData,
 )
+
+
+class EventBufferMessageUpdater:
+    """MessageEventUpdater implementation that updates events in an EventBuffer."""
+
+    def __init__(self, buffer: "EventBuffer", event_index: int) -> None:
+        self._buffer = buffer
+        self._event_index = event_index
+
+    async def __call__(
+        self,
+        data: MessageEventData,
+        *,
+        internal_metadata: Mapping[str, JSONSerializable] | None = None,
+    ) -> MessageEventHandle:
+        # EmittedEvent is frozen, so we need to replace with a new event
+        old_event = self._buffer.events[self._event_index]
+        metadata = old_event.metadata
+        for key, value in (internal_metadata or {}).items():
+            metadata = metadata_utils.set_internal_value(metadata or {}, (key,), value)
+        new_event = EmittedEvent(
+            source=old_event.source,
+            kind=old_event.kind,
+            trace_id=old_event.trace_id,
+            data=cast(JSONSerializable, data),
+            metadata=metadata,
+        )
+        self._buffer.events[self._event_index] = new_event
+
+        return MessageEventHandle(event=new_event, update=self)
+
+
+class EventBufferStatusUpdater:
+    """StatusEventUpdater implementation that updates events in an EventBuffer."""
+
+    def __init__(self, buffer: "EventBuffer", event_index: int) -> None:
+        self._buffer = buffer
+        self._event_index = event_index
+
+    async def __call__(self, data: StatusEventData) -> StatusEventHandle:
+        # EmittedEvent is frozen, so we need to replace with a new event
+        old_event = self._buffer.events[self._event_index]
+        new_event = EmittedEvent(
+            source=old_event.source,
+            kind=old_event.kind,
+            trace_id=old_event.trace_id,
+            data=cast(JSONSerializable, data),
+            metadata=old_event.metadata,
+        )
+        self._buffer.events[self._event_index] = new_event
+
+        return StatusEventHandle(event=new_event, update=self)
 
 
 class EventBuffer(EventEmitter):
@@ -36,62 +97,85 @@ class EventBuffer(EventEmitter):
     @override
     async def emit_status_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: StatusEventData,
-    ) -> EmittedEvent:
+        metadata: Mapping[str, JSONSerializable] | None = None,
+    ) -> StatusEventHandle:
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=cast(JSONSerializable, data),
+            metadata=metadata,
         )
 
+        event_index = len(self.events)
         self.events.append(event)
 
-        return event
+        updater = EventBufferStatusUpdater(buffer=self, event_index=event_index)
+        return StatusEventHandle(event=event, update=updater)
 
     @override
     async def emit_message_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: str | MessageEventData,
-    ) -> EmittedEvent:
+        metadata: Mapping[str, JSONSerializable] | None = None,
+        *,
+        source: EventSource = EventSource.AI_AGENT,
+    ) -> MessageEventHandle:
+        if source not in (EventSource.AI_AGENT, EventSource.SYSTEM):
+            raise ValueError(f"Unsupported message event source: {source}")
+
         if isinstance(data, str):
+            participant: Participant = (
+                {
+                    "id": self.agent.id,
+                    "display_name": self.agent.name,
+                }
+                if source == EventSource.AI_AGENT
+                else {
+                    "id": None,
+                    "display_name": "System",
+                }
+            )
             message_data = cast(
                 JSONSerializable,
                 MessageEventData(
                     message=data,
-                    participant={
-                        "id": self.agent.id,
-                        "display_name": self.agent.name,
-                    },
+                    participant=participant,
                 ),
             )
         else:
             message_data = cast(JSONSerializable, data)
 
         event = EmittedEvent(
-            source=EventSource.AI_AGENT,
+            source=source,
             kind=EventKind.MESSAGE,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=message_data,
+            metadata=metadata,
         )
 
+        event_index = len(self.events)
         self.events.append(event)
 
-        return event
+        updater = EventBufferMessageUpdater(buffer=self, event_index=event_index)
+        return MessageEventHandle(event=event, update=updater)
 
     @override
     async def emit_tool_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: ToolEventData,
+        metadata: Mapping[str, JSONSerializable] | None = None,
     ) -> EmittedEvent:
         event = EmittedEvent(
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=cast(JSONSerializable, data),
+            metadata=metadata,
         )
 
         self.events.append(event)
@@ -101,14 +185,18 @@ class EventBuffer(EventEmitter):
     @override
     async def emit_custom_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: JSONSerializable,
+        metadata: Mapping[str, JSONSerializable] | None = None,
+        *,
+        source: EventSource = EventSource.AI_AGENT,
     ) -> EmittedEvent:
         event = EmittedEvent(
-            source=EventSource.AI_AGENT,
+            source=source,
             kind=EventKind.CUSTOM,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=data,
+            metadata=metadata,
         )
 
         self.events.append(event)
@@ -117,8 +205,8 @@ class EventBuffer(EventEmitter):
 
 
 class EventBufferFactory(EventEmitterFactory):
-    def __init__(self, agent_store: AgentStore) -> None:
-        self._agent_store = agent_store
+    def __init__(self, store_provider_factory: Callable[[], StoreProvider]) -> None:
+        self._store_provider_factory = store_provider_factory
 
     @override
     async def create_event_emitter(
@@ -127,5 +215,8 @@ class EventBufferFactory(EventEmitterFactory):
         session_id: SessionId,
     ) -> EventEmitter:
         _ = session_id
-        agent = await self._agent_store.read_agent(emitting_agent_id)
+        agent_store = self._store_provider_factory().get_store(
+            AgentStore, StoreProviderHints(call_site="engine")
+        )
+        agent = await agent_store.read_agent(emitting_agent_id)
         return EventBuffer(emitting_agent=agent)

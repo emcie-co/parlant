@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License")
 # You may not use this file except in compliance with the License.
@@ -15,12 +15,24 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Generic, Optional, Sequence, TypeVar, TypedDict
-from typing_extensions import Required
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Generic,
+    Mapping,
+    Optional,
+    Sequence,
+    TypeVar,
+    TypedDict,
+)
+from typing_extensions import Required, override
 
+from parlant.core import async_utils
 from parlant.core.common import JSONSerializable, Version
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.tracer import Tracer
 
 
 class BaseDocument(TypedDict, total=False):
@@ -31,6 +43,11 @@ class BaseDocument(TypedDict, total=False):
 
 
 TDocument = TypeVar("TDocument", bound=BaseDocument)
+
+
+@dataclass(frozen=True)
+class VectorCollectionIndex:
+    field: str
 
 
 async def identity_loader(doc: BaseDocument) -> BaseDocument:
@@ -77,7 +94,7 @@ class VectorDatabase(ABC):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
     ) -> VectorCollection[TDocument]: ...
 
     @abstractmethod
@@ -85,7 +102,7 @@ class VectorDatabase(ABC):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> VectorCollection[TDocument]: ...
 
@@ -94,7 +111,7 @@ class VectorDatabase(ABC):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> VectorCollection[TDocument]: ...
 
@@ -120,7 +137,7 @@ class VectorDatabase(ABC):
     @abstractmethod
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]: ...
+    ) -> Mapping[str, JSONSerializable]: ...
 
 
 class VectorCollection(ABC, Generic[TDocument]):
@@ -156,10 +173,61 @@ class VectorCollection(ABC, Generic[TDocument]):
         filters: Where,
     ) -> DeleteResult[TDocument]: ...
 
+    async def replace_documents(
+        self,
+        filters: Where,
+        documents: Sequence[TDocument],
+    ) -> None:
+        """Replace all matching documents, preserving documents outside the filter.
+
+        Replacement IDs must be unique and must not belong to documents outside
+        the filter. An empty replacement deletes all matches. Adapters may
+        optimize this operation; the default retains individual-operation
+        semantics and does not promise an atomic replacement.
+        """
+        for document in list(await self.find(filters)):
+            await self.delete_one({"id": {"$eq": document["id"]}})
+
+        await async_utils.safe_gather(*[self.insert_one(document) for document in documents])
+
     @abstractmethod
     async def find_similar_documents(
         self,
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
+
+    @abstractmethod
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        """Ensures the requested filter indexes exist for the collection."""
+        ...
+
+
+class BaseVectorCollection(VectorCollection[TDocument]):
+    def __init__(self, tracer: Tracer) -> None:
+        self._tracer = tracer
+
+    @abstractmethod
+    async def do_find_similar_documents(
+        self,
+        filters: Where,
+        query: str,
+        k: int,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
+
+    @override
+    async def find_similar_documents(
+        self,
+        filters: Where,
+        query: str,
+        k: int,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[SimilarDocumentResult[TDocument]]:
+        with self._tracer.span("persistence.find_similar_documents"):
+            return await self.do_find_similar_documents(filters, query, k, hints)

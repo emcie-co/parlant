@@ -1,5 +1,5 @@
 {
-  "name": "poetry3-poetry-pyenv",
+  "name": "uv-pyenv",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -26,7 +26,6 @@
         "mutantdino.resourcemonitor",
         "njpwerner.autodocstring",
         "tamasfe.even-better-toml",
-        "zeshuaro.vscode-python-poetry",
         "streetsidesoftware.code-spell-checker"
       ]
     }
@@ -36,10 +35,7 @@
     "ghcr.io/devcontainers-extra/features/mypy:2": {
       "version": "latest"
     },
-    "ghcr.io/devcontainers-extra/features/poetry:2": {
-      "version": "latest"
-    },
-    "node": {
+    "ghcr.io/devcontainers/features/node:1": {
       "version": "lts",
       "nodeGypDependencies": true
     }

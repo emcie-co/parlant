@@ -238,7 +238,7 @@ export const getIndexedItemsFromIndexedDB = async (dbName: string, storeName: st
       request.onerror = () => reject(request.error);
     });
     return asObject ? response.reduce((acc: Record<string, string>, item: any) => {
-      acc[item.correlationId] = item.flagValue;
+      acc[item.traceId] = item.flagValue;
       return acc;
     }, {} as Record<string, string>) : response;
   } catch (error) {

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,15 +13,17 @@
 # limitations under the License.
 
 import asyncio
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
 from fastapi import WebSocket
 from typing_extensions import override
 
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.common import UniqueId, generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
-from parlant.core.loggers import CorrelationalLogger, LogLevel
+from parlant.core.tracer import Tracer
+from parlant.core.loggers import TracingLogger, LogLevel
 
 
 @dataclass(frozen=True)
@@ -30,26 +32,29 @@ class WebSocketSubscription:
     expiration: asyncio.Event
 
 
-class WebSocketLogger(CorrelationalLogger):
+class WebSocketLogger(TracingLogger):
     def __init__(
         self,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        super().__init__(correlator, log_level, logger_id)
+        super().__init__(tracer, log_level, logger_id)
 
         self._message_queue = deque[Any]()
         self._messages_in_queue = asyncio.Semaphore(0)
         self._socket_subscriptions: dict[UniqueId, WebSocketSubscription] = {}
         self._lock = asyncio.Lock()
 
-    def _enqueue_message(self, level: str, message: str) -> None:
+    def _enqueue_message(self, timestamp: str, level: str, message: str) -> None:
         payload = {
             "level": level,
-            "correlation_id": self._correlator.correlation_id,
+            "trace_id": self._tracer.trace_id,
             "message": message,
         }
+
+        if context_creation := EntityContext.get_context_creation():
+            payload["message"] = f"[T+{round(context_creation.elapsed, 3)}s]{message}"
 
         self._message_queue.append(payload)
         self._messages_in_queue.release()
@@ -64,29 +69,32 @@ class WebSocketLogger(CorrelationalLogger):
 
         return subscription
 
+    def _timestamp(self) -> str:
+        return round(time.monotonic(), 3).__str__()
+
     @override
     def trace(self, message: str) -> None:
-        self._enqueue_message("TRACE", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "TRACE", f"{self.current_scope} {message}")
 
     @override
     def debug(self, message: str) -> None:
-        self._enqueue_message("DEBUG", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "DEBUG", f"{self.current_scope} {message}")
 
     @override
     def info(self, message: str) -> None:
-        self._enqueue_message("INFO", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "INFO", f"{self.current_scope} {message}")
 
     @override
     def warning(self, message: str) -> None:
-        self._enqueue_message("WARNING", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "WARNING", f"{self.current_scope} {message}")
 
     @override
     def error(self, message: str) -> None:
-        self._enqueue_message("ERROR", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "ERROR", f"{self.current_scope} {message}")
 
     @override
     def critical(self, message: str) -> None:
-        self._enqueue_message("CRITICAL", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "CRITICAL", f"{self.current_scope} {message}")
 
     async def start(self) -> None:
         try:
@@ -94,6 +102,10 @@ class WebSocketLogger(CorrelationalLogger):
                 try:
                     await self._messages_in_queue.acquire()
                     payload = self._message_queue.popleft()
+
+                    if not self._socket_subscriptions:
+                        await asyncio.sleep(0)
+                        continue
 
                     async with self._lock:
                         socket_subscriptions = dict(self._socket_subscriptions)

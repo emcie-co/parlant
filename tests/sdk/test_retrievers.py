@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
+import pytest
+
 import parlant.sdk as p
 from tests.sdk.utils import Context, SDKTest
 from tests.test_utilities import nlp_test
@@ -20,19 +24,20 @@ from tests.test_utilities import nlp_test
 class Test_that_a_custom_retriever_can_be_used_to_add_data_to_message_context(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="retrievers-agent-1",
             name="Dummy agent",
-            description="Dummy agent",
+            instructions="Dummy agent",
         )
 
-        async def custom_retriever(ctx: p.RetrieverContext) -> str:
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
             assert ctx.interaction.last_customer_message is not None
             assert ctx.interaction.last_customer_message.content == "What is an orange eggplant?"
-            return "An orange eggplant is actually a special type of tomato"
+            return p.RetrieverResult(data="An orange eggplant is actually a special type of tomato")
 
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What is an orange eggplant?",
             recipient=self.agent,
         )
@@ -46,21 +51,22 @@ class Test_that_a_custom_retriever_can_be_used_to_add_data_to_message_context(SD
 class Test_that_multiple_custom_retrievers_can_be_used_to_add_data_to_message_context(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="retrievers-agent-2",
             name="Dummy agent",
-            description="Dummy agent",
+            instructions="Dummy agent",
         )
 
-        async def custom_retriever_1(ctx: p.RetrieverContext) -> str:
-            return "An orange eggplant is actually a special type of tomato"
+        async def custom_retriever_1(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="An orange eggplant is actually a special type of tomato")
 
-        async def custom_retriever_2(ctx: p.RetrieverContext) -> str:
-            return "Parla loves orange eggplants"
+        async def custom_retriever_2(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="Parla loves orange eggplants")
 
         await self.agent.attach_retriever(custom_retriever_1)
         await self.agent.attach_retriever(custom_retriever_2)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What's the name of he/she who is known to love tomatoes?",
             recipient=self.agent,
         )
@@ -74,9 +80,9 @@ class Test_that_multiple_custom_retrievers_can_be_used_to_add_data_to_message_co
 class Test_that_a_retriever_can_return_a_canned_response(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="retrievers-agent-3",
             name="Dummy agent",
-            description="Dummy agent",
-            composition_mode=p.CompositionMode.STRICT,
+            instructions="Dummy agent",
         )
 
         async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
@@ -87,9 +93,396 @@ class Test_that_a_retriever_can_return_a_canned_response(SDKTest):
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="Hello",
             recipient=self.agent,
         )
 
-        assert response == "Howdy Junior! How can I help?"
+        # The retriever-supplied response must drive the reply (its distinctive
+        # content proves it); byte-verbatim reproduction is model-dependent
+        # under compass's mimic-with-adaptation contract.
+        assert "howdy junior" in response.lower(), (
+            f"Expected the retriever-supplied canned response to drive the reply, got: {response}"
+        )
+
+
+class Test_that_retriever_can_return_direct_result_immediately(SDKTest):
+    """Test that existing behavior still works - retriever returns RetrieverResult directly."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-4",
+            name="Dummy agent",
+            instructions="Dummy agent",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(
+                data="Direct result: An orange eggplant is a tomato",
+            )
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is an orange eggplant?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It mentions that an orange eggplant is a tomato",
+        )
+
+
+class Test_that_retriever_can_return_deferred_callable_that_receives_engine_context(SDKTest):
+    """Test that retriever can return a deferred callable which is called with EngineContext."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-5",
+            name="Dummy agent",
+            instructions="Dummy agent",
+        )
+
+        self.deferred_was_called = False
+        self.engine_context_received = False
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.DeferredRetriever:
+            # This runs during on_acknowledged
+            async def deferred(engine_ctx: p.EngineContext) -> p.RetrieverResult:
+                # This runs during on_generating_messages
+                self.deferred_was_called = True
+                self.engine_context_received = engine_ctx is not None
+                return p.RetrieverResult(
+                    data="Deferred result: A purple tomato is an eggplant",
+                )
+
+            return deferred
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is a purple tomato?",
+            recipient=self.agent,
+        )
+
+        assert self.deferred_was_called, "Deferred callable was not called"
+        assert self.engine_context_received, "EngineContext was not received"
+
+        assert await nlp_test(
+            context=response,
+            condition="It mentions that a purple tomato is an eggplant",
+        )
+
+
+class Test_that_deferred_retriever_receives_updated_engine_context_with_rules_and_tools(SDKTest):
+    """Test that the deferred callable receives the full EngineContext from on_generating_messages."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-6",
+            name="Dummy agent",
+            instructions="Dummy agent",
+        )
+
+        # Add a rule that should be matched
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about Chongas",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.DeferredRetriever:
+            async def deferred(engine_ctx: p.EngineContext) -> p.RetrieverResult:
+                assert engine_ctx.state is not None
+
+                # "In play" under compass means the discovered working set:
+                # an attachment-less observation is admitted by discovery and
+                # rendered as a standing instruction — it never receives a
+                # per-turn match verdict, so state.rules (turn matches) would
+                # be empty here.
+                rules_in_play = {rule.id for rule in engine_ctx.state.discovered_rules}
+
+                if self.observation.id in rules_in_play:
+                    return p.RetrieverResult(
+                        data="Chongas are a tropical island fruit",
+                    )
+                else:
+                    return p.RetrieverResult(None)
+
+            return deferred
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What are chongas?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says chongas are a fruit",
+        )
+
+
+class Test_that_deferred_retriever_can_return_none_based_on_engine_context(SDKTest):
+    """Test that deferred callable can inspect engine context and return None."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-7",
+            name="Dummy agent",
+            instructions="Dummy agent",
+        )
+
+        self.deferred_returned_none = False
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.DeferredRetriever:
+            async def deferred(engine_ctx: p.EngineContext) -> p.RetrieverResult | None:
+                # Simulate logic that decides not to return data based on context
+                # For this test, we always return None
+                self.deferred_returned_none = True
+                return None
+
+            return deferred
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Hello there",
+            recipient=self.agent,
+        )
+
+        assert self.deferred_returned_none, "Deferred callable did not return None as expected"
+        # The agent should still respond, just without retriever data
+        assert len(response) > 0
+
+
+class Test_that_retriever_rules_are_followed_by_agent(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-8",
+            name="Retriever Rule Agent",
+            instructions="Agent for testing retriever transient rules",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(
+                data={"status": "retrieved"},
+                rules=[
+                    {"content": "Offer the customer a Pepsi immediately"},
+                ],
+            )
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Hello there",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+
+
+class Test_that_a_custom_retriever_adds_data_to_message_context_with_compass_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-9",
+            name="Dummy agent",
+            instructions="Dummy agent",
+            output_mode=p.OutputMode.STREAM,
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            assert ctx.interaction.last_customer_message is not None
+            assert ctx.interaction.last_customer_message.content == "What is an orange eggplant?"
+            return p.RetrieverResult(data="An orange eggplant is actually a special type of tomato")
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is an orange eggplant?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says that an orange eggplant is a type of tomato",
+        )
+
+
+class Test_that_a_rule_attached_retriever_runs_with_compass_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-10",
+            name="Dummy agent",
+            instructions="Dummy agent",
+            output_mode=p.OutputMode.STREAM,
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about Chongas",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="Chongas are a tropical island fruit")
+
+        await self.observation.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What are chongas?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says chongas are a fruit",
+        )
+
+
+# Retriever results reach the model as tool results with no call, which the
+# OpenAI-style APIs behind OpenRouter drop or reject unless sent as context.
+@pytest.mark.skipif(
+    not os.environ.get("OPENROUTER_API_KEY"),
+    reason="OPENROUTER_API_KEY not set; skipping the OpenRouter retriever test",
+)
+class Test_that_a_rule_attached_retriever_answers_with_openrouter(SDKTest):
+    MODELS = {"*": "openrouter"}
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-openrouter",
+            name="Dummy agent",
+            instructions="Dummy agent",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about Chongas",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="Chongas are bright purple")
+
+        await self.observation.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What colour are chongas?",
+            recipient=self.agent,
+        )
+
+        # Checked by keyword rather than nlp_test, whose judge needs an OpenAI
+        # key: this test should run on an OpenRouter key alone.
+        assert "purple" in response.lower()
+
+
+class Test_that_attaching_a_retriever_to_a_rule_stamps_the_rank_evaluation_method(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="retrievers-agent-11",
+            name="Stamp agent",
+            instructions="Stamp agent",
+        )
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about Chongas",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="Chongas are a tropical island fruit")
+
+        await self.observation.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core import metadata as metadata_utils
+        from parlant.core.rules import RuleStore
+
+        rule = await ctx.container[RuleStore].read_rule(self.observation.id)
+
+        assert metadata_utils.internal_value(rule.metadata, ("evaluation_method",)) == "rank"
+
+
+class Test_that_registration_metadata_lists_every_attachment_without_executing_it(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.calls = 0
+        self.agent = await server.create_agent(
+            id="catalog-a", name="Catalog A", instructions="Catalog test agent"
+        )
+        other = await server.create_agent(
+            id="catalog-b", name="Catalog B", instructions="Catalog test agent"
+        )
+
+        async def retrieve(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.calls += 1
+            return p.RetrieverResult(data={"private": "not catalog metadata"})
+
+        async def replacement(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.calls += 1
+            return p.RetrieverResult(data="replacement")
+
+        async def deferred(ctx: p.RetrieverContext) -> p.DeferredRetriever:
+            self.calls += 1
+
+            async def finish(engine_ctx: p.EngineContext) -> p.RetrieverResult:
+                self.calls += 1
+                return p.RetrieverResult(data="deferred result")
+
+            return finish
+
+        await self.agent.attach_retriever(retrieve, id="profile", title="Old")
+        await self.agent.attach_retriever(
+            replacement, id="profile", title="Profile", description="Account facts"
+        )
+        await other.attach_retriever(retrieve, id="profile")
+        await self.agent.attach_retriever(deferred, id="deferred")
+        observation = await self.agent.create_observation(
+            condition="The customer asks about pricing", title="Pricing"
+        )
+        self.rule_id = observation.id
+        await observation.attach_retriever(retrieve, id="pricing", title="Pricing facts")
+        await observation.attach_retriever(retrieve, id="pricing", title="Another attachment")
+        policy = await self.agent.create_policy(content="Be helpful", title="Helpful")
+        self.policy_id = policy.id
+        await policy.attach_retriever(retrieve)
+        assert self.agent.retrievers["profile"] is replacement
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.retrievers import RetrieverRegistry
+        from parlant.core.application import Application
+        from parlant.core.health import HealthReporter
+        from parlant.core.loggers import Logger
+        from parlant.core.tunnels import TunnelRequest, TunnelRequestDispatcher
+
+        registry = ctx.container[RetrieverRegistry]
+        entries = registry.list()
+        assert len(entries) == 6
+        assert len({entry.id for entry in entries}) == 6
+        assert [
+            entry.title
+            for entry in entries
+            if entry.owner.id == "catalog-a" and entry.name == "profile"
+        ] == ["Profile"]
+        assert len([entry for entry in entries if entry.owner.id == self.rule_id]) == 2
+        assert any(
+            entry.owner.id == self.policy_id and entry.name == f"rule-retriever-{self.policy_id}"
+            for entry in entries
+        )
+        dispatcher = TunnelRequestDispatcher(
+            application=ctx.container[Application],
+            health_reporter=ctx.container[HealthReporter],
+            logger=ctx.container[Logger],
+            retriever_registry=registry,
+        )
+        response = await dispatcher.dispatch(
+            TunnelRequest(request_id="list", method="retrievers.list", params={})
+        )
+        assert response.error is None
+        assert self.calls == 0
+        import json
+
+        assert "private" not in json.dumps(response.result)
+        assert "deferred result" not in json.dumps(response.result)

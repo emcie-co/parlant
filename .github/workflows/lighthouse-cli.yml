@@ -1,0 +1,31 @@
+name: Lighthouse CLI
+on:
+  pull_request:
+    branches: [compass]
+    paths:
+      - src/parlant/bin/docs.py
+      - src/parlant/bin/docs_attribution.py
+      - src/parlant/bin/cli.py
+      - tests/bin/test_docs.py
+      - tests/bin/test_cli.py
+      - .github/workflows/lighthouse-cli.yml
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lighthouse-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Real HTTP docs command and CLI registration tests
+        run: uv run --frozen pytest --noconftest tests/bin/test_docs.py tests/bin/test_cli.py
+      - run: uv run --frozen mypy --follow-imports=silent src/parlant/bin/docs.py src/parlant/bin/docs_attribution.py
+      - run: uv run --frozen ruff check src/parlant/bin/docs.py src/parlant/bin/docs_attribution.py tests/bin/test_docs.py
+      - run: uv run --frozen ruff format --check src/parlant/bin/docs.py src/parlant/bin/docs_attribution.py tests/bin/test_docs.py

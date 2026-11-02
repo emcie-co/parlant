@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,16 +14,28 @@
 
 from datetime import datetime
 import dateutil.parser
-from fastapi import APIRouter, Path, Request, status
+from enum import Enum
+from fastapi import APIRouter, Path, Query, Request, status
 from pydantic import Field
-from typing import Annotated, Mapping, Optional, Sequence, TypeAlias
+from typing import Annotated, Mapping, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.api.common import apigen_config, ExampleJson, example_json_content
-from parlant.core.agents import AgentStore, AgentId
+from parlant.api.common import (
+    SortDirectionDTO,
+    apigen_config,
+    ExampleJson,
+    example_json_content,
+    sort_direction_dto_to_sort_direction,
+)
+from parlant.core.app_modules.common import decode_cursor, encode_cursor
+from parlant.core.app_modules.customers import (
+    CustomerMetadataUpdateParams,
+    CustomerGroupUpdateParams,
+)
+from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
-from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.customers import CustomerId, CustomerKind
+from parlant.core.groups import GroupId
 
 API_GROUP = "customers"
 
@@ -73,19 +85,46 @@ CustomerCreationUTCField: TypeAlias = Annotated[
     ),
 ]
 
-TagIdField: TypeAlias = Annotated[
-    TagId,
+GroupIdField: TypeAlias = Annotated[
+    GroupId,
     Field(
-        description="Unique identifier for the tag",
+        description="Unique identifier for the group",
         examples=["t9a8g703f4"],
     ),
 ]
 
-TagIdSequenceField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+GroupIdSequenceField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Collection of ids of tags that describe the customer",
+        description="Collection of ids of groups that describe the customer",
         examples=[["t9a8g703f4", "4gIAXU4tp"], []],
+    ),
+]
+
+
+class CustomerKindDTO(Enum):
+    """Whether a customer stands for a real person or for a test persona."""
+
+    REAL = "real"
+    PERSONA = "persona"
+
+
+CustomerKindField: TypeAlias = Annotated[
+    CustomerKindDTO,
+    Field(
+        description=(
+            "Whether the customer is a real one or a persona used for testing. "
+            "Set when the customer is created and fixed thereafter."
+        ),
+        examples=["real", "persona"],
+    ),
+]
+
+CustomerKindQuery: TypeAlias = Annotated[
+    CustomerKindDTO,
+    Query(
+        description="Return only customers of this kind",
+        examples=["real", "persona"],
     ),
 ]
 
@@ -97,8 +136,54 @@ customer_example: ExampleJson = {
         "email": "scooby@dooby.do",
         "VIP": "Yes",
     },
-    "tags": ["VIP", "New User"],
+    "groups": ["VIP", "New User"],
+    "kind": "real",
 }
+
+
+LimitQuery: TypeAlias = Annotated[
+    int,
+    Query(
+        description="Maximum number of items to return",
+        ge=1,
+        le=100,
+        examples=[10, 25],
+    ),
+]
+
+CursorQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Pagination cursor for fetching the next page of results",
+        examples=["AAABjnBU9gBl/0BQt1axI0VniQI="],
+    ),
+]
+
+NamePrefixQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Only return customers whose name starts with this prefix (case-insensitive)",
+        min_length=1,
+        max_length=100,
+        examples=["jane"],
+    ),
+]
+
+SortQuery: TypeAlias = Annotated[
+    SortDirectionDTO,
+    Query(
+        description="Sort direction for results",
+        examples=["asc", "desc"],
+    ),
+]
+
+
+def customer_kind_dto_to_customer_kind(dto: CustomerKindDTO) -> CustomerKind:
+    return CustomerKind(dto.value)
+
+
+def customer_kind_to_dto(kind: CustomerKind) -> CustomerKindDTO:
+    return CustomerKindDTO(kind.value)
 
 
 class CustomerDTO(
@@ -109,25 +194,50 @@ class CustomerDTO(
     Represents a customer in the system.
 
     Customers are entities that interact with agents through sessions. Each customer
-    can have metadata stored in the metadata field and can be tagged for categorization.
+    can have metadata stored in the metadata field and can be grouped for categorization.
     """
 
     id: CustomerIdPath
     creation_utc: CustomerCreationUTCField
     name: CustomerNameField
     metadata: CustomerMetadataField
-    tags: TagIdSequenceField
+    groups: GroupIdSequenceField
+    kind: CustomerKindField
+
+
+class PaginatedCustomersDTO(DefaultBaseModel):
+    """Paginated response for customers"""
+
+    items: Sequence[CustomerDTO]
+    total_count: int
+    has_more: bool
+    next_cursor: str | None = None
 
 
 class CustomerCreationParamsDTO(
     DefaultBaseModel,
     json_schema_extra={"example": customer_creation_params_example},
 ):
-    """Parameters for creating a new customer."""
+    """Parameters for creating a new customer.
+
+    Optional fields:
+    - `id`: Custom identifier for the customer. If not provided, an ID will be
+      automatically generated. Custom IDs can be any string format and are useful
+      for maintaining consistent identifiers across deployments or integrations.
+    - `metadata`: Key-value pairs to describe the customer
+    - `groups`: List of group IDs to associate with the customer
+    - `kind`: `real` (the default) or `persona`. A persona stands in for a
+      customer during testing and cannot be authenticated as, so no end user
+      can ever be served as one. There is deliberately no way to change this
+      afterwards: converting a live customer into a persona is the mistake the
+      field exists to prevent.
+    """
 
     name: CustomerNameField
-    metadata: Optional[CustomerMetadataField] = None
-    tags: Optional[TagIdSequenceField] = None
+    id: CustomerIdPath | None = None
+    metadata: CustomerMetadataField | None = None
+    groups: GroupIdSequenceField | None = None
+    kind: CustomerKindField = CustomerKindDTO.REAL
 
 
 CustomerMetadataUnsetField: TypeAlias = Annotated[
@@ -151,57 +261,57 @@ class CustomerMetadataUpdateParamsDTO(
     DefaultBaseModel,
     json_schema_extra={"example": customer_metadata_update_params_example},
 ):
-    """Parameters for updating a customer's extra metadata."""
+    """Parameters for updating a customer's metadata metadata."""
 
-    set: Optional[CustomerMetadataField] = None
-    unset: Optional[CustomerMetadataUnsetField] = None
+    set: CustomerMetadataField | None = None
+    unset: CustomerMetadataUnsetField | None = None
 
 
-CustomerTagUpdateAddField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+CustomerGroupUpdateAddField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Optional collection of tag ids to add to the customer's tags",
+        description="Optional collection of group ids to add to the customer's groups",
     ),
 ]
 
-CustomerTagUpdateRemoveField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+CustomerGroupUpdateRemoveField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Optional collection of tag ids to remove from the customer's tags",
+        description="Optional collection of group ids to remove from the customer's groups",
     ),
 ]
 
-tags_update_params_example: ExampleJson = {
+groups_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
 
-class CustomerTagUpdateParamsDTO(
+class CustomerGroupUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": tags_update_params_example},
+    json_schema_extra={"example": groups_update_params_example},
 ):
     """
-    Parameters for updating a customer's tags.
+    Parameters for updating a customer's groups.
 
-    Allows adding new tags to and removing existing tags from a customer.
+    Allows adding new groups to and removing existing groups from a customer.
     Both operations can be performed in a single request.
     """
 
-    add: Optional[CustomerTagUpdateAddField] = None
-    remove: Optional[CustomerTagUpdateRemoveField] = None
+    add: CustomerGroupUpdateAddField | None = None
+    remove: CustomerGroupUpdateRemoveField | None = None
 
 
 customer_update_params_example: ExampleJson = {
     "name": "Scooby",
     "metadata": customer_metadata_update_params_example,
-    "tags": tags_update_params_example,
+    "groups": groups_update_params_example,
 }
 
 
@@ -211,16 +321,14 @@ class CustomerUpdateParamsDTO(
 ):
     """Parameters for updating a customer's attributes."""
 
-    name: Optional[CustomerNameField] = None
-    metadata: Optional[CustomerMetadataUpdateParamsDTO] = None
-    tags: Optional[CustomerTagUpdateParamsDTO] = None
+    name: CustomerNameField | None = None
+    metadata: CustomerMetadataUpdateParamsDTO | None = None
+    groups: CustomerGroupUpdateParamsDTO | None = None
 
 
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    customer_store: CustomerStore,
-    tag_store: TagStore,
-    agent_store: AgentStore,
+    app: Application,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -234,7 +342,7 @@ def create_router(
                 "description": "Customer successfully created. Returns the new customer object.",
                 "content": example_json_content(customer_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -248,36 +356,28 @@ def create_router(
         Creates a new customer in the system.
 
         A customer may be created with as little as a `name`.
-        `metadata` key-value pairs and additional `tags` may be attached to a customer.
+        `metadata` key-value pairs and additional `groups` may be attached to a customer.
         """
         await authorization_policy.authorize(
             request=request,
             operation=Operation.CREATE_CUSTOMER,
         )
 
-        tags = []
-
-        if params.tags:
-            for tag_id in params.tags:
-                if agent_id := Tag.extract_agent_id(tag_id):
-                    _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                else:
-                    _ = await tag_store.read_tag(tag_id=tag_id)
-
-            tags = list(set(params.tags))
-
-        customer = await customer_store.create_customer(
+        customer = await app.customers.create(
             name=params.name,
-            extra=params.metadata if params.metadata else {},
-            tags=tags or None,
+            metadata=params.metadata if params.metadata else {},
+            groups=params.groups,
+            id=params.id,
+            kind=customer_kind_dto_to_customer_kind(params.kind),
         )
 
         return CustomerDTO(
             id=customer.id,
             creation_utc=customer.creation_utc,
             name=customer.name,
-            metadata=customer.extra,
-            tags=customer.tags,
+            metadata=customer.metadata,
+            groups=customer.groups,
+            kind=customer_kind_to_dto(customer.kind),
         )
 
     @router.get(
@@ -302,7 +402,7 @@ def create_router(
         """
         Retrieves details of a specific customer by ID.
 
-        Returns a complete customer object including their metadata and tags.
+        Returns a complete customer object including their metadata and groups.
         The customer must exist in the system.
         """
         await authorization_policy.authorize(
@@ -310,52 +410,109 @@ def create_router(
             operation=Operation.READ_CUSTOMER,
         )
 
-        customer = await customer_store.read_customer(customer_id=customer_id)
+        customer = await app.customers.read(customer_id=customer_id)
 
         return CustomerDTO(
             id=customer.id,
             creation_utc=customer.creation_utc,
             name=customer.name,
-            metadata=customer.extra,
-            tags=customer.tags,
+            metadata=customer.metadata,
+            groups=customer.groups,
+            kind=customer_kind_to_dto(customer.kind),
         )
 
     @router.get(
         "",
         operation_id="list_customers",
-        response_model=Sequence[CustomerDTO],
+        response_model=PaginatedCustomersDTO | Sequence[CustomerDTO],
         responses={
             status.HTTP_200_OK: {
-                "description": "List of all customers in the system.",
-                "content": example_json_content(customer_example),
+                "description": (
+                    "If a cursor is provided, a paginated list of customers will be returned. "
+                    "Otherwise, the full list of customers will be returned."
+                ),
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "items": [customer_example],
+                            "total_count": 1,
+                            "has_more": False,
+                            "next_cursor": None,
+                        }
+                    }
+                },
+            },
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
+                "description": "Validation error in the request parameters."
             },
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_customers(request: Request) -> Sequence[CustomerDTO]:
+    async def list_customers(
+        request: Request,
+        limit: LimitQuery | None = None,
+        cursor: CursorQuery | None = None,
+        sort: SortQuery | None = None,
+        name_prefix: NamePrefixQuery | None = None,
+        kind: CustomerKindQuery | None = None,
+    ) -> PaginatedCustomersDTO | Sequence[CustomerDTO]:
         """
-        Retrieves a list of all customers in the system.
+        Retrieves a list of customers from the system.
+
+        If a cursor is provided, the results are returned using cursor-based pagination
+        with a configurable sort direction. If no cursor is provided, the full list of
+        customers is returned.
 
         Returns an empty list if no customers exist.
-        Customers are returned in no guaranteed order.
+
+        Note:
+            When using paginated results, the first page will always include the special
+            'guest' customer as first item.
         """
         await authorization_policy.authorize(
             request=request,
             operation=Operation.LIST_CUSTOMERS,
         )
 
-        customers = await customer_store.list_customers()
+        customers_result = await app.customers.find(
+            limit=limit,
+            cursor=decode_cursor(cursor) if cursor else None,
+            sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
+            name_prefix=name_prefix,
+            kind=customer_kind_dto_to_customer_kind(kind) if kind else None,
+        )
 
-        return [
-            CustomerDTO(
-                id=customer.id,
-                creation_utc=customer.creation_utc,
-                name=customer.name,
-                metadata=customer.extra,
-                tags=customer.tags,
-            )
-            for customer in customers
-        ]
+        if limit is None:
+            return [
+                CustomerDTO(
+                    id=customer.id,
+                    creation_utc=customer.creation_utc,
+                    name=customer.name,
+                    metadata=customer.metadata,
+                    groups=customer.groups,
+                    kind=customer_kind_to_dto(customer.kind),
+                )
+                for customer in customers_result.items
+            ]
+
+        return PaginatedCustomersDTO(
+            items=[
+                CustomerDTO(
+                    id=customer.id,
+                    creation_utc=customer.creation_utc,
+                    name=customer.name,
+                    metadata=customer.metadata,
+                    groups=customer.groups,
+                    kind=customer_kind_to_dto(customer.kind),
+                )
+                for customer in customers_result.items
+            ],
+            total_count=customers_result.total_count,
+            has_more=customers_result.has_more,
+            next_cursor=encode_cursor(customers_result.next_cursor)
+            if customers_result.next_cursor
+            else None,
+        )
 
     @router.patch(
         "/{customer_id}",
@@ -369,7 +526,7 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Customer not found. The specified customer_id does not exist"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },
@@ -385,45 +542,37 @@ def create_router(
 
         Only provided attributes will be updated; others remain unchanged.
         The customer's ID and creation timestamp cannot be modified.
-        Extra metadata and tags can be added or removed independently.
+        Extra metadata and groups can be added or removed independently.
         """
         await authorization_policy.authorize(
             request=request,
             operation=Operation.UPDATE_CUSTOMER,
         )
 
-        if params.name:
-            _ = await customer_store.update_customer(
-                customer_id=customer_id,
-                params={"name": params.name},
+        customer = await app.customers.update(
+            customer_id=customer_id,
+            name=params.name,
+            metadata=CustomerMetadataUpdateParams(
+                set=params.metadata.set,
+                unset=params.metadata.unset,
             )
-
-        if params.metadata:
-            if params.metadata.set:
-                await customer_store.add_extra(customer_id, params.metadata.set)
-            if params.metadata.unset:
-                await customer_store.remove_extra(customer_id, params.metadata.unset)
-
-        if params.tags:
-            if params.tags.add:
-                for tag_id in params.tags.add:
-                    if agent_id := Tag.extract_agent_id(tag_id):
-                        _ = await agent_store.read_agent(agent_id=AgentId(agent_id))
-                    else:
-                        _ = await tag_store.read_tag(tag_id=tag_id)
-                    await customer_store.upsert_tag(customer_id, tag_id)
-            if params.tags.remove:
-                for tag_id in params.tags.remove:
-                    await customer_store.remove_tag(customer_id, tag_id)
-
-        customer = await customer_store.read_customer(customer_id=customer_id)
+            if params.metadata
+            else None,
+            groups=CustomerGroupUpdateParams(
+                add=params.groups.add,
+                remove=params.groups.remove,
+            )
+            if params.groups
+            else None,
+        )
 
         return CustomerDTO(
             id=customer.id,
             creation_utc=customer.creation_utc,
             name=customer.name,
-            metadata=customer.extra,
-            tags=customer.tags,
+            metadata=customer.metadata,
+            groups=customer.groups,
+            kind=customer_kind_to_dto(customer.kind),
         )
 
     @router.delete(
@@ -455,6 +604,6 @@ def create_router(
             operation=Operation.DELETE_CUSTOMER,
         )
 
-        await customer_store.delete_customer(customer_id=customer_id)
+        await app.customers.delete(customer_id=customer_id)
 
     return router

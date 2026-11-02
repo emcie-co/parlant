@@ -14,34 +14,28 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10"]
-        poetry-version: ["1.8.3"]
 
     steps:
       - name: checkout branch commit
         uses: actions/checkout@v4
 
-      - name: 'Set up Python (cache: pip)'
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
 
-      - name: Initial Configs and Install Poetry
+      - name: Install uv
+        run: pip install uv
+
+      - name: Initial Configs
         run: |
-          pip install poetry==${{ matrix.poetry-version }}
           git config --local core.hooksPath .githooks/
           chmod +x .githooks/pre-commit .githooks/pre-push
-      
-      - name: Set up Poetry Cache
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'poetry'
 
       - name: Install packages
         run: python scripts/install_packages.py
         continue-on-error: false
-      
+
       - name: Lint packages
         run: python scripts/lint.py
         continue-on-error: false

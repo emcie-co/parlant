@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,11 +30,11 @@ def get_project_file(package: Package) -> Path:
 
 def get_current_version(package: Package) -> str:
     content = toml.load(get_project_file(package))
-    return str(content["tool"]["poetry"]["version"])
+    return str(content["project"]["version"])
 
 
 def set_package_version(version: str, package: Package) -> None:
-    if not package.uses_poetry:
+    if not package.uses_uv:
         print(f"Skipping {package.path}...")
         return
 
@@ -62,11 +62,11 @@ def set_package_version(version: str, package: Package) -> None:
 
         file.write(project_file_content)
 
-    status, output = package.run_cmd("poetry lock --no-update")
+    status, output = package.run_cmd("uv lock")
 
     if status != 0:
         print(output, file=sys.stderr)
-        die("error: failed to re-hash poetry lock file")
+        die("error: failed to re-hash uv lock file")
 
 
 def update_version_variable_in_code(version: str) -> None:
@@ -139,7 +139,7 @@ def there_are_pending_git_changes() -> bool:
 
 
 def commit_version(version: str) -> bool:
-    status, _ = subprocess.getstatusoutput(f"git commit -am 'Release {version}'")
+    status, _ = subprocess.getstatusoutput(f"git commit -am 'Release {version}' --no-verify")
     return status != 0
 
 

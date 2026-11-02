@@ -9,6 +9,7 @@ import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {useAtom} from 'jotai';
 import {agentAtom, dialogAtom, sessionAtom} from '@/store';
 import {Input} from '../ui/input';
+import { BASE_URL } from '@/utils/api';
 // import DarkModeToggle from '../dark-mode-toggle/dark-mode-toggle';
 
 export const NEW_SESSION_ID = 'NEW_SESSION';
@@ -35,7 +36,7 @@ const ChatHeader = ({setFilterSessionVal, filterSessionVal}: {setFilterSessionVa
 			<div className='w-[352px] rounded-ss-[16px]  rounded-se-[16px] boder-b-[0.6px] border-b-[#ebecf0] max-mobile:w-full h-[70px] flex items-center max-mobile:justify-between bg-white'>
 				<div className='flex items-center min-[801px]:hidden'>
 				<div className='flex items-center'>
-						<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='self-center h-[30px]' />
+						<img src={`${BASE_URL}/chat/app-logo.svg`} alt='logo' aria-hidden className='self-center h-[30px]' />
 					</div>
 					<div>
 						<Sheet open={sheetOpen} onOpenChange={() => setSheetOpen(!sheetOpen)}>
@@ -57,7 +58,7 @@ const ChatHeader = ({setFilterSessionVal, filterSessionVal}: {setFilterSessionVa
 					</div>
 				</div>
 				<a href='https://parlant.io' target='_blank' className='flex items-center ms-[4px] -me-[6px] max-mobile:hidden'>
-					<img src='/chat/app-logo.svg' alt='logo' aria-hidden className='self-center h-[30px]' />
+					<img src={`${BASE_URL}/chat/app-logo.svg`} alt='logo' aria-hidden className='self-center h-[30px]' />
 				</a>
 				<div className='flex items-center ps-[12px] flex-1 relative !shadow-main max-mobile:hidden'>
 					<img src='icons/search.svg' alt='' className='absolute left-[24px]' />

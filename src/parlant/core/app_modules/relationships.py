@@ -1,0 +1,317 @@
+from dataclasses import dataclass
+from itertools import chain
+from typing import Optional, Sequence, cast
+
+from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.request_context import RequestContext
+from parlant.core.rules import Rule, RuleId, RuleStore
+from parlant.core.loggers import Logger
+from parlant.core.relationships import (
+    RelationshipEntity,
+    RelationshipEntityId,
+    RelationshipEntityKind,
+    RelationshipId,
+    RelationshipKind,
+    RelationshipStore,
+    Relationship,
+)
+from parlant.core.services.tools.service_registry import ServiceRegistry
+from parlant.core.groups import Group, GroupIds, GroupId, GroupStore
+from parlant.core.tools import Tool, ToolId
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
+
+
+@dataclass(frozen=True)
+class RelationshipModel:
+    id: RelationshipId
+    source_rule: Rule | None
+    source_group: Group | None
+    target_rule: Rule | None
+    target_group: Group | None
+    source_tool: Tool | None
+    target_tool: Tool | None
+    kind: RelationshipKind
+    group_id: Optional[str] = None
+    source_type: RelationshipEntityKind | None = None
+    target_type: RelationshipEntityKind | None = None
+
+
+class RelationshipModule:
+    def __init__(
+        self,
+        request_context: RequestContext,
+        logger: Logger,
+        store_provider: StoreProvider,
+    ):
+        self._request_context = request_context
+        self._logger = logger
+        self._store_provider = store_provider
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(
+            RelationshipStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _group_store(self) -> GroupStore:
+        return self._store_provider.get_store(
+            GroupStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _rule_store(self) -> RuleStore:
+        return self._store_provider.get_store(
+            RuleStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    async def _entity_id_to_tag(
+        self,
+        group_id: RelationshipEntityId | GroupId | RuleId | ToolId,
+    ) -> Group:
+        group_id = cast(GroupId, group_id)
+
+        if agent_id := GroupIds.extract_agent_id(group_id):
+            agent = await self._agent_store.read_agent(agent_id=cast(AgentId, agent_id))
+            return Group(
+                id=group_id,
+                name=agent.name,
+                creation_utc=agent.creation_utc,
+                modified_utc=agent.modified_utc,
+            )
+        else:
+            return await self._group_store.read_group(group_id=group_id)
+
+    async def _relationship_to_model(
+        self,
+        relationship: Relationship,
+    ) -> RelationshipModel:
+        source_rule = (
+            await self._rule_store.read_rule(rule_id=cast(RuleId, relationship.source.id))
+            if relationship.source.kind == RelationshipEntityKind.RULE
+            else None
+        )
+
+        source_group = (
+            await self._entity_id_to_tag(
+                relationship.source.id,
+            )
+            if relationship.source.kind.is_group
+            else None
+        )
+
+        target_rule = (
+            await self._rule_store.read_rule(rule_id=cast(RuleId, relationship.target.id))
+            if relationship.target.kind == RelationshipEntityKind.RULE
+            else None
+        )
+
+        target_group = (
+            await self._entity_id_to_tag(
+                relationship.target.id,
+            )
+            if relationship.target.kind.is_group
+            else None
+        )
+
+        source_tool = (
+            await (
+                await self._service_registry.read_tool_service(
+                    name=cast(ToolId, relationship.source.id).service_name
+                )
+            ).read_tool(name=cast(ToolId, relationship.source.id).tool_name)
+            if relationship.source.kind == RelationshipEntityKind.TOOL
+            else None
+        )
+
+        target_tool = (
+            await (
+                await self._service_registry.read_tool_service(
+                    name=cast(ToolId, relationship.target.id).service_name
+                )
+            ).read_tool(name=cast(ToolId, relationship.target.id).tool_name)
+            if relationship.target.kind == RelationshipEntityKind.TOOL
+            else None
+        )
+
+        return RelationshipModel(
+            id=relationship.id,
+            source_rule=source_rule
+            if relationship.source.kind == RelationshipEntityKind.RULE
+            else None,
+            source_group=source_group if relationship.source.kind.is_group else None,
+            target_rule=target_rule
+            if relationship.target.kind == RelationshipEntityKind.RULE
+            else None,
+            target_group=target_group if relationship.target.kind.is_group else None,
+            source_tool=source_tool
+            if relationship.source.kind == RelationshipEntityKind.TOOL
+            else None,
+            target_tool=target_tool
+            if relationship.target.kind == RelationshipEntityKind.TOOL
+            else None,
+            kind=relationship.kind,
+            group_id=relationship.group_id,
+            source_type=relationship.source.kind,
+            target_type=relationship.target.kind,
+        )
+
+    def _get_relationship_entity(
+        self,
+        rule_id: RuleId | None,
+        group_id: GroupId | None,
+        tool_id: ToolId | None,
+    ) -> RelationshipEntity:
+        if rule_id:
+            return RelationshipEntity(id=rule_id, kind=RelationshipEntityKind.RULE)
+        elif group_id:
+            return RelationshipEntity(id=group_id, kind=RelationshipEntityKind.GROUP_ALL)
+        elif tool_id:
+            return RelationshipEntity(id=tool_id, kind=RelationshipEntityKind.TOOL)
+        else:
+            raise ValueError("No entity provided")
+
+    async def create(
+        self,
+        source_rule: RuleId | None,
+        source_group: GroupId | None,
+        source_tool: ToolId | None,
+        target_rule: RuleId | None,
+        target_group: GroupId | None,
+        target_tool: ToolId | None,
+        kind: RelationshipKind,
+        group_id: Optional[str] = None,
+    ) -> RelationshipModel:
+        source: RelationshipEntity
+        target: RelationshipEntity
+
+        if source_rule:
+            await self._rule_store.read_rule(rule_id=source_rule)
+            source = RelationshipEntity(id=source_rule, kind=RelationshipEntityKind.RULE)
+        elif source_group:
+            await self._entity_id_to_tag(
+                source_group,
+            )
+            source = RelationshipEntity(id=source_group, kind=RelationshipEntityKind.GROUP_ALL)
+        elif source_tool:
+            service = await self._service_registry.read_tool_service(name=source_tool.service_name)
+            _ = await service.read_tool(name=source_tool.tool_name)
+            source = RelationshipEntity(id=source_tool, kind=RelationshipEntityKind.TOOL)
+
+        if target_rule:
+            await self._rule_store.read_rule(rule_id=target_rule)
+            target = RelationshipEntity(id=target_rule, kind=RelationshipEntityKind.RULE)
+        elif target_group:
+            await self._entity_id_to_tag(
+                target_group,
+            )
+            target = RelationshipEntity(id=target_group, kind=RelationshipEntityKind.GROUP_ALL)
+        elif target_tool:
+            service = await self._service_registry.read_tool_service(name=target_tool.service_name)
+            _ = await service.read_tool(name=target_tool.tool_name)
+            target = RelationshipEntity(id=target_tool, kind=RelationshipEntityKind.TOOL)
+
+        relationship = await self._relationship_store.create_relationship(
+            source=source,
+            target=target,
+            kind=kind,
+            group_id=group_id,
+        )
+
+        return await self._relationship_to_model(relationship=relationship)
+
+    async def read(self, relationship_id: RelationshipId) -> RelationshipModel:
+        relationship = await self._relationship_store.read_relationship(
+            relationship_id=relationship_id
+        )
+
+        return await self._relationship_to_model(relationship=relationship)
+
+    async def find(
+        self,
+        kind: RelationshipKind | None,
+        indirect: bool,
+        rule_id: RuleId | None,
+        group_id: GroupId | None,
+        tool_id: ToolId | None,
+    ) -> Sequence[RelationshipModel]:
+        if not rule_id and not group_id and not tool_id:
+            relationships = await self._relationship_store.list_relationships(
+                kind=kind if kind else None,
+                indirect=indirect,
+            )
+
+            return [
+                await self._relationship_to_model(relationship=relationship)
+                for relationship in relationships
+            ]
+
+        entity_id: RuleId | GroupId | ToolId
+        if rule_id:
+            await self._rule_store.read_rule(rule_id=rule_id)
+            entity_id = rule_id
+        elif group_id:
+            await self._entity_id_to_tag(
+                group_id,
+            )
+            entity_id = group_id
+        elif tool_id:
+            service = await self._service_registry.read_tool_service(name=tool_id.service_name)
+            _ = await service.read_tool(name=tool_id.tool_name)
+            entity_id = tool_id
+        else:
+            raise ValueError("Invalid entity ID")
+
+        source_relationships = await self._relationship_store.list_relationships(
+            kind=kind if kind else None,
+            source_id=entity_id,
+            indirect=indirect,
+        )
+
+        target_relationships = await self._relationship_store.list_relationships(
+            kind=kind if kind else None,
+            target_id=entity_id,
+            indirect=indirect,
+        )
+
+        relationships = list(chain(source_relationships, target_relationships))
+
+        return [
+            await self._relationship_to_model(relationship=relationship)
+            for relationship in relationships
+        ]
+
+    async def delete(self, relationship_id: RelationshipId) -> None:
+        await self._relationship_store.delete_relationship(relationship_id=relationship_id)

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,19 +14,19 @@
 
 import asyncio
 from dataclasses import dataclass
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture
 
 from parlant.core.async_utils import Timeout
 from parlant.core.application import Application
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rules import RuleStore
 from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.tools import ToolResult
 
-from tests.test_utilities import create_guideline, nlp_test
+from tests.test_utilities import create_rule, nlp_test
 
 REASONABLE_AMOUNT_OF_TIME = 10
 
@@ -55,7 +55,7 @@ async def agent_id(container: Container) -> AgentId:
     store = container[AgentStore]
     agent = await store.create_agent(
         name="test-agent",
-        max_engine_iterations=2,
+        max_steps=2,
     )
     return agent.id
 
@@ -65,14 +65,14 @@ async def proactive_agent_id(
     container: Container,
     agent_id: AgentId,
 ) -> AgentId:
-    guideline = await container[GuidelineStore].create_guideline(
+    rule = await container[RuleStore].create_rule(
         condition="The customer hasn't engaged yet",
-        action="Greet the customer",
+        content="Greet the customer",
     )
 
-    await container[GuidelineStore].upsert_tag(
-        guideline_id=guideline.id,
-        tag_id=Tag.for_agent_id(agent_id),
+    await container[RuleStore].upsert_group(
+        rule_id=rule.id,
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     return agent_id
@@ -95,7 +95,7 @@ async def session(
 @fixture
 async def customer_id(container: Container) -> CustomerId:
     store = container[CustomerStore]
-    customer = await store.create_customer("Larry David", extra={"email": "larry@seinfeld.com"})
+    customer = await store.create_customer("Larry David", metadata={"email": "larry@seinfeld.com"})
     return customer.id
 
 
@@ -103,7 +103,7 @@ async def test_that_a_new_customer_session_can_be_created(
     context: ContextOfTest,
     agent_id: AgentId,
 ) -> None:
-    created_session = await context.app.create_customer_session(
+    created_session = await context.app.sessions.create(
         customer_id=context.customer_id,
         agent_id=agent_id,
     )
@@ -119,13 +119,13 @@ async def test_that_a_new_customer_session_with_a_proactive_agent_contains_a_mes
     context: ContextOfTest,
     proactive_agent_id: AgentId,
 ) -> None:
-    session = await context.app.create_customer_session(
+    session = await context.app.sessions.create(
         customer_id=context.customer_id,
         agent_id=proactive_agent_id,
         allow_greeting=True,
     )
 
-    assert await context.app.wait_for_update(
+    assert await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=0,
         kinds=[EventKind.MESSAGE],
@@ -141,7 +141,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     context: ContextOfTest,
     session: Session,
 ) -> None:
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -150,9 +150,10 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
-    await context.app.wait_for_update(
+    await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=1 + event.offset,
         kinds=[EventKind.MESSAGE],
@@ -164,11 +165,11 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     assert len(events) > 1
 
 
-async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_posted(
+async def test_that_processing_events_share_the_customer_event_trace(
     context: ContextOfTest,
     session: Session,
 ) -> None:
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -177,9 +178,40 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
-    assert await context.app.wait_for_update(
+    await context.app.sessions.wait_for_more_events(
+        session_id=session.id,
+        min_offset=event.offset + 1,
+        timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
+    )
+
+    events = list(await context.container[SessionStore].list_events(session.id))
+    generated_events = [e for e in events if e.offset > event.offset]
+
+    assert event.trace_id != "<main>"
+    assert generated_events
+    assert all(e.trace_id == event.trace_id for e in generated_events)
+
+
+async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_posted(
+    context: ContextOfTest,
+    session: Session,
+) -> None:
+    event = await context.app.sessions.create_event(
+        session_id=session.id,
+        kind=EventKind.MESSAGE,
+        data={
+            "message": "Hey there",
+            "participant": {
+                "display_name": "Johnny Boy",
+            },
+        },
+        metadata={},
+    )
+
+    assert await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=event.offset,
         kinds=[],
@@ -198,7 +230,7 @@ async def test_that_when_a_customer_quickly_posts_more_than_one_message_then_onl
     ]
 
     for m in messages:
-        await context.app.post_event(
+        await context.app.sessions.create_event(
             session_id=session.id,
             kind=EventKind.MESSAGE,
             data={
@@ -207,6 +239,7 @@ async def test_that_when_a_customer_quickly_posts_more_than_one_message_then_onl
                     "display_name": "Johnny Boy",
                 },
             },
+            metadata={},
         )
 
         await asyncio.sleep(1)
@@ -228,7 +261,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
     context: ContextOfTest,
     session: Session,
 ) -> None:
-    await create_guideline(
+    await create_rule(
         container=context.container,
         agent_id=session.agent_id,
         condition="the customer expresses dissatisfaction",
@@ -236,7 +269,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
         tool_function=hand_off_to_human_operator,
     )
 
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -245,9 +278,10 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
-    await context.app.wait_for_update(
+    await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=event.offset,
         kinds=[EventKind.MESSAGE],
@@ -260,7 +294,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
     assert session.mode == "auto"
     assert updated_session.mode == "manual"
 
-    event = await context.app.post_event(
+    event = await context.app.sessions.create_event(
         session_id=session.id,
         kind=EventKind.MESSAGE,
         data={
@@ -269,9 +303,10 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
-    assert not await context.app.wait_for_update(
+    assert not await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=event.offset + 1,
         timeout=Timeout(3),

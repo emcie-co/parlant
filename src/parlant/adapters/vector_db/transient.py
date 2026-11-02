@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License")
 # You may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ import numpy as np
 from typing_extensions import override
 
 import logging
+
+from parlant.core.tracer import Tracer
 
 orig_basicConfig = logging.basicConfig
 orig_getLogger = logging.getLogger
@@ -53,22 +55,25 @@ logging.basicConfig = orig_basicConfig
 logging.getLogger = orig_getLogger
 # Back to business
 
+from parlant.core import async_utils
 from parlant.core.common import JSONSerializable
 from parlant.core.nlp.embedding import (
+    BaseEmbedder,
     Embedder,
-    EmbedderFactory,
     EmbeddingCache,
     EmbeddingCacheProvider,
+    EmbeddingResult,
 )
-from parlant.core.loggers import Logger
+from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.persistence.common import ensure_is_total, matches_filters, Where
 from parlant.core.persistence.vector_database import (
     BaseDocument,
+    BaseVectorCollection,
     DeleteResult,
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
-    VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
     TDocument,
 )
@@ -78,11 +83,11 @@ class TransientVectorDatabase(VectorDatabase):
     def __init__(
         self,
         logger: Logger,
-        embedder_factory: EmbedderFactory,
+        tracer: Tracer,
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
-        self._logger = logger
-        self._embedder_factory = embedder_factory
+        self._logger = ScopedLogger(logger, "TransientVectorDatabase")
+        self._tracer = tracer
         self._embedding_cache_provider = embedding_cache_provider
 
         self._databases: dict[str, nano_vectordb.NanoVectorDB] = {}
@@ -94,17 +99,16 @@ class TransientVectorDatabase(VectorDatabase):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
     ) -> TransientVectorCollection[TDocument]:
         if name in self._collections:
             raise ValueError(f'Collection "{name}" already exists.')
-
-        embedder = self._embedder_factory.create_embedder(embedder_type)
 
         self._databases[name] = nano_vectordb.NanoVectorDB(embedder.dimensions)
 
         self._collections[name] = TransientVectorCollection(
             self._logger,
+            self._tracer,
             nano_db=self._databases[name],
             name=name,
             schema=schema,
@@ -119,7 +123,7 @@ class TransientVectorDatabase(VectorDatabase):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> TransientVectorCollection[TDocument]:
         if collection := self._collections.get(name):
@@ -132,23 +136,22 @@ class TransientVectorDatabase(VectorDatabase):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> TransientVectorCollection[TDocument]:
         if collection := self._collections.get(name):
             assert schema == collection._schema
             return cast(TransientVectorCollection[TDocument], collection)
 
-        embedder = self._embedder_factory.create_embedder(embedder_type)
-
         self._databases[name] = nano_vectordb.NanoVectorDB(embedder.dimensions)
 
         self._collections[name] = TransientVectorCollection(
             self._logger,
+            self._tracer,
             nano_db=self._databases[name],
             name=name,
             schema=schema,
-            embedder=self._embedder_factory.create_embedder(embedder_type),
+            embedder=embedder,
             embedding_cache_provider=self._embedding_cache_provider,
         )
 
@@ -182,21 +185,23 @@ class TransientVectorDatabase(VectorDatabase):
     @override
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]:
+    ) -> Mapping[str, JSONSerializable]:
         return self._metadata
 
 
-class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument]):
+class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         nano_db: nano_vectordb.NanoVectorDB,
         name: str,
         schema: type[TDocument],
         embedder: Embedder,
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "TransientVectorCollection")
+        self._tracer = tracer
         self._name = name
         self._schema = schema
         self._embedder = embedder
@@ -205,6 +210,27 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
         self._lock = asyncio.Lock()
         self._nano_db = nano_db
         self._documents: list[TDocument] = []
+
+    def _report_cached_embedding_usage(self, result: EmbeddingResult) -> None:
+        # A SQLite cache hit serves vectors without calling embed(), so report its
+        # cached tokens here to keep the trace's embedding accounting complete. Cost
+        # is zero — cached input tokens are priced at the model's cached rate.
+        if not isinstance(self._embedder, BaseEmbedder):
+            return
+        reporter = self._embedder.usage_reporter
+        if reporter is not None and result.usage.cached_input_tokens:
+            reporter.report_usage(
+                self._embedder.model_name,
+                result.usage,
+                provider_name=self._embedder.provider_name,
+            )
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        pass
 
     @staticmethod
     def _build_filter_lambda(
@@ -240,35 +266,82 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
 
         return None
 
+    async def _prepare_document(self, document: TDocument) -> dict[str, Any]:
+        ensure_is_total(document, self._schema)
+
+        if e := await self._embedding_cache_provider().get(
+            embedder=self._embedder,
+            texts=[document["content"]],
+        ):
+            embeddings = list(e.vectors)
+            self._report_cached_embedding_usage(e)
+        else:
+            result = await self._embedder.embed([document["content"]])
+            embeddings = list(result.vectors)
+            await self._embedding_cache_provider().set(
+                embedder=self._embedder,
+                texts=[document["content"]],
+                vectors=embeddings,
+                input_tokens=[result.usage.input_tokens],
+            )
+
+        vector = np.array(embeddings[0], dtype=np.float32)
+
+        return {**document, "__id__": document["id"], "__vector__": vector}
+
     @override
     async def insert_one(
         self,
         document: TDocument,
     ) -> InsertResult:
-        ensure_is_total(document, self._schema)
-
-        if e := await self._embedding_cache_provider().get(
-            embedder_type=type(self._embedder),
-            texts=[document["content"]],
-        ):
-            embeddings = list(e.vectors)
-        else:
-            embeddings = list((await self._embedder.embed([document["content"]])).vectors)
-            await self._embedding_cache_provider().set(
-                embedder_type=type(self._embedder),
-                texts=[document["content"]],
-                vectors=embeddings,
-            )
-
-        vector = np.array(embeddings[0], dtype=np.float32)
-
-        data = {**document, "__id__": document["id"], "__vector__": vector}
+        data = await self._prepare_document(document)
 
         async with self._lock:
             self._nano_db.upsert([data])
             self._documents.append(document)
 
         return InsertResult(acknowledged=True)
+
+    @override
+    async def replace_documents(
+        self,
+        filters: Where,
+        documents: Sequence[TDocument],
+    ) -> None:
+        replacements = [cast(TDocument, dict(document)) for document in documents]
+        replacement_ids = {document["id"] for document in replacements}
+        if len(replacement_ids) != len(replacements):
+            raise ValueError("Replacement document IDs must be unique")
+
+        # Keep per-text cache keys and usage reporting. Resolve every embedding
+        # before touching the live index so a failed request leaves it intact.
+        prepared = await async_utils.safe_gather(
+            *[self._prepare_document(document) for document in replacements]
+        )
+        for prepared_document in prepared:
+            vector = prepared_document["__vector__"]
+            if vector.shape != (self._embedder.dimensions,) or not np.isfinite(vector).all():
+                raise ValueError("Invalid replacement embedding")
+
+        async with self._lock:
+            retained: list[TDocument] = []
+            removed_ids = []
+            for document in self._documents:
+                if matches_filters(filters, document):
+                    removed_ids.append(document["id"])
+                else:
+                    if document["id"] in replacement_ids:
+                        raise ValueError("Replacement ID belongs to a document outside the filter")
+                    retained.append(document)
+
+            # No awaits between updating the vector index and its documents.
+            # Each bulk operation copies the matrix once, rather than once per
+            # vector. Insertion order matches the replacement document order.
+            if removed_ids:
+                self._nano_db.delete(removed_ids)
+            if prepared:
+                self._nano_db.upsert(list(prepared))
+            self._documents = [*retained, *replacements]
 
     @override
     async def update_one(
@@ -286,16 +359,19 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
                         content = str(doc["content"])
 
                     if e := await self._embedding_cache_provider().get(
-                        embedder_type=type(self._embedder),
+                        embedder=self._embedder,
                         texts=[content],
                     ):
                         embeddings = list(e.vectors)
+                        self._report_cached_embedding_usage(e)
                     else:
-                        embeddings = list((await self._embedder.embed([content])).vectors)
+                        result = await self._embedder.embed([content])
+                        embeddings = list(result.vectors)
                         await self._embedding_cache_provider().set(
-                            embedder_type=type(self._embedder),
+                            embedder=self._embedder,
                             texts=[content],
                             vectors=embeddings,
+                            input_tokens=[result.usage.input_tokens],
                         )
 
                     vector = np.array(embeddings[0], dtype=np.float32)
@@ -348,45 +424,52 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             deleted_document=None,
         )
 
-    async def find_similar_documents(
+    @staticmethod
+    def _distance_from_similarity(similarity: float) -> float:
+        return 1 - similarity
+
+    async def do_find_similar_documents(
         self,
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         if not self._documents:
             return []
 
-        query_embeddings = list((await self._embedder.embed([query])).vectors)
+        query_embeddings = list((await self._embedder.embed([query], hints)).vectors)
         vector = np.array(query_embeddings[0], dtype=np.float32)
 
         keys_to_exclude = {"__id__", "__metrics__"}
 
-        docs = [
-            {key: value for key, value in d.items() if key not in keys_to_exclude}
-            for d in self._nano_db.query(
-                query=vector,
-                top_k=k,
-                filter_lambda=self._build_filter_lambda(filters),
+        if await self.find(filters) == []:
+            return []
+
+        query_result = self._nano_db.query(
+            query=vector,
+            top_k=len(self._documents),
+            filter_lambda=self._build_filter_lambda(filters),
+        )
+
+        docs_and_similarities = [
+            (
+                {key: value for key, value in d.items() if key not in keys_to_exclude},
+                float(d["__metrics__"]),
             )
+            for d in query_result
         ]
 
-        self._logger.trace(f"Similar documents found\n{json.dumps(docs, indent=2)}")
+        self._logger.trace(
+            f"Similar documents found\n{json.dumps(docs_and_similarities[0], indent=2)}"
+        )
 
-        # FIXME: Distances here are fake (rank → normalized 0–0.8).
-        # Proper cosine distance should be computed.
-        # Currently NanoDB doesn’t return similarity scores or embeddings, so
-        # this is only a placeholder for ordering. Replace once real scores
-        # are implemented in the database client.
-        n = len(docs)
-
-        def distance_formula(i: int) -> float:
-            return ((i / (n - 1)) * 0.8) if n > 1 else 0.8
-
-        return [
+        results = [
             SimilarDocumentResult(
                 document=cast(TDocument, d),
-                distance=distance_formula(i),
+                distance=self._distance_from_similarity(sim),
             )
-            for i, d in enumerate(docs)
+            for d, sim in docs_and_similarities
         ]
+
+        return results

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,30 +18,30 @@ import tempfile
 from typing import AsyncIterator, Iterator, Optional, TypedDict, cast
 import numpy as np
 from typing_extensions import Required
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture, raises
 
-from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
 from parlant.core.agents import AgentStore, AgentId
-from parlant.core.common import IdGenerator, Version, md5_checksum
+from parlant.core.common import IdGenerator, Version, xxh3_checksum
 from parlant.core.glossary import GlossaryVectorStore
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder, NullEmbeddingCache
+from parlant.core.nlp.embedding import Embedder, NullEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
-from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
-from parlant.core.tags import Tag, TagId
-from tests.test_utilities import SyncAwaiter
+from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
+from parlant.core.groups import GroupIds, GroupId
+from parlant.core.tracer import Tracer
+from tests.test_utilities import DeterministicEmbedder, SyncAwaiter
 
 
-async def _openai_embedder_type_provider() -> type[Embedder]:
-    return OpenAITextEmbedding3Large
+async def _default_embedder() -> Embedder:
+    return DeterministicEmbedder()
 
 
-async def _no_op_embedder_type_provider() -> type[Embedder]:
-    return NoOpEmbedder
+async def _null_embedder() -> Embedder:
+    return NullEmbedder()
 
 
 class _TestDocument(TypedDict, total=False):
@@ -64,7 +64,7 @@ def agent_id(
     sync_await: SyncAwaiter,
 ) -> AgentId:
     store = container[AgentStore]
-    agent = sync_await(store.create_agent(name="test-agent", max_engine_iterations=2))
+    agent = sync_await(store.create_agent(name="test-agent", max_steps=2))
     return agent.id
 
 
@@ -92,8 +92,8 @@ async def chroma_database(context: _TestContext) -> AsyncIterator[ChromaDatabase
 def create_database(context: _TestContext) -> ChromaDatabase:
     return ChromaDatabase(
         logger=context.container[Logger],
+        tracer=context.container[Tracer],
         dir_path=context.home_dir,
-        embedder_factory=EmbedderFactory(context.container),
         embedding_cache_provider=NullEmbeddingCache,
     )
 
@@ -101,11 +101,12 @@ def create_database(context: _TestContext) -> ChromaDatabase:
 @fixture
 async def chroma_collection(
     chroma_database: ChromaDatabase,
+    context: _TestContext,
 ) -> AsyncIterator[ChromaCollection[_TestDocument]]:
     collection = await chroma_database.get_or_create_collection(
         "test_collection",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
     yield collection
@@ -157,7 +158,7 @@ async def test_that_update_one_without_upsert_updates_existing_document(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.insert_one(document)
@@ -167,7 +168,7 @@ async def test_that_update_one_without_upsert_updates_existing_document(
         version=doc_version,
         content="test content",
         name="new name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.update_one(
@@ -193,7 +194,7 @@ async def test_that_update_one_without_upsert_and_no_preexisting_document_with_s
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     result = await chroma_collection.update_one(
@@ -215,7 +216,7 @@ async def test_that_update_one_with_upsert_and_no_preexisting_document_with_same
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.update_one(
@@ -239,7 +240,7 @@ async def test_delete_one(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.insert_one(document)
@@ -267,7 +268,7 @@ async def test_find_similar_documents(
         version=doc_version,
         content="apple",
         name="Apple",
-        checksum=md5_checksum("apple"),
+        checksum=xxh3_checksum("apple"),
     )
 
     banana_document = _TestDocument(
@@ -275,7 +276,7 @@ async def test_find_similar_documents(
         version=doc_version,
         content="banana",
         name="Banana",
-        checksum=md5_checksum("banana"),
+        checksum=xxh3_checksum("banana"),
     )
 
     cherry_document = _TestDocument(
@@ -283,7 +284,7 @@ async def test_find_similar_documents(
         version=doc_version,
         content="cherry",
         name="Cherry",
-        checksum=md5_checksum("cherry"),
+        checksum=xxh3_checksum("cherry"),
     )
 
     await chroma_collection.insert_one(apple_document)
@@ -295,7 +296,7 @@ async def test_find_similar_documents(
             version=doc_version,
             content="date",
             name="Date",
-            checksum=md5_checksum("date"),
+            checksum=xxh3_checksum("date"),
         )
     )
     await chroma_collection.insert_one(
@@ -304,7 +305,7 @@ async def test_find_similar_documents(
             version=doc_version,
             content="elderberry",
             name="Elderberry",
-            checksum=md5_checksum("elderberry"),
+            checksum=xxh3_checksum("elderberry"),
         )
     )
 
@@ -327,7 +328,7 @@ async def test_loading_collections(
         created_collection = await first_db.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -336,7 +337,7 @@ async def test_loading_collections(
             version=doc_version,
             content="test content",
             name="test name",
-            checksum=md5_checksum("test content"),
+            checksum=xxh3_checksum("test content"),
         )
 
         await created_collection.insert_one(document)
@@ -345,7 +346,7 @@ async def test_loading_collections(
         fetched_collection: ChromaCollection[_TestDocument] = await second_db.get_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -359,22 +360,18 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
     container: Container,
     agent_id: AgentId,
 ) -> None:
-    async def embedder_type_provider() -> type[Embedder]:
-        return type(await container[NLPService].get_embedder())
-
     with tempfile.TemporaryDirectory() as temp_dir:
         async with ChromaDatabase(
             container[Logger],
+            container[Tracer],
             Path(temp_dir),
-            EmbedderFactory(container),
             embedding_cache_provider=NullEmbeddingCache,
         ) as chroma_db:
             async with GlossaryVectorStore(
                 id_generator=container[IdGenerator],
                 vector_db=chroma_db,
                 document_db=TransientDocumentDatabase(),
-                embedder_factory=EmbedderFactory(container),
-                embedder_type_provider=embedder_type_provider,
+                embedder_provider=_default_embedder,
             ) as glossary_chroma_store:
                 bazoo = await glossary_chroma_store.create_term(
                     name="Bazoo",
@@ -424,8 +421,7 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
             id_generator=IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=False,
         ):
             metadata = await chroma_db.read_metadata()
@@ -445,7 +441,7 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
                 id=doc_1["id"],
                 version=Version.String("2.0.0"),
                 content=doc_1["content"],
-                checksum=md5_checksum(doc_1["content"] + doc_1["name"]),
+                checksum=xxh3_checksum(doc_1["content"] + doc_1["name"]),
                 new_name=doc_1["name"],
             )
 
@@ -458,7 +454,7 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
         collection = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -468,21 +464,21 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
                 version=Version.String("1.0.0"),
                 content="strawberry",
                 name="Document 1",
-                checksum=md5_checksum("strawberry"),
+                checksum=xxh3_checksum("strawberry"),
             ),
             _TestDocument(
                 id=ObjectId("2"),
                 version=Version.String("1.0.0"),
                 content="apple",
                 name="Document 2",
-                checksum=md5_checksum("apple"),
+                checksum=xxh3_checksum("apple"),
             ),
             _TestDocument(
                 id=ObjectId("3"),
                 version=Version.String("1.0.0"),
                 content="cherry",
                 name="Document 3",
-                checksum=md5_checksum("cherry"),
+                checksum=xxh3_checksum("cherry"),
             ),
         ]
 
@@ -493,7 +489,7 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
         new_collection = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_document_loader,
         )
 
@@ -503,7 +499,7 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
         assert new_documents[0]["content"] == "strawberry"
         assert new_documents[0]["new_name"] == "Document 1"
         assert new_documents[0]["version"] == Version.String("2.0.0")
-        assert new_documents[0]["checksum"] == md5_checksum("strawberryDocument 1")
+        assert new_documents[0]["checksum"] == xxh3_checksum("strawberryDocument 1")
 
 
 async def test_that_failed_migrations_are_stored_in_failed_migrations_collection(
@@ -513,7 +509,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
         collection = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -523,21 +519,21 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
                 version=Version.String("1.0.0"),
                 content="valid content",
                 name="Valid Document",
-                checksum=md5_checksum("valid content"),
+                checksum=xxh3_checksum("valid content"),
             ),
             _TestDocument(
                 id=ObjectId("2"),
                 version=Version.String("1.0.0"),
                 content="invalid",
                 name="Invalid Document",
-                checksum=md5_checksum("invalid"),
+                checksum=xxh3_checksum("invalid"),
             ),
             _TestDocument(
                 id=ObjectId("3"),
                 version=Version.String("1.0.0"),
                 content="another valid content",
                 name="Another Valid Document",
-                checksum=md5_checksum("another valid content"),
+                checksum=xxh3_checksum("another valid content"),
             ),
         ]
 
@@ -555,13 +551,13 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
                 version=Version.String("2.0.0"),
                 content=doc_1["content"],
                 new_name=doc_1["name"],
-                checksum=md5_checksum(doc_1["content"] + doc_1["name"]),
+                checksum=xxh3_checksum(doc_1["content"] + doc_1["name"]),
             )
 
         collection_with_loader = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_document_loader,
         )
 
@@ -581,7 +577,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
         failed_migrations_collection = await chroma_database.get_or_create_collection(
             "failed_migrations",
             BaseDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=NullEmbedder(),
             document_loader=_identity_loader,
         )
 
@@ -598,7 +594,10 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
     context: _TestContext,
 ) -> None:
     async with create_database(context) as chroma_db:
-        await chroma_db.upsert_metadata("version", "0.0.1")
+        await chroma_db.upsert_metadata(
+            VectorDocumentStoreMigrationHelper.get_store_version_key("GlossaryVectorStore"),
+            "0.0.1",
+        )
 
     async with create_database(context) as chroma_db:
         with raises(MigrationRequired) as exc_info:
@@ -606,8 +605,7 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
                 IdGenerator(),
                 vector_db=chroma_db,
                 document_db=TransientDocumentDatabase(),
-                embedder_factory=EmbedderFactory(context.container),
-                embedder_type_provider=_no_op_embedder_type_provider,
+                embedder_provider=_null_embedder,
                 allow_migration=False,
             ):
                 pass
@@ -623,17 +621,21 @@ async def test_that_new_store_creates_metadata_with_correct_version(
             IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_openai_embedder_type_provider,
+            embedder_provider=_default_embedder,
             allow_migration=False,
         ):
             metadata = await chroma_db.read_metadata()
 
             assert metadata
-            assert metadata["version"] == GlossaryVectorStore.VERSION.to_string()
+            assert (
+                metadata[
+                    VectorDocumentStoreMigrationHelper.get_store_version_key("GlossaryVectorStore")
+                ]
+                == GlossaryVectorStore.VERSION.to_string()
+            )
 
 
-async def test_that_documents_are_indexed_when_changing_embedder_type(
+async def test_that_documents_are_indexed_when_changing_embedder(
     context: _TestContext,
     agent_id: AgentId,
 ) -> None:
@@ -642,8 +644,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_openai_embedder_type_provider,
+            embedder_provider=_default_embedder,
             allow_migration=True,
         ) as store:
             term = await store.create_term(
@@ -651,9 +652,9 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
                 description="a type of cow",
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=term.id,
-                tag_id=Tag.for_agent_id(agent_id),
+                group_id=GroupIds.for_agent_id(agent_id),
             )
 
     async with create_database(context) as chroma_db:
@@ -661,13 +662,12 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             id_generator=IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=True,
         ) as store:
-            docs = chroma_db.chroma_client.get_collection(name="glossary_NoOpEmbedder").get(
-                include=["embeddings", "metadatas"]
-            )
+            docs = chroma_db.chroma_client.get_collection(
+                name=chroma_db.format_collection_name("glossary", NullEmbedder())
+            ).get(include=["embeddings", "metadatas"])
 
             assert docs["metadatas"]
             assert len(docs["metadatas"]) == 1
@@ -679,7 +679,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             assert any(d["id"] == term.id for d in docs["metadatas"])
 
 
-async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
+async def test_that_documents_are_migrated_and_reindexed_for_new_embedder(
     context: _TestContext,
 ) -> None:
     async def _document_loader(doc: BaseDocument) -> _TestDocumentV2:
@@ -690,14 +690,14 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
             version=Version.String("2.0.0"),
             content=doc_1["content"],
             new_name=doc_1["name"],
-            checksum=md5_checksum(doc_1["content"] + doc_1["name"]),
+            checksum=xxh3_checksum(doc_1["content"] + doc_1["name"]),
         )
 
     async with create_database(context) as chroma_database:
         collection = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -707,14 +707,14 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
                 version=Version.String("1.0.0"),
                 content="test content 1",
                 name="Document 1",
-                checksum=md5_checksum("test content 1"),
+                checksum=xxh3_checksum("test content 1"),
             ),
             _TestDocument(
                 id=ObjectId("2"),
                 version=Version.String("1.0.0"),
                 content="test content 2",
                 name="Document 2",
-                checksum=md5_checksum("test content 2"),
+                checksum=xxh3_checksum("test content 2"),
             ),
         ]
         for doc in documents:
@@ -724,7 +724,7 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
         new_collection = await chroma_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=NoOpEmbedder,
+            embedder=NullEmbedder(),
             document_loader=_document_loader,
         )
 
@@ -747,8 +747,7 @@ async def test_that_in_filter_works_with_list_of_strings(
             IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
@@ -764,43 +763,45 @@ async def test_that_in_filter_works_with_list_of_strings(
                 description="a type of cow",
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("a"),
+                group_id=GroupId("a"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("b"),
+                group_id=GroupId("b"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=second_term.id,
-                tag_id=TagId("b"),
+                group_id=GroupId("b"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=third_term.id,
-                tag_id=TagId("c"),
+                group_id=GroupId("c"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=third_term.id,
-                tag_id=TagId("d"),
+                group_id=GroupId("d"),
             )
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b")])
+            terms = await store.list_terms(groups=[GroupId("a"), GroupId("b")])
             assert len(terms) == 2
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c")])
+            terms = await store.list_terms(groups=[GroupId("a"), GroupId("b"), GroupId("c")])
             assert len(terms) == 3
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
             assert terms[2].id == third_term.id
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c"), TagId("d")])
+            terms = await store.list_terms(
+                groups=[GroupId("a"), GroupId("b"), GroupId("c"), GroupId("d")]
+            )
             assert len(terms) == 3
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
@@ -815,21 +816,20 @@ async def test_that_in_filter_works_with_single_tag(
             id_generator=IdGenerator(),
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
                 name="Bazoo",
                 description="a type of cow",
             )
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("unique_tag"),
+                group_id=GroupId("unique_tag"),
             )
 
-            # Test with a single tag that matches one term
-            terms = await store.list_terms(tags=[TagId("unique_tag")])
+            # Test with a single group that matches one term
+            terms = await store.list_terms(groups=[GroupId("unique_tag")])
             assert len(terms) == 1
             assert terms[0].id == first_term.id
             assert terms[0].name == "Bazoo"

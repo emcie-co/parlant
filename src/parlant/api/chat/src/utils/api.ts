@@ -1,4 +1,12 @@
-export const BASE_URL = import.meta.env.VITE_BASE_URL || '';
+const getBasePath = (): string => {
+	// The UI may be mounted behind a path prefix (for example
+	// host.com/{projectId}/chat). Everything before the /chat, /docs or /api
+	// segment is that prefix, and the API lives under it.
+	const match = window.location.pathname.match(/^(.*?)\/(?:chat|docs|api)(?:\/|$)/);
+	return match ? match[1] : '';
+};
+
+export const BASE_URL = import.meta.env.VITE_BASE_URL || getBasePath();
 
 const request = async (url: string, options: RequestInit = {}) => {
 	try {

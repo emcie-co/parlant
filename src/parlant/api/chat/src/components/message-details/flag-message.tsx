@@ -1,4 +1,5 @@
 import {EventInterface} from '@/utils/interfaces';
+import {deliveredMessageText} from '@/utils/delivered-text';
 import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
 import {dialogAtom} from '@/store';
@@ -16,16 +17,16 @@ interface FlagMessageProps {
 const FlagMessage = ({events, sessionId, existingFlagValue, onFlag}: FlagMessageProps) => {
 	const [dialog] = useAtom(dialogAtom);
 	const [flagValue, setFlagValue] = useState(existingFlagValue || '');
-	const correlationId = events?.[0]?.correlation_id;
+	const traceId = events?.[0]?.trace_id;
 
 	const flagMessage = async () => {
-		await addItemToIndexedDB('Parlant-flags', 'message_flags', correlationId, {sessionId, correlationId: correlationId, flagValue: flagValue || 'This message is flagged'}, 'update', {name: 'sessionIndex', keyPath: 'sessionId'});
+		await addItemToIndexedDB('Parlant-flags', 'message_flags', traceId, {sessionId, traceId: traceId, flagValue: flagValue || 'This message is flagged'}, 'update', {name: 'sessionIndex', keyPath: 'sessionId'});
 		onFlag?.(flagValue || '');
 		dialog.closeDialog();
 	};
 
 	const unflagMessage = async () => {
-		await deleteItemFromIndexedDB('Parlant-flags', 'message_flags', correlationId);
+		await deleteItemFromIndexedDB('Parlant-flags', 'message_flags', traceId);
 		onFlag?.('');
 		dialog.closeDialog();
 	};
@@ -39,7 +40,7 @@ const FlagMessage = ({events, sessionId, existingFlagValue, onFlag}: FlagMessage
 				{events.map((event) => {
 					return (
 						<div className='message-bubble [&>*]:w-full [&_*]:cursor-default'>
-							<div className='px-[22px] py-[20px] bg-[#F5F9F7] rounded-[22px] mb-[10px] !w-fit max-w-[90%]'>{event?.data?.message}</div>
+							<div className='px-[22px] py-[20px] bg-[#F5F9F7] rounded-[22px] mb-[10px] !w-fit max-w-[90%]'>{deliveredMessageText(event)}</div>
 						</div>
 					);
 				})}

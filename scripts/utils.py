@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ from typing import Callable, NoReturn
 class Package:
     name: str
     path: Path
-    uses_poetry: bool
+    uses_uv: bool
     cmd_prefix: str
     publish: bool
 
@@ -51,8 +51,8 @@ def get_packages() -> list[Package]:
         Package(
             name="parlant",
             path=root / ".",
-            cmd_prefix="poetry run",
-            uses_poetry=True,
+            cmd_prefix="uv run",
+            uses_uv=True,
             publish=True,
         ),
     ]

@@ -10,6 +10,7 @@ data/*.json
 cache/
 .coverage
 .DS_STORE
+*~
 .vscode
 .venv
 .cursor
@@ -21,4 +22,8 @@ scripts/sdks/
 scripts/fern/openapi
 fern.generate.log
 schematic_generation_test_cache.json
+schematic_generation_test_cache.sqlite
 test_timing.csv
+.archive
+
+docs/plans/

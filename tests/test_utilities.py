@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,24 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import AsyncGenerator
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import re
 import socket
 import sys
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from random import randint
 from time import sleep
+from weakref import WeakKeyDictionary
 from typing import (
     Any,
-    AsyncIterator,
     Awaitable,
     Callable,
     Generator,
-    Iterator,
     Mapping,
     Optional,
     Sequence,
@@ -42,11 +44,11 @@ from typing_extensions import override
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import JSONResponse
 import httpx
-from lagom import Container
+from parlant.core.container import Container
 import uvicorn
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
-from parlant.adapters.nlp.openai_service import GPT_4o
+from parlant.adapters.nlp.gemini_service import GeminiSchematicGenerator
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
@@ -58,20 +60,23 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
-from parlant.core.engines.alpha.hooks import EngineHook, EngineHooks
-from parlant.core.engines.alpha.loaded_context import LoadedContext
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.engines.compass.hooks import CompassHook, CompassHooks
+from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.compass.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore, Term
-from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.rule_tool_associations import RuleToolAssociationStore
+from parlant.core.rules import Rule, RuleStore
 from parlant.core.loggers import LogLevel, Logger
+from parlant.core.meter import LocalMeter
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     SchematicGenerationResult,
     SchematicGenerator,
 )
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.nlp.common import UsageInfo
+from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.generation_info import GenerationInfo
+from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 from parlant.core.services.tools.mcp_service import MCPToolServer
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry
 from parlant.core.sessions import (
@@ -85,8 +90,9 @@ from parlant.core.sessions import (
     EventSource,
     EventKind,
 )
-from parlant.core.tags import Tag, TagId
+from parlant.core.groups import GroupIds, GroupId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
+from parlant.core.tracer import LocalTracer
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import BaseDocument, DocumentCollection
 
@@ -103,6 +109,7 @@ SERVER_ADDRESS = f"{SERVER_BASE_URL}:{SERVER_PORT}"
 
 
 class NLPTestSchema(DefaultBaseModel):
+    reasoning: str | None = None
     answer: bool
 
 
@@ -114,19 +121,72 @@ class SyncAwaiter:
         return self.event_loop.run_until_complete(awaitable)  # type: ignore
 
 
+class DeterministicEmbedder(Embedder):
+    """A local bag-of-words embedder for vector-store tests."""
+
+    def __init__(self, id: str = "test/deterministic", dimensions: int = 256) -> None:
+        self._id = id
+        self._dimensions = dimensions
+        self._tokenizer = ZeroEstimatingTokenizer()
+
+    async def embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {},
+    ) -> EmbeddingResult:
+        return EmbeddingResult(vectors=[self._embed_text(text) for text in texts])
+
+    def _embed_text(self, text: str) -> list[float]:
+        vector = [0.0] * self._dimensions
+        indices = {
+            int.from_bytes(hashlib.sha256(token.encode("utf-8")).digest()[:8], "big")
+            % self._dimensions
+            for token in re.findall(r"[a-z0-9]+", text.lower())
+        }
+
+        if not indices:
+            return vector
+
+        weight = 1.0 / (len(indices) ** 0.5)
+        for index in indices:
+            vector[index] = weight
+
+        return vector
+
+    @property
+    @override
+    def id(self) -> str:
+        return self._id
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8192
+
+    @property
+    @override
+    def tokenizer(self) -> EstimatingTokenizer:
+        return self._tokenizer
+
+    @property
+    @override
+    def dimensions(self) -> int:
+        return self._dimensions
+
+
 @dataclass(frozen=False)
-class JournalingEngineHooks(EngineHooks):
-    latest_context_per_correlation_id: dict[str, LoadedContext] = field(default_factory=dict)
+class JournalingEngineHooks(CompassHooks):
+    latest_context_per_trace_id: dict[str, EngineContext] = field(default_factory=dict)
 
     @override
     async def call_hooks(
         self,
-        hooks: Sequence[EngineHook],
-        context: LoadedContext,
+        hooks: Sequence[CompassHook],
+        context: EngineContext,
         payload: Any,
         exc: Optional[Exception] = None,
     ) -> bool:
-        self.latest_context_per_correlation_id[context.correlator.correlation_id] = context
+        self.latest_context_per_trace_id[context.tracer.trace_id] = context
         return await super().call_hooks(hooks, context, payload, exc)
 
 
@@ -165,22 +225,52 @@ class _TestLogger(Logger):
         self.logger.critical(message)
 
     @contextmanager
-    def scope(self, scope_id: str) -> Iterator[None]:
+    def scope(self, scope_id: str) -> Generator[None, None, None]:
         yield
 
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.INFO,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        yield
+
+_TJudgeSchema = TypeVar("_TJudgeSchema", bound=DefaultBaseModel)
+
+
+# Generic so it's instantiated subscripted, which is how a SchematicGenerator
+# finds its schema.
+class _NLPTestJudge(GeminiSchematicGenerator[_TJudgeSchema]):
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
+_nlp_test_generators: "WeakKeyDictionary[asyncio.AbstractEventLoop, _NLPTestJudge[NLPTestSchema]]" = WeakKeyDictionary()
+
+
+def _get_nlp_test_generator() -> "_NLPTestJudge[NLPTestSchema]":
+    # One judge client per event loop. Not one per call, which leaks httpx
+    # AsyncClients that get garbage-collected after their event loop closes
+    # ("Task exception was never retrieved" noise in suite runs) — but not one
+    # per process either: an async HTTP client binds a pooled connection to the
+    # loop that opened it. A client shared across the suite's per-test loops
+    # hands the next test a connection whose loop is closed, which raises
+    # "Event loop is closed" on reuse.
+    #
+    # Keyed weakly so a finished test's loop (and its client) can be collected
+    # rather than pinned for the life of the process.
+    loop = asyncio.get_running_loop()
+
+    if (generator := _nlp_test_generators.get(loop)) is None:
+        generator = _NLPTestJudge[NLPTestSchema](
+            model_name="gemini-3.8-flash",
+            logger=_TestLogger(),
+            tracer=LocalTracer(),
+            meter=LocalMeter(_TestLogger()),
+        )
+        _nlp_test_generators[loop] = generator
+
+    return generator
 
 
 async def nlp_test(context: str, condition: str) -> bool:
-    schematic_generator = GPT_4o[NLPTestSchema](logger=_TestLogger())
+    schematic_generator = _get_nlp_test_generator()
 
     inference = await schematic_generator.generate(
         prompt=f"""\
@@ -188,6 +278,14 @@ Given a context and a condition, determine whether the
 condition applies with respect to the given context.
 If the condition applies, the answer is true;
 otherwise, the answer is false.
+
+Judgment rules:
+- Judge the condition exactly as stated, on its plain meaning.
+- The context may contain additional details beyond the condition's scope;
+  their presence alone does NOT make the condition false unless they
+  contradict it.
+- Do not import outside expectations about what the context "should"
+  contain; only the stated condition matters.
 
 Context: ###
 {context}
@@ -199,19 +297,22 @@ Condition: ###
 
 Output JSON structure: ###
 {{
-    answer: <BOOL>
+    "reasoning": <STRING>,
+    "answer": <BOOL>
 }}
 ###
 
 Example #1: ###
 {{
-    answer: true
+    "reasoning": "The condition holds because...",
+    "answer": true
 }}
 ###
 
 Example #2: ###
 {{
-    answer: false
+    "reasoning": "The condition doesn't hold because...",
+    "answer": false
 }}
 ###
 """,
@@ -221,13 +322,13 @@ Example #2: ###
 
 
 async def create_agent(container: Container, name: str) -> Agent:
-    return await container[AgentStore].create_agent(name="test-agent", max_engine_iterations=2)
+    return await container[AgentStore].create_agent(name="test-agent", max_steps=2)
 
 
 async def create_customer(container: Container, name: str) -> Customer:
     return await container[CustomerStore].create_customer(
         name=name,
-        extra={"email": "test@customer.com"},
+        metadata={"email": "test@customer.com"},
     )
 
 
@@ -236,11 +337,13 @@ async def create_session(
     agent_id: AgentId,
     customer_id: Optional[CustomerId] = None,
     title: Optional[str] = None,
+    metadata: Optional[Mapping[str, JSONSerializable]] = None,
 ) -> Session:
     return await container[SessionStore].create_session(
         customer_id or (await create_customer(container, "Auto-Created Customer")).id,
         agent_id=agent_id,
         title=title,
+        metadata=metadata or {},
     )
 
 
@@ -257,9 +360,9 @@ async def create_term(
         synonyms=synonyms,
     )
 
-    await container[GlossaryStore].upsert_tag(
+    await container[GlossaryStore].upsert_group(
         term_id=term.id,
-        tag_id=Tag.for_agent_id(agent_id),
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     return term
@@ -268,7 +371,7 @@ async def create_term(
 async def create_context_variable(
     container: Container,
     name: str,
-    tags: list[TagId],
+    groups: list[GroupId],
     description: str = "",
 ) -> ContextVariable:
     return await container[ContextVariableStore].create_variable(
@@ -292,21 +395,21 @@ async def set_context_variable_value(
     )
 
 
-async def create_guideline(
+async def create_rule(
     container: Container,
     agent_id: AgentId,
     condition: str,
     action: str,
     tool_function: Optional[Callable[[], ToolResult]] = None,
-) -> Guideline:
-    guideline = await container[GuidelineStore].create_guideline(
+) -> Rule:
+    rule = await container[RuleStore].create_rule(
         condition=condition,
-        action=action,
+        content=action,
     )
 
-    _ = await container[GuidelineStore].upsert_tag(
-        guideline.id,
-        Tag.for_agent_id(agent_id),
+    _ = await container[RuleStore].upsert_group(
+        rule.id,
+        GroupIds.for_agent_id(agent_id),
     )
 
     if tool_function:
@@ -314,23 +417,30 @@ async def create_guideline(
 
         existing_tools = await local_tool_service.list_tools()
 
-        tool = next((t for t in existing_tools if t.name == tool_function.__name__), None)
+        tool = next(
+            (
+                t
+                for t in existing_tools
+                if t.name == getattr(tool_function, "__name__", "unnamed_tool")
+            ),
+            None,
+        )
 
         if not tool:
             tool = await local_tool_service.create_tool(
-                name=tool_function.__name__,
+                name=getattr(tool_function, "__name__", "unnamed_tool"),
                 module_path=tool_function.__module__,
                 description="",
                 parameters={},
                 required=[],
             )
 
-        await container[GuidelineToolAssociationStore].create_association(
-            guideline_id=guideline.id,
-            tool_id=ToolId("local", tool_function.__name__),
+        await container[RuleToolAssociationStore].create_association(
+            rule_id=rule.id,
+            tool_id=ToolId("local", getattr(tool_function, "__name__", "unnamed_tool")),
         )
 
-    return guideline
+    return rule
 
 
 async def read_reply(
@@ -355,6 +465,7 @@ async def post_message(
     session_id: SessionId,
     message: str,
     response_timeout: Timeout = Timeout.none(),
+    metadata: Mapping[str, JSONSerializable] | None = None,
 ) -> Event:
     customer_id = (await container[SessionStore].read_session(session_id)).customer_id
     customer = await container[CustomerStore].read_customer(customer_id)
@@ -367,14 +478,15 @@ async def post_message(
         },
     }
 
-    event = await container[Application].post_event(
+    event = await container[Application].sessions.create_event(
         session_id=session_id,
         kind=EventKind.MESSAGE,
         data=data,
+        metadata=metadata,
     )
 
     if response_timeout:
-        await container[Application].wait_for_update(
+        await container[Application].sessions.wait_for_more_events(
             session_id=session_id,
             min_offset=event.offset + 1,
             kinds=[EventKind.MESSAGE],
@@ -417,6 +529,7 @@ TBaseModel = TypeVar("TBaseModel", bound=DefaultBaseModel)
 
 class SchematicGenerationResultDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     content: JSONSerializable
     info: _GenerationInfoDocument
@@ -469,6 +582,7 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
 
         return SchematicGenerationResultDocument(
             id=ObjectId(id),
+            creation_utc=datetime.now(tz=timezone.utc).isoformat(),
             version=self.VERSION.to_string(),
             content=result.content.model_dump(mode="json"),
             info=serialize_generation_info(result.info),
@@ -489,7 +603,7 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
                 usage=UsageInfo(
                     input_tokens=generation_document["usage"]["input_tokens"],
                     output_tokens=generation_document["usage"]["output_tokens"],
-                    extra=generation_document["usage"]["extra"],
+                    extra=generation_document["usage"]["extra"] or {},
                 ),
             )
 
@@ -507,12 +621,12 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[TBaseModel]:
         if isinstance(prompt, PromptBuilder):
-            prompt = prompt.build()
+            prompt_text = prompt.build()
 
         if self.use_cache is False:
-            return await self._base_generator.generate(prompt, hints)
+            return await self._base_generator.generate(prompt_text, hints)
 
-        id = self._generate_id(prompt, hints)
+        id = self._generate_id(prompt_text, hints)
 
         result_document = await self._collection.find_one(filters={"id": {"$eq": id}})
         if result_document:
@@ -547,7 +661,7 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
 @asynccontextmanager
 async def create_schematic_generation_result_collection(
     logger: Logger,
-) -> AsyncIterator[DocumentCollection[SchematicGenerationResultDocument]]:
+) -> AsyncGenerator[DocumentCollection[SchematicGenerationResultDocument], None]:
     async def _document_loader(doc: BaseDocument) -> Optional[SchematicGenerationResultDocument]:
         if doc["version"] == "0.1.0":
             return cast(SchematicGenerationResultDocument, doc)
@@ -565,7 +679,7 @@ async def create_schematic_generation_result_collection(
 async def run_service_server(
     tools: list[ToolEntry],
     plugin_data: Mapping[str, Any] = {},
-) -> AsyncIterator[PluginServer]:
+) -> AsyncGenerator[PluginServer, None]:
     port = get_random_port(50001, 65535)
 
     async with PluginServer(
@@ -683,7 +797,7 @@ class ServerInfo:
 @asynccontextmanager
 async def run_openapi_server(
     app: Optional[FastAPI] = None,
-) -> AsyncIterator[ServerInfo]:
+) -> AsyncGenerator[ServerInfo, None]:
     port = get_random_port(10001, 65535)
 
     if app is None:
@@ -719,7 +833,9 @@ async def run_openapi_server(
 
 
 @asynccontextmanager
-async def run_mcp_server(tools: Sequence[Callable[..., Any]] = []) -> AsyncIterator[ServerInfo]:
+async def run_mcp_server(
+    tools: Sequence[Callable[..., Any]] = [],
+) -> AsyncGenerator[ServerInfo, None]:
     port = get_random_port(10001, 65535)
 
     server = MCPToolServer(
@@ -776,3 +892,27 @@ TOOLS = (
     one_required_query_param_one_required_body_param,
     dto_object,
 )
+
+
+def salted_cacheable_prefix(target_tokens: int = 8_000) -> str:
+    """A unique prompt prefix sized in TOKENS (not chars) for live cache tests.
+
+    Sized via tiktoken so it comfortably clears every provider's minimum
+    cacheable prefix (4096 tokens on Anthropic Opus-tier/Haiku 4.5; 1024-2048
+    elsewhere) — below the minimum, providers silently skip caching and
+    forced-write assertions fail confusingly. tiktoken undercounts non-OpenAI
+    tokenizers slightly, which only adds margin. The salt leads, so the entire
+    prefix is byte-unique and a cache write is a guaranteed cold miss.
+    """
+    import tiktoken
+    from uuid import uuid4
+
+    try:
+        encoding = tiktoken.encoding_for_model("gpt-5")
+    except KeyError:
+        encoding = tiktoken.get_encoding("o200k_base")
+
+    unit = "All work and no play makes Jack a dull boy. "
+    unit_tokens = len(encoding.encode(unit))
+    body = unit * (target_tokens // unit_tokens + 1)
+    return f"[cache-accounting test {uuid4().hex}] You are a terse assistant.\n{body}"

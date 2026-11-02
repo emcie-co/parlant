@@ -5,6 +5,7 @@ import {Button} from '../../ui/button';
 import {BASE_URL, deleteData, patchData} from '@/utils/api';
 import {toast} from 'sonner';
 import {EventInterface, SessionCsvInterface, SessionInterface} from '@/utils/interfaces';
+import {deliveredMessageText} from '@/utils/delivered-text';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../../ui/dropdown-menu';
 import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
@@ -30,7 +31,7 @@ interface Props {
 
 export const DeleteDialog = ({session, closeDialog, deleteClicked}: {session: SessionInterface; closeDialog: () => void; deleteClicked: (e: React.MouseEvent) => Promise<void> | undefined}) => (
 	<div data-testid='deleteDialogContent'>
-		<SessionListItem session={session} disabled />
+		<SessionListItem session={session} disabled className='[&_.title]:max-w-[90%]' />
 		<div className='h-[80px] flex items-center justify-end pe-[18px]'>
 			<Button data-testid='cancel-delete' onClick={closeDialog} className='h-[46px] w-[96px] !bg-white text-[#656565] hover:text-[#151515] rounded-[6px] py-[12px] px-[24px] me-[10px] text-[16px] font-normal border'>
 				Cancel
@@ -129,19 +130,21 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 			if (messages?.length) {
 				messages.forEach((message) => {
 					exportData.push({
-						'Correlation ID': message.correlation_id,
+						'Trace ID': message.trace_id,
 						Source: message.source === 'ai_agent' ? 'AI Agent' : 'Customer',
 						Participant: message?.data?.participant?.display_name || '',
 						Timestamp: message.creation_utc || '',
-						Message: message.data?.message || '',
+						// What was actually said: voice messages export the spoken
+						// portion, not words the customer never heard.
+						Message: deliveredMessageText(message),
 						Draft: message.data?.draft || '',
-						Tags: message.data?.tags || '',
-						Flag: flaggedItems?.[message.correlation_id] || '',
+						Groups: message.data?.groups || '',
+						Flag: flaggedItems?.[message.trace_id] || '',
 					});
 				});
 			}
 
-			const headers = ['Correlation ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Tags', 'Flag'];
+			const headers = ['Trace ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Groups', 'Flag'];
 
 			const filename = `session_${session.id}_"${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
 
@@ -241,7 +244,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				onClick={() => !disabled && !editingTitle && !isDeleting && setSession(session)}
 				key={session.id}
 				className={twMerge(
-					'bg-white animate-fade-in text-[14px] hover:rounded-[6px] font-inter justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[74px] h-[74px] ml-0 mr-0 ',
+					'bg-white animate-fade-in text-[14px] hover:rounded-[6px] font-manrope justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[74px] h-[74px] ml-0 mr-0 ',
 					isSelected && ' rounded-[6px]',
 					editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ',
 					isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '',
@@ -249,7 +252,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 					isDeleting ? 'opacity-[33%]' : '',
 					className
 				)}>
-				<div className='flex-1 whitespace-nowrap flex overflow-hidden max-w-[210px] ms-[4px] h-[48px]'>
+				<div className='title flex-1 whitespace-nowrap flex overflow-hidden max-w-[210px] ms-[4px] h-[48px]'>
 					{editingTitle !== session.id && (
 						<div className='overflow-visible overflow-ellipsis flex items-center'>
 							<div>
@@ -282,7 +285,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 							</DropdownMenuTrigger>
 							<DropdownMenuContent ref={contentRef} side='right' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none w-[168px] [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
 								{sessionActions.map((sessionAction) => (
-									<DropdownMenuItem tabIndex={0} key={sessionAction.title} onClick={sessionAction.onClick} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
+									<DropdownMenuItem tabIndex={0} key={sessionAction.title} onClick={sessionAction.onClick} className='gap-0 font-normal text-[14px] px-[20px] font-manrope capitalize hover:!bg-[#FAF9FF]'>
 										<img data-testid={sessionAction.title} src={sessionAction.imgPath} height={16} width={18} className='me-[8px]' alt='' />
 										{sessionAction.title}
 									</DropdownMenuItem>

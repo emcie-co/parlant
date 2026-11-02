@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,44 +13,73 @@
 # limitations under the License.
 
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
-from itertools import chain
-from pydantic import Field
-from typing import Annotated, Mapping, Optional, Sequence, Set, TypeAlias, cast
+from copy import deepcopy
+
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
+from pydantic import Field, field_serializer, model_validator
+from typing import Any, Annotated, AsyncIterator, Mapping, Sequence, TypeAlias, Union, cast
 
 
-from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
-from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
-from parlant.core.agents import AgentId, AgentStore
+from parlant.api.authentication import (
+    AdminPrincipal,
+    CustomerPrincipal,
+    GuestPrincipal,
+    Principal,
+)
+from parlant.api.client_address import ClientAddressResolver
+from parlant.core.session_clients import SESSION_CLIENT_METADATA_KEY, SessionClientRecorder
+from parlant.api.authorization import (
+    AuthorizationException,
+    AuthorizationPolicy,
+    GUEST_TOKEN_HEADER,
+    Operation,
+)
+from parlant.api.common import (
+    ExampleJson,
+    JSONSerializableDTO,
+    SortDirectionDTO,
+    apigen_config,
+    sort_direction_dto_to_sort_direction,
+)
+from parlant.core.app_modules.common import decode_cursor, encode_cursor
+from parlant.core.app_modules.sessions import (
+    ClaimSecretRejectedError,
+    EventMetadataUpdateParamsModel,
+    EventUpdateParamsModel,
+    SessionAlreadyClaimedError,
+    SessionLabelsUpdateParams,
+    SessionNotOwnedByCustomerError,
+    SessionNotOwnedByGuestError,
+    SessionUpdateParamsModel,
+)
+from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel
-from parlant.core.customers import CustomerId, CustomerStore
+from parlant.core.common import (
+    DefaultBaseModel,
+    ItemNotFoundError,
+    JSONSerializable,
+    generate_id,
+)
+from parlant.core.customers import CustomerId, CustomerKind, CustomerStore
 from parlant.core.engines.types import UtteranceRationale, UtteranceRequest
-from parlant.core.loggers import Logger
-from parlant.core.nlp.generation_info import GenerationInfo
-from parlant.core.nlp.moderation import ModerationService
-from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import (
+    ensure_custom_event_type_is_not_reserved,
+    AttachmentRef,
     Event,
     EventId,
     EventKind,
     EventSource,
-    MessageEventData,
-    MessageGenerationInspection,
     Participant,
-    PreparationIteration,
+    Session,
     SessionId,
-    SessionListener,
     SessionStatus,
-    SessionStore,
-    SessionUpdateParams,
-    StatusEventData,
-    ToolEventData,
 )
-from parlant.core.canned_responses import CannedResponseId
+from parlant.core import metadata as metadata_utils
+from parlant.core.pricing import costs_per_provider
 
 API_GROUP = "sessions"
 
@@ -83,14 +112,6 @@ class EventSourceDTO(Enum):
     SYSTEM = "system"
 
 
-class Moderation(Enum):
-    """Content moderation settings."""
-
-    AUTO = "auto"
-    PARANOID = "paranoid"
-    NONE = "none"
-
-
 class SessionStatusDTO(Enum):
     """
     Type of status in a session.
@@ -102,27 +123,6 @@ class SessionStatusDTO(Enum):
     READY = "ready"
     TYPING = "typing"
     ERROR = "error"
-
-
-ConsumptionOffsetClientField: TypeAlias = Annotated[
-    int,
-    Field(
-        description="Latest event offset processed by the client",
-        examples=[42, 100],
-        ge=0,
-    ),
-]
-
-consumption_offsets_example = {"client": 42}
-
-
-class ConsumptionOffsetsDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": consumption_offsets_example},
-):
-    """Tracking for message consumption state."""
-
-    client: Optional[ConsumptionOffsetClientField] = None
 
 
 SessionIdPath: TypeAlias = Annotated[
@@ -157,6 +157,14 @@ SessionCreationUTCField: TypeAlias = Annotated[
     ),
 ]
 
+SessionModifiedUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of when the session was last modified",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
+
 SessionTitleField: TypeAlias = Annotated[
     str,
     Field(
@@ -182,15 +190,48 @@ SessionModeField: TypeAlias = Annotated[
     ),
 ]
 
+SessionMetadataField: TypeAlias = Annotated[
+    Mapping[str, JSONSerializableDTO],
+    Field(
+        description="Metadata for the session",
+        examples=[{"simulation": True, "priority": "high"}],
+    ),
+]
+
+SessionLabelsField: TypeAlias = Annotated[
+    set[str],
+    Field(
+        description="Labels associated with the session",
+        examples=[{"vip", "priority"}],
+    ),
+]
+
+
+SessionCustomerRepresentedByAnAgentField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description=(
+            "Whether an AI agent speaks for the customer in this session, such as their "
+            "personal assistant, instead of the person typing. Set it when the session is "
+            "created; it can't be changed afterwards. Tools read it as "
+            "`Customer.current.is_represented_by_an_agent`."
+        ),
+        examples=[False],
+    ),
+]
+
 
 session_example: ExampleJson = {
     "id": "sess_123yz",
     "agent_id": "ag_123xyz",
     "customer_id": "cust_123xy",
     "creation_utc": "2024-03-24T12:00:00Z",
+    "modified_utc": "2024-03-24T12:00:00Z",
     "title": "Product inquiry session",
     "mode": "auto",
-    "consumption_offsets": consumption_offsets_example,
+    "metadata": {"simulation": True, "priority": "high"},
+    "labels": ["vip", "priority"],
+    "customer_represented_by_an_agent": False,
 }
 
 
@@ -204,15 +245,138 @@ class SessionDTO(
     agent_id: SessionAgentIdPath
     customer_id: SessionCustomerIdField
     creation_utc: SessionCreationUTCField
-    title: Optional[SessionTitleField] = None
+    modified_utc: SessionModifiedUTCField
+    title: SessionTitleField | None = None
     mode: SessionModeField
-    consumption_offsets: ConsumptionOffsetsDTO
+    metadata: SessionMetadataField
+    labels: SessionLabelsField = set()
+    customer_represented_by_an_agent: SessionCustomerRepresentedByAnAgentField = False
+
+
+class ModelRequestUsageDTO(DefaultBaseModel):
+    """Raw requests and provider usage attributed to one model in a trace."""
+
+    request_count: int
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
+    extra: Mapping[str, int | float | str] = Field(default_factory=dict)
+
+
+TurnRequestsUsageDTO: TypeAlias = Mapping[str, ModelRequestUsageDTO]
+
+
+class TurnCostsDTO(DefaultBaseModel):
+    """Exact server-priced cost snapshot for one trace.
+
+    ``per_model`` is keyed by ``provider:model``; ``per_provider`` sums it by
+    provider, and is null for records whose keys predate provider qualification.
+    """
+
+    currency: str
+    total: Decimal
+    per_model: Mapping[str, Decimal]
+    per_tool: Mapping[str, Decimal] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    per_provider: Mapping[str, Decimal] | None = None
+
+    @field_serializer("total")
+    def serialize_total(self, value: Decimal) -> str:
+        return format(value, "f")
+
+    @field_serializer("per_model", "per_tool")
+    def serialize_per_model(self, value: Mapping[str, Decimal]) -> Mapping[str, str]:
+        return {model: format(cost, "f") for model, cost in value.items()}
+
+    @field_serializer("per_provider")
+    def serialize_per_provider(
+        self, value: Mapping[str, Decimal] | None
+    ) -> Mapping[str, str] | None:
+        if value is None:
+            return None
+        return {provider: format(cost, "f") for provider, cost in value.items()}
+
+
+class TurnUsageDTO(DefaultBaseModel):
+    """Model requests and optional costs collected under one trace ID."""
+
+    timestamp_utc: datetime
+    requests: TurnRequestsUsageDTO
+    costs: TurnCostsDTO | None
+
+
+SessionUsageDTO: TypeAlias = Mapping[str, TurnUsageDTO]
+
+
+def _aggregate_session_costs(usage: Mapping[str, TurnUsageDTO]) -> TurnCostsDTO | None:
+    """The session-wide cost: the sum of every trace's costs, by total and per model.
+
+    Returns None (rather than a misleadingly-low partial) when there is no usage,
+    when any trace could not be priced, or when traces disagree on currency — so the
+    session total is either complete or honestly absent, never silently under-reported.
+    """
+    if not usage:
+        return None
+
+    currency: str | None = None
+    total = Decimal(0)
+    per_model: dict[str, Decimal] = {}
+    per_tool: dict[str, Decimal] = {}
+
+    for turn in usage.values():
+        if turn.costs is None:
+            return None
+        if currency is None:
+            currency = turn.costs.currency
+        elif turn.costs.currency != currency:
+            return None
+        total += turn.costs.total
+        for category, cost in turn.costs.per_tool.items():
+            per_tool[category] = per_tool.get(category, Decimal(0)) + cost
+        for model, cost in turn.costs.per_model.items():
+            per_model[model] = per_model.get(model, Decimal(0)) + cost
+
+    assert currency is not None
+    return TurnCostsDTO(
+        currency=currency,
+        total=total,
+        per_model=per_model,
+        per_tool=per_tool,
+        per_provider=costs_per_provider(per_model),
+    )
+
+
+session_details_example: ExampleJson = {
+    **cast(dict[str, Any], session_example),
+    "usage": {},
+    "costs": None,
+}
+
+
+class SessionDetailsDTO(
+    SessionDTO,
+    json_schema_extra={"example": session_details_example},
+):
+    """A retrieved session with its complete trace-level model usage."""
+
+    usage: SessionUsageDTO
+    costs: TurnCostsDTO | None
+    """The session-wide cost: every trace's costs summed, or null if incomplete."""
+
+
+class SessionListingDTO(DefaultBaseModel):
+    """Paginated response for sessions"""
+
+    items: Sequence[SessionDTO]
+    total_count: int
+    has_more: bool
+    next_cursor: str | None = None
 
 
 SessionCreationParamsCustomerIdField: TypeAlias = Annotated[
-    Optional[CustomerId],
+    CustomerId | None,
     Field(
-        default=None,
         description=" ID of the customer this session belongs to. If not provided, a guest customer will be created.",
         examples=[None, "cust_123xy"],
     ),
@@ -223,6 +387,8 @@ session_creation_params_example: ExampleJson = {
     "agent_id": "ag_123xyz",
     "customer_id": "cust_123xy",
     "title": "Product inquiry session",
+    "metadata": {"project": "demo", "priority": "high"},
+    "labels": ["vip", "priority"],
 }
 
 
@@ -234,7 +400,10 @@ class SessionCreationParamsDTO(
 
     agent_id: SessionAgentIdPath
     customer_id: SessionCreationParamsCustomerIdField = None
-    title: Optional[SessionTitleField] = None
+    title: SessionTitleField | None = None
+    metadata: SessionMetadataField | None = None
+    labels: SessionLabelsField | None = None
+    customer_represented_by_an_agent: SessionCustomerRepresentedByAnAgentField = False
 
 
 message_example = "Hello, I need help with my order"
@@ -248,7 +417,7 @@ SessionEventCreationParamsMessageField: TypeAlias = Annotated[
     ),
 ]
 
-AgentMessageGuidelineActionField: TypeAlias = Annotated[
+AgentMessageRuleActionField: TypeAlias = Annotated[
     str,
     Field(
         description='A single action that explains what to say; i.e. "Tell the customer that you are thinking and will be right back with an answer."',
@@ -263,17 +432,17 @@ event_creation_params_example: ExampleJson = {
 }
 
 
-class AgentMessageGuidelineRationaleDTO(Enum):
-    """Defines the rationale for the guideline"""
+class AgentMessageRuleRationaleDTO(Enum):
+    """Defines the rationale for the rule"""
 
     UNSPECIFIED = "unspecified"
     BUY_TIME = "buy_time"
     FOLLOW_UP = "follow_up"
 
 
-class AgentMessageGuidelineDTO(DefaultBaseModel):
-    action: AgentMessageGuidelineActionField
-    rationale: AgentMessageGuidelineRationaleDTO = AgentMessageGuidelineRationaleDTO.UNSPECIFIED
+class AgentMessageRuleDTO(DefaultBaseModel):
+    action: AgentMessageRuleActionField
+    rationale: AgentMessageRuleRationaleDTO = AgentMessageRuleRationaleDTO.UNSPECIFIED
 
 
 ParticipantIdDTO = AgentId | CustomerId | None
@@ -302,6 +471,69 @@ class ParticipantDTO(DefaultBaseModel):
     display_name: ParticipantDisplayNameField
 
 
+EventMetadataField: TypeAlias = Annotated[
+    Mapping[str, JSONSerializableDTO],
+    Field(
+        description="Metadata associated with the event",
+        examples=[{"key1": "value1", "key2": 2}],
+    ),
+]
+
+
+attachment_ref_example = {
+    "url": "https://cdn.example.com/u/9f3a.jpg",
+    "media_type": "image/jpeg",
+    "caption": "photo of a leaking sink pipe",
+    "filename": "faucet.jpg",
+}
+
+
+class AttachmentRefDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": attachment_ref_example},
+):
+    """A reference to a file that lives in the integrator's own storage.
+
+    Parlant never stores the file; it only carries this reference so tools can act
+    on it (usually by forwarding its URL)."""
+
+    url: str = Field(description="Where the file lives, in your storage")
+    media_type: str | None = Field(
+        default=None, description="IANA media (MIME) type, e.g. image/jpeg"
+    )
+    caption: str | None = Field(
+        default=None, description="A short description; the only field the agent model can read"
+    )
+    filename: str | None = Field(
+        default=None, description="Original filename, for display and downloads"
+    )
+    metadata: JSONSerializableDTO | None = Field(
+        default=None, description="Any additional data you want to carry"
+    )
+
+
+def _attachment_dtos_to_refs(
+    dtos: list[AttachmentRefDTO] | None,
+) -> Sequence[AttachmentRef] | None:
+    if dtos is None:
+        return None
+
+    refs: list[AttachmentRef] = []
+    for dto in dtos:
+        ref: AttachmentRef = {"url": dto.url}
+        if dto.media_type is not None:
+            ref["media_type"] = dto.media_type
+        if dto.caption is not None:
+            ref["caption"] = dto.caption
+        if dto.filename is not None:
+            ref["filename"] = dto.filename
+        if dto.metadata is not None:
+            ref["metadata"] = cast(Mapping[str, JSONSerializable], dto.metadata)
+        refs.append(ref)
+
+    return refs
+
+
 class EventCreationParamsDTO(
     DefaultBaseModel,
     json_schema_extra={"example": event_creation_params_example},
@@ -310,11 +542,13 @@ class EventCreationParamsDTO(
 
     kind: EventKindDTO
     source: EventSourceDTO
-    message: Optional[SessionEventCreationParamsMessageField] = None
-    data: Optional[JSONSerializableDTO] = None
-    guidelines: Optional[list[AgentMessageGuidelineDTO]] = None
-    participant: Optional[ParticipantDTO] = None
-    status: Optional[SessionStatusDTO] = None
+    message: SessionEventCreationParamsMessageField | None = None
+    data: JSONSerializableDTO | None = None
+    metadata: EventMetadataField | None = None
+    rules: list[AgentMessageRuleDTO] | None = None
+    participant: ParticipantDTO | None = None
+    status: SessionStatusDTO | None = None
+    attachments: list[AttachmentRefDTO] | None = None
 
 
 EventIdPath: TypeAlias = Annotated[
@@ -339,12 +573,16 @@ EventCreationUTCField: TypeAlias = Annotated[
     Field(description="UTC timestamp of when the event was created"),
 ]
 
+EventModifiedUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(description="UTC timestamp of when the event was last modified"),
+]
 
-EventCorrelationIdField: TypeAlias = Annotated[
+EventTraceIdField: TypeAlias = Annotated[
     str,
     Field(
         description="ID linking related events together",
-        examples=["corr_13xyz"],
+        examples=["trace_13xyz"],
     ),
 ]
 
@@ -354,7 +592,8 @@ event_example: ExampleJson = {
     "kind": "message",
     "offset": 0,
     "creation_utc": "2024-03-24T12:00:00Z",
-    "correlation_id": "corr_13xyz",
+    "modified_utc": "2024-03-24T12:00:00Z",
+    "trace_id": "trace_13xyz",
     "data": {
         "message": "Hello, I need help with my account",
         "participant": {"id": "cust_123xy", "display_name": "John Doe"},
@@ -373,24 +612,92 @@ class EventDTO(
     kind: EventKindDTO
     offset: EventOffsetField
     creation_utc: EventCreationUTCField
-    correlation_id: EventCorrelationIdField
+    modified_utc: EventModifiedUTCField
+    trace_id: EventTraceIdField
     data: JSONSerializableDTO
+    metadata: EventMetadataField
     deleted: bool
 
 
-class ConsumptionOffsetsUpdateParamsDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": consumption_offsets_example},
-):
-    """Parameters for updating consumption offsets."""
+SessionMetadataUnsetField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="Metadata keys to remove from the session",
+        examples=[["simulation", "priority"]],
+    ),
+]
 
-    client: Optional[ConsumptionOffsetClientField] = None
+session_metadata_update_params_example: ExampleJson = {
+    "set": {
+        "simulation": False,
+        "priority": "low",
+    },
+    "unset": ["simulation", "priority"],
+}
+
+
+class SessionMetadataUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": session_metadata_update_params_example},
+):
+    """Parameters for updating a session's metadata."""
+
+    set: SessionMetadataField | None = None
+    unset: SessionMetadataUnsetField | None = None
+
+
+event_update_params_example: ExampleJson = {
+    "metadata": {
+        "set": {
+            "priority": "high",
+            "category": "support",
+            "agent_id": "agent_123",
+        },
+        "unset": ["old_priority"],
+    }
+}
+
+
+class EventUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": event_update_params_example},
+):
+    """Parameters for updating an event.
+
+    Currently only supports updating metadata, but designed to be extensible
+    for future event property updates.
+    """
+
+    metadata: SessionMetadataUpdateParamsDTO | None = None
 
 
 session_update_params_example: ExampleJson = {
     "title": "Updated session title",
-    "consumption_offsets": {"client": 42},
+    "metadata": {
+        "set": {"simulation": True, "priority": "low"},
+        "unset": ["old_project"],
+    },
+    "labels": {
+        "upsert": ["vip", "priority"],
+        "remove": ["old_label"],
+    },
 }
+
+
+session_labels_update_params_example: ExampleJson = {
+    "upsert": ["vip", "priority"],
+    "remove": ["old_label"],
+}
+
+
+class SessionLabelsUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": session_labels_update_params_example},
+):
+    """Parameters for updating a session's labels."""
+
+    upsert: SessionLabelsField | None = None
+    remove: SessionLabelsField | None = None
 
 
 class SessionUpdateParamsDTO(
@@ -399,9 +706,38 @@ class SessionUpdateParamsDTO(
 ):
     """Parameters for updating a session."""
 
-    consumption_offsets: Optional[ConsumptionOffsetsUpdateParamsDTO] = None
-    title: Optional[SessionTitleField] = None
-    mode: Optional[SessionModeField] = None
+    title: SessionTitleField | None = None
+    mode: SessionModeField | None = None
+    customer_id: CustomerId | None = None
+    agent_id: AgentId | None = None
+    metadata: SessionMetadataUpdateParamsDTO | None = None
+    labels: SessionLabelsUpdateParamsDTO | None = None
+
+
+class SessionClaimParamsDTO(DefaultBaseModel):
+    """Parameters for claiming a guest's session as the customer they signed in as.
+
+    Ownership is proven by exactly one of the owning guest's token or the secret
+    of a claim prepared for the session (a session with no guest owner, such as
+    one a platform created for an AI agent acting for the customer)."""
+
+    guest_token: Annotated[
+        str | None,
+        Field(default=None, description="The guest token of the guest who owns the session"),
+    ] = None
+    claim_secret: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The one-time secret of a claim prepared for the session",
+        ),
+    ] = None
+
+    @model_validator(mode="after")
+    def exactly_one_proof(self) -> "SessionClaimParamsDTO":
+        if (self.guest_token is None) == (self.claim_secret is None):
+            raise ValueError("Send exactly one of guest_token and claim_secret")
+        return self
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -447,6 +783,7 @@ class ToolResultDTO(
 
     data: ToolResultDataField
     metadata: ToolResultMetadataField
+    costs: Mapping[str, str] = Field(default_factory=dict, exclude_if=lambda value: not value)
 
 
 ToolIdField: TypeAlias = Annotated[
@@ -468,550 +805,225 @@ ToolCallArgumentsField: TypeAlias = Annotated[
 ]
 
 
-tool_call_example = {
-    "tool_id": "finance_service:check_balance",
-    "arguments": tool_call_arguments_example,
-    "result": {
-        "data": {
-            "balance": 5000.50,
-            "currency": "USD",
-            "last_updated": "2024-03-24T12:00:00Z",
-        },
-        "metadata": tool_result_metadata_example,
-    },
-}
+# Placeholder swapped in for a deep field the caller isn't authorized to see. A
+# marker (rather than a dropped key) keeps the event shape stable and lets a
+# client tell "hidden from me" apart from "genuinely empty".
+REDACTED_EVENT_DATA: JSONSerializable = {"redacted": True}
+REDACTED_MESSAGE = "[redacted]"
+REDACTED_REASONING_LABEL = "Thinking"
+"""What a caller without ``read_event_reasoning`` sees in place of the model's
+own reasoning: the same label the engine emits as its "Thinking" stage, so a
+client needs no special case to render it."""
+
+INTERNAL_REASONING_METADATA_PATH = ("internal_reasoning",)
+"""The ``__parlant__`` metadata path the engine sets on the status event that
+carries the model's streamed reasoning. Tool narrations and the engine's stage
+labels ("Running tools", ...) never carry it: they are written for the customer
+and every caller may read them."""
 
 
-class ToolCallDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": tool_call_example},
-):
-    """Information about a tool call."""
-
-    tool_id: ToolIdField
-    arguments: ToolCallArgumentsField
-    result: ToolResultDTO
+def _strip_internal_namespace(value: JSONSerializable) -> JSONSerializable:
+    """Return a copy of a metadata mapping without the reserved ``__parlant__``
+    namespace. Non-mappings pass through unchanged."""
+    if isinstance(value, Mapping):
+        return {k: v for k, v in value.items() if k != metadata_utils.PARLANT_METADATA_KEY}
+    return value
 
 
-GuidelineMatchConditionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="The condition for the guideline",
-        examples=["when customer asks about their balance"],
-    ),
-]
-
-GuidelineMatchActionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="The action for the guideline",
-        examples=["check their current balance and provide the amount with currency"],
-    ),
-]
-
-GuidelineMatchScoreField: TypeAlias = Annotated[
-    int,
-    Field(
-        description="The score for the guideline",
-        examples=[95],
-    ),
-]
-
-GuidelineMatchRationaleField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="The rationale for the guideline",
-        examples=["This guideline directly addresses balance inquiries with specific actions"],
-    ),
-]
-
-guideline_match_example = {
-    "guideline_id": "guide_123x",
-    "condition": "when customer asks about their balance",
-    "action": "check their current balance and provide the amount with currency",
-    "score": 95,
-    "rationale": "This guideline directly addresses balance inquiries with specific actions",
-}
+def _is_internal_reasoning(metadata: Mapping[str, JSONSerializable] | None) -> bool:
+    return metadata_utils.internal_value(metadata, INTERNAL_REASONING_METADATA_PATH, False) is True
 
 
-class GuidelineMatchDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": guideline_match_example},
-):
-    """A matched guideline."""
+def _redact_event_data(
+    kind: EventKind,
+    data: JSONSerializable,
+    metadata: Mapping[str, JSONSerializable] | None,
+    *,
+    redact_reasoning: bool,
+    redact_tool_data: bool,
+    redact_internal_metadata: bool = False,
+) -> JSONSerializable:
+    """Stub out the deep fields a caller isn't authorized to read.
 
-    guideline_id: GuidelineIdField
-    condition: GuidelineMatchConditionField
-    action: GuidelineMatchActionField
-    score: GuidelineMatchScoreField
-    rationale: GuidelineMatchRationaleField
+    Two independent guards, matching two operations:
+    - ``redact_reasoning`` replaces the model's own reasoning — the STATUS
+      event the engine flags with ``__parlant__.internal_reasoning`` — with a
+      bare "Thinking" label and drops its ``chunks``, so nothing of the chain
+      of thought survives in any field. The ``status`` value and any ``data``
+      are kept. Every other status text (a tool's narration, the engine's
+      stage labels) is written for the customer and passes through untouched.
+    - ``redact_tool_data`` hides each tool call's raw ``result.data`` while
+      keeping the surrounding rationale, arguments and result metadata.
 
-
-ContextVariableIdPath: TypeAlias = Annotated[
-    str,
-    Path(
-        description="Unique identifier for the context variable",
-        examples=["var_123xyz"],
-    ),
-]
-
-ContextVariableNameField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="The name of the context variable",
-        examples=["user_preferences", "account_status"],
-        min_length=1,
-        max_length=100,
-    ),
-]
-
-ContextVariableDescriptionField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="The description text assigned to this variable",
-        examples=["`c` counts the cost of the count cutting costs"],
-    ),
-]
-
-ContextVariableKeyField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="This is the key which can be used to identify the variable",
-        examples=["cool_variable_name", "melupapepkin"],
-    ),
-]
-
-context_variable_and_value_example = {
-    "id": "var_123xyz",
-    "name": "AccountBalance",
-    "description": "Customer's current account balance and currency",
-    "key": "user_123",
-    "value": {
-        "balance": 5000.50,
-        "currency": "USD",
-        "last_updated": "2024-03-24T12:00:00Z",
-    },
-}
-
-
-class ContextVariableAndValueDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": context_variable_and_value_example},
-):
-    """A context variable and its current value."""
-
-    id: ContextVariableIdPath
-    name: ContextVariableNameField
-    description: ContextVariableDescriptionField
-    key: ContextVariableKeyField
-    value: JSONSerializableDTO
-
-
-UsageInfoInputTokensField: TypeAlias = Annotated[
-    int,
-    Field(
-        description="Amount of token received from user over the session",
-        examples=[256],
-    ),
-]
-
-UsageInfoOutputTokensField: TypeAlias = Annotated[
-    int,
-    Field(
-        description="Amount of token sent to user over the session",
-        examples=[128],
-    ),
-]
-usage_info_extra_example = {
-    "prompt_tokens": 200,
-    "completion_tokens": 128,
-}
-
-UsageInfoExtraField: TypeAlias = Annotated[
-    Mapping[str, int],
-    Field(
-        description="Extra data associated with the usage information",
-        examples=[usage_info_extra_example],
-    ),
-]
-
-usage_info_example = {
-    "input_tokens": 256,
-    "output_tokens": 128,
-    "extra": usage_info_extra_example,
-}
-
-
-class UsageInfoDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": usage_info_example},
-):
-    """Token usage information."""
-
-    input_tokens: UsageInfoInputTokensField
-    output_tokens: UsageInfoOutputTokensField
-    extra: Optional[UsageInfoExtraField] = None
-
-
-GenerationInfoSchemaNameField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="The name of the schema used for the generation",
-        examples=["customer_response_v2"],
-    ),
-]
-
-GenerationInfoModelField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Id of the model used for the generation",
-        examples=["gpt-4-turbo"],
-    ),
-]
-
-GenerationInfoDurationField: TypeAlias = Annotated[
-    float,
-    Field(
-        description="Amount of time spent generating",
-        examples=[2.5],
-    ),
-]
-
-
-generation_info_example = {
-    "schema_name": "customer_response_v2",
-    "model": "gpt-4-turbo",
-    "duration": 2.5,
-    "usage": usage_info_example,
-}
-
-
-class GenerationInfoDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": generation_info_example},
-):
-    """Information about a text generation."""
-
-    schema_name: GenerationInfoSchemaNameField
-    model: GenerationInfoModelField
-    duration: GenerationInfoDurationField
-    usage: UsageInfoDTO
-
-
-MessageGenerationInspectionMessagesField: TypeAlias = Annotated[
-    Sequence[str | None],
-    Field(
-        description="The messages that were generated",
-    ),
-]
-
-
-MessageEventDataMessageField: TypeAlias = Annotated[
-    str,
-    Field(
-        description="Text content of the message",
-        examples=["Hello, I need help with my order"],
-    ),
-]
-
-MessageEventDataFlaggedField: TypeAlias = Annotated[
-    Optional[bool],
-    Field(
-        description="Indicates whether the message was flagged by moderation",
-        examples=[True, False, None],
-    ),
-]
-
-MessageEventDataTagsField: TypeAlias = Annotated[
-    Optional[Sequence[str]],
-    Field(
-        description="Sequence of tags providing additional context about the message",
-        examples=[["greeting", "urgent"], ["support-request"]],
-    ),
-]
-
-MessageEventDataCannedResponsesField: TypeAlias = Annotated[
-    Optional[Sequence[CannedResponseId]],
-    Field(
-        description="List of associated canned response references, if any",
-        examples=[["frag_123xyz", "frag_789abc"]],
-    ),
-]
-
-message_event_data_example = {
-    "message": "Hello, I need help with my order",
-    "participant": participant_example,
-    "flagged": False,
-    "tags": ["greeting", "help-request"],
-    "canned_responses": ["frag_123xyz", "frag_789abc"],
-}
-
-
-class MessageEventDataDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": message_event_data_example},
-):
+    The stored event is never mutated — redaction works on a copy, since it
+    gates exposure only.
     """
-    DTO for data carried by a 'message' event.
-    """
+    if kind == EventKind.STATUS and redact_reasoning and _is_internal_reasoning(metadata):
+        if isinstance(data, Mapping):
+            redacted = deepcopy(dict(data))
+            redacted["message"] = REDACTED_REASONING_LABEL
+            redacted.pop("chunks", None)
+            data = cast(JSONSerializable, redacted)
 
-    message: MessageEventDataMessageField
-    participant: ParticipantDTO
-    flagged: MessageEventDataFlaggedField = None
-    tags: MessageEventDataTagsField = None
-    canned_responses: MessageEventDataCannedResponsesField = None
+    if redact_internal_metadata and kind == EventKind.STATUS:
+        # A failure status carries the full server traceback under
+        # ``data.exception``; only internal callers (admins, the Dashboard) may
+        # see it. Everyone else gets a stub.
+        if isinstance(data, Mapping) and isinstance(data.get("data"), Mapping):
+            inner = cast(Mapping[str, Any], data["data"])
+            if "exception" in inner:
+                redacted = deepcopy(dict(data))
+                cast(dict[str, Any], redacted["data"])["exception"] = REDACTED_MESSAGE
+                data = cast(JSONSerializable, redacted)
 
+    if kind == EventKind.TOOL and (redact_tool_data or redact_internal_metadata):
+        if isinstance(data, Mapping) and isinstance(data.get("tool_calls"), list):
+            redacted = deepcopy(dict(data))
+            for tool_call in cast(list[Any], redacted["tool_calls"]):
+                if isinstance(tool_call, dict) and isinstance(tool_call.get("result"), dict):
+                    if redact_tool_data:
+                        tool_call["result"]["data"] = REDACTED_EVENT_DATA
+                    if redact_internal_metadata and "metadata" in tool_call["result"]:
+                        tool_call["result"]["metadata"] = _strip_internal_namespace(
+                            tool_call["result"]["metadata"]
+                        )
+            return cast(JSONSerializable, redacted)
 
-message_generation_inspection_example = {
-    "generation": {
-        "schema_name": "customer_response_v2",
-        "model": "gpt-4-turbo",
-        "duration": 2.5,
-        "usage": {
-            "input_tokens": 256,
-            "output_tokens": 128,
-            "extra": {"prompt_tokens": 200, "completion_tokens": 128},
-        },
-    },
-    "messages": [
-        message_event_data_example,
-        None,
-        {
-            "message": "Based on your request, I can confirm that your order is being processed.",
-            "participant": participant_example,
-            "flagged": False,
-            "tags": ["order-status"],
-            "canned_responses": ["frag_987abc"],
-        },
-    ],
-}
-
-
-class MessageGenerationInspectionDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": message_generation_inspection_example},
-):
-    """Inspection data for message generation."""
-
-    generations: Mapping[str, GenerationInfoDTO]
-    messages: Sequence[Optional[str]]
+    return data
 
 
-GuidelineMatchingInspectionTotalDurationField: TypeAlias = Annotated[
-    float,
-    Field(
-        description="Amount of time spent matching guidelines",
-        examples=[3.5],
-    ),
-]
+def event_to_dto(
+    event: Event,
+    *,
+    redact_reasoning: bool = False,
+    redact_tool_data: bool = False,
+    redact_internal_metadata: bool = False,
+) -> EventDTO:
+    data = _redact_event_data(
+        event.kind,
+        event.data,
+        event.metadata,
+        redact_reasoning=redact_reasoning,
+        redact_tool_data=redact_tool_data,
+        redact_internal_metadata=redact_internal_metadata,
+    )
 
+    metadata = (
+        metadata_utils.public_metadata(event.metadata)
+        if redact_internal_metadata
+        else event.metadata
+    )
 
-GuidelineMatchingInspectionBatchesField: TypeAlias = Annotated[
-    Sequence[GenerationInfoDTO],
-    Field(
-        description="A list of `GenerationInfoDTO` describing the batches of generation executed",
-    ),
-]
-
-
-guideline_matching_inspection_example = {
-    "total_duration": 3.5,
-    "batches": [generation_info_example],
-}
-
-
-class GuidelineMatchingInspectionDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": guideline_matching_inspection_example},
-):
-    """Inspection data for guideline matching."""
-
-    total_duration: GuidelineMatchingInspectionTotalDurationField
-    batches: GuidelineMatchingInspectionBatchesField
-
-
-PreparationIterationGenerationsToolCallsField: TypeAlias = Annotated[
-    Sequence[GenerationInfoDTO],
-    Field(
-        description="A list of `GenerationInfoDTO` describing the executed tool calls",
-    ),
-]
-
-preparation_iteration_generations_example = {
-    "guideline_matching": guideline_matching_inspection_example,
-    "tool_calls": [generation_info_example],
-}
-
-
-class PreparationIterationGenerationsDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": preparation_iteration_generations_example},
-):
-    """Generation information for a preparation iteration."""
-
-    guideline_matching: GuidelineMatchingInspectionDTO
-    tool_calls: PreparationIterationGenerationsToolCallsField
-
-
-PreparationIterationGuidelineMatchField: TypeAlias = Annotated[
-    Sequence[GuidelineMatchDTO],
-    Field(
-        description="List of guideline matches used in preparation for this iteration",
-    ),
-]
-
-
-PreparationIterationToolCallsField: TypeAlias = Annotated[
-    Sequence[ToolCallDTO],
-    Field(
-        description="List of tool calls made in preparation for this iteration",
-    ),
-]
-
-term_example = {
-    "id": "term_123xyz",
-    "name": "balance",
-    "description": "The current amount of money in an account",
-    "synonyms": ["funds", "account balance", "available funds"],
-}
-
-
-class PreparationIterationTermDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": term_example},
-):
-    """A term participating in the preparation for an iteration."""
-
-    id: TermIdPath
-    name: TermNameField
-    description: TermDescriptionField
-    synonyms: TermSynonymsField
-
-
-PreparationIterationTermsField: TypeAlias = Annotated[
-    Sequence[PreparationIterationTermDTO],
-    Field(
-        description="List of terms participating in the preparation for this iteration",
-    ),
-]
-
-
-PreparationIterationContextVariablesField: TypeAlias = Annotated[
-    Sequence[ContextVariableAndValueDTO],
-    Field(
-        description="List of context variables (and their values) that participated in the preparation for this iteration",
-    ),
-]
-
-preparation_iteration_example = {
-    "generations": preparation_iteration_generations_example,
-    "guideline_matches": [guideline_match_example],
-    "tool_calls": [tool_call_example],
-    "terms": [
-        {
-            "id": "term_123xyz",
-            "name": "balance",
-            "description": "The current amount of money in an account",
-            "synonyms": ["funds", "account balance", "available funds"],
-        }
-    ],
-    "context_variables": [context_variable_and_value_example],
-}
-
-
-class PreparationIterationDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": preparation_iteration_example},
-):
-    """Information about a preparation iteration."""
-
-    generations: PreparationIterationGenerationsDTO
-    guideline_matches: PreparationIterationGuidelineMatchField
-    tool_calls: PreparationIterationToolCallsField
-    terms: PreparationIterationTermsField
-    context_variables: PreparationIterationContextVariablesField
-
-
-EventTraceToolCallsField: TypeAlias = Annotated[
-    Sequence[ToolCallDTO],
-    Field(
-        description="List of tool calls made for the traced event",
-    ),
-]
-
-EventTraceMessageGenerationsField: TypeAlias = Annotated[
-    Sequence[MessageGenerationInspectionDTO],
-    Field(
-        description="List of message generations made for the traced event",
-    ),
-]
-
-EventTracePreparationIterationsField: TypeAlias = Annotated[
-    Sequence[PreparationIterationDTO],
-    Field(
-        description="List of preparation iterations made for the traced event",
-    ),
-]
-
-event_trace_example = {
-    "tool_calls": [tool_call_example],
-    "message_generations": [message_generation_inspection_example],
-    "preparation_iterations": [preparation_iteration_example],
-}
-
-
-class EventTraceDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": event_trace_example},
-):
-    """Trace information for an event."""
-
-    tool_calls: EventTraceToolCallsField
-    message_generations: EventTraceMessageGenerationsField
-    preparation_iterations: EventTracePreparationIterationsField
-
-
-event_inspection_example = {
-    "session_id": "sess_123yz",
-    "event": event_example,
-    "trace": event_trace_example,
-}
-
-
-class EventInspectionResult(
-    DefaultBaseModel,
-    json_schema_extra={"example": event_inspection_example},
-):
-    """Result of inspecting an event."""
-
-    session_id: SessionIdPath
-    event: EventDTO
-    trace: Optional[EventTraceDTO] = None
-
-
-def event_to_dto(event: Event) -> EventDTO:
     return EventDTO(
         id=event.id,
         source=_event_source_to_event_source_dto(event.source),
         kind=_event_kind_to_event_kind_dto(event.kind),
         offset=event.offset,
         creation_utc=event.creation_utc,
-        correlation_id=event.correlation_id,
-        data=cast(JSONSerializableDTO, event.data),
+        modified_utc=event.modified_utc,
+        trace_id=event.trace_id,
+        data=cast(JSONSerializableDTO, data),
+        metadata=cast(JSONSerializableDTO, metadata),
         deleted=event.deleted,
     )
 
 
-def generation_info_to_dto(gi: GenerationInfo) -> GenerationInfoDTO:
-    return GenerationInfoDTO(
-        schema_name=gi.schema_name,
-        model=gi.model,
-        duration=gi.duration,
-        usage=UsageInfoDTO(
-            input_tokens=gi.usage.input_tokens,
-            output_tokens=gi.usage.output_tokens,
-            extra=gi.usage.extra,
-        ),
+async def _event_redaction_flags(
+    authorization_policy: AuthorizationPolicy,
+    request: Request,
+) -> tuple[bool, bool, bool]:
+    """Returns ``(redact_reasoning, redact_tool_data, redact_internal_metadata)``
+    for this caller.
+
+    A caller authorized to list/read events may still be denied the deeper
+    fields: the internal reasoning in a status event's ``data``, a tool call's
+    raw ``result.data``, and the Parlant-internal ``__parlant__`` metadata /
+    failure tracebacks are each stubbed out unless the caller also holds the
+    corresponding fine-grained permission.
+    """
+    redact_reasoning = not await authorization_policy.check_permission(
+        request, Operation.READ_EVENT_REASONING
+    )
+    redact_tool_data = not await authorization_policy.check_permission(
+        request, Operation.READ_TOOL_RESULT_DATA
+    )
+    redact_internal_metadata = not await authorization_policy.check_permission(
+        request, Operation.READ_INTERNAL_EVENT_METADATA
+    )
+    return redact_reasoning, redact_tool_data, redact_internal_metadata
+
+
+def session_to_dto(session: Session) -> SessionDTO:
+    return SessionDTO(
+        id=session.id,
+        agent_id=session.agent_id,
+        customer_id=session.customer_id,
+        creation_utc=session.creation_utc,
+        modified_utc=session.modified_utc,
+        title=session.title,
+        mode=SessionModeDTO(session.mode),
+        metadata=metadata_utils.public_metadata(session.metadata),
+        labels=session.labels,
+        customer_represented_by_an_agent=session.customer_represented_by_an_agent,
+    )
+
+
+def session_to_details_dto(session: Session) -> SessionDetailsDTO:
+    """Project internal durable usage into the first-class retrieve response."""
+
+    usage_data = cast(
+        Mapping[str, object],
+        metadata_utils.internal_value(session.metadata, ("usage",), {}),
+    )
+    records = cast(Mapping[str, Mapping[str, object]], usage_data.get("records", {}))
+
+    usage: dict[str, TurnUsageDTO] = {}
+    for trace_id, record in records.items():
+        models = cast(Mapping[str, Mapping[str, object]], record.get("models", {}))
+        requests = {
+            model: ModelRequestUsageDTO(
+                request_count=cast(int, model_usage["requests"]),
+                input_tokens=cast(int, model_usage["input_tokens"]),
+                cached_input_tokens=cast(int, model_usage["cached_input_tokens"]),
+                output_tokens=cast(int, model_usage["output_tokens"]),
+                extra=cast(Mapping[str, int | float | str], model_usage.get("extra", {})),
+            )
+            for model, model_usage in models.items()
+        }
+
+        serialized_costs = cast(Mapping[str, object] | None, record.get("costs"))
+        costs: TurnCostsDTO | None = None
+        if serialized_costs is not None:
+            per_model = {
+                model: Decimal(str(value))
+                for model, value in cast(
+                    Mapping[str, object], serialized_costs.get("per_model", {})
+                ).items()
+            }
+            costs = TurnCostsDTO(
+                currency=str(serialized_costs["currency"]),
+                total=Decimal(str(serialized_costs["total"])),
+                per_tool={
+                    category: Decimal(str(value))
+                    for category, value in cast(
+                        Mapping[str, object], serialized_costs.get("per_tool", {})
+                    ).items()
+                },
+                per_model=per_model,
+                per_provider=costs_per_provider(per_model),
+            )
+
+        usage[str(trace_id)] = TurnUsageDTO(
+            timestamp_utc=datetime.fromisoformat(str(record["timestamp_utc"])),
+            requests=requests,
+            costs=costs,
+        )
+
+    session_dto = session_to_dto(session)
+    return SessionDetailsDTO(
+        **session_dto.model_dump(),
+        usage=usage,
+        costs=_aggregate_session_costs(usage),
     )
 
 
@@ -1019,77 +1031,6 @@ def participant_to_dto(participant: Participant) -> ParticipantDTO:
     return ParticipantDTO(
         id=participant["id"],
         display_name=participant["display_name"],
-    )
-
-
-def message_generation_inspection_to_dto(
-    m: MessageGenerationInspection,
-) -> MessageGenerationInspectionDTO:
-    return MessageGenerationInspectionDTO(
-        generations={
-            name: generation_info_to_dto(generation) for name, generation in m.generations.items()
-        },
-        messages=[message for message in m.messages if message is not None],
-    )
-
-
-def preparation_iteration_to_dto(iteration: PreparationIteration) -> PreparationIterationDTO:
-    return PreparationIterationDTO(
-        generations=PreparationIterationGenerationsDTO(
-            guideline_matching=GuidelineMatchingInspectionDTO(
-                total_duration=iteration.generations.guideline_matching.total_duration,
-                batches=[
-                    generation_info_to_dto(generation)
-                    for generation in iteration.generations.guideline_matching.batches
-                ],
-            ),
-            tool_calls=[
-                generation_info_to_dto(generation)
-                for generation in iteration.generations.tool_calls
-            ],
-        ),
-        guideline_matches=[
-            GuidelineMatchDTO(
-                guideline_id=match["guideline_id"],
-                condition=match["condition"],
-                action=match["action"],
-                score=match["score"],
-                rationale=match["rationale"],
-            )
-            for match in iteration.guideline_matches
-        ],
-        tool_calls=[
-            ToolCallDTO(
-                tool_id=tool_call["tool_id"],
-                arguments=cast(Mapping[str, JSONSerializableDTO], tool_call["arguments"]),
-                result=ToolResultDTO(
-                    data=cast(JSONSerializableDTO, tool_call["result"]["data"]),
-                    metadata=cast(
-                        Mapping[str, JSONSerializableDTO], tool_call["result"]["metadata"]
-                    ),
-                ),
-            )
-            for tool_call in iteration.tool_calls
-        ],
-        terms=[
-            PreparationIterationTermDTO(
-                id=term["id"],
-                name=term["name"],
-                description=term["description"],
-                synonyms=term["synonyms"],
-            )
-            for term in iteration.terms
-        ],
-        context_variables=[
-            ContextVariableAndValueDTO(
-                id=cv["id"],
-                name=cv["name"],
-                description=cv["description"] or "",
-                key=cv["key"],
-                value=cast(JSONSerializableDTO, cv["value"]),
-            )
-            for cv in iteration.context_variables
-        ],
     )
 
 
@@ -1116,13 +1057,6 @@ CustomerIdQuery: TypeAlias = Annotated[
     ),
 ]
 
-ModerationQuery: TypeAlias = Annotated[
-    Moderation,
-    Query(
-        description="Content moderation level for the event",
-    ),
-]
-
 MinOffsetQuery: TypeAlias = Annotated[
     int,
     Query(
@@ -1131,13 +1065,14 @@ MinOffsetQuery: TypeAlias = Annotated[
     ),
 ]
 
-CorrelationIdQuery: TypeAlias = Annotated[
+TraceIdQuery: TypeAlias = Annotated[
     str,
     Query(
         description="ID linking related events together",
-        examples=["corr_13xyz"],
+        examples=["trace_13xyz"],
     ),
 ]
+
 
 KindsQuery: TypeAlias = Annotated[
     str,
@@ -1147,25 +1082,53 @@ KindsQuery: TypeAlias = Annotated[
     ),
 ]
 
+LimitQuery: TypeAlias = Annotated[
+    int,
+    Query(
+        description="Maximum number of items to return",
+        ge=1,
+        le=100,
+        examples=[10, 25],
+    ),
+]
 
-def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
-    from parlant.adapters.nlp.lakera import LakeraGuard
+CursorQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Pagination cursor for fetching the next page of results",
+        examples=["AAABjnBU9gBl/0BQt1axI0VniQI="],
+    ),
+]
 
-    return LakeraGuard(logger)
+SortQuery: TypeAlias = Annotated[
+    SortDirectionDTO,
+    Query(
+        description="Sort direction for results",
+        examples=["asc", "desc"],
+    ),
+]
+
+MinModifiedUTCQuery: TypeAlias = Annotated[
+    datetime,
+    Query(
+        description="Only return sessions modified at or after this UTC timestamp",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
 
 
-def agent_message_guideline_dto_to_utterance_request(
-    guideline: AgentMessageGuidelineDTO,
+def agent_message_rule_dto_to_utterance_request(
+    rule: AgentMessageRuleDTO,
 ) -> UtteranceRequest:
     rationale_to_reason = {
-        AgentMessageGuidelineRationaleDTO.UNSPECIFIED: UtteranceRationale.UNSPECIFIED,
-        AgentMessageGuidelineRationaleDTO.BUY_TIME: UtteranceRationale.BUY_TIME,
-        AgentMessageGuidelineRationaleDTO.FOLLOW_UP: UtteranceRationale.FOLLOW_UP,
+        AgentMessageRuleRationaleDTO.UNSPECIFIED: UtteranceRationale.UNSPECIFIED,
+        AgentMessageRuleRationaleDTO.BUY_TIME: UtteranceRationale.BUY_TIME,
+        AgentMessageRuleRationaleDTO.FOLLOW_UP: UtteranceRationale.FOLLOW_UP,
     }
 
     return UtteranceRequest(
-        action=guideline.action,
-        rationale=rationale_to_reason[guideline.rationale],
+        action=rule.action,
+        rationale=rationale_to_reason[rule.rationale],
     )
 
 
@@ -1221,17 +1184,33 @@ def _event_source_to_event_source_dto(source: EventSource) -> EventSourceDTO:
     raise ValueError(f"Invalid event source: {source}")
 
 
+def _participant_dto_to_participant(dto: ParticipantDTO) -> Participant:
+    return Participant(
+        id=AgentId(dto.id) if dto.id else None,
+        display_name=dto.display_name,
+    )
+
+
 def create_router(
     authorization_policy: AuthorizationPolicy,
-    logger: Logger,
-    application: Application,
-    agent_store: AgentStore,
-    customer_store: CustomerStore,
-    session_store: SessionStore,
-    session_listener: SessionListener,
-    nlp_service: NLPService,
+    app: Application,
+    client_address_resolver: ClientAddressResolver | None = None,
+    session_client_recorder: SessionClientRecorder | None = None,
 ) -> APIRouter:
     router = APIRouter()
+    client_addresses = client_address_resolver or ClientAddressResolver()
+    client_recorder = session_client_recorder or SessionClientRecorder()
+
+    def validate_public_metadata(metadata: Mapping[str, JSONSerializableDTO] | None) -> None:
+        """Translate reserved-namespace violations into an API validation error."""
+
+        try:
+            metadata_utils.ensure_public_metadata(metadata or {})
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
 
     @router.post(
         "",
@@ -1243,7 +1222,7 @@ def create_router(
                 "description": "Session successfully created. Returns the complete session object.",
                 "content": {"application/json": {"example": session_example}},
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -1251,51 +1230,149 @@ def create_router(
     )
     async def create_session(
         request: Request,
+        response: Response,
         params: SessionCreationParamsDTO,
         allow_greeting: AllowGreetingQuery = False,
     ) -> SessionDTO:
         """Creates a new session between an agent and customer.
 
-        The session will be initialized with the specified agent and optional customer.
-        If no customer_id is provided, a guest customer will be created.
+        The session's customer identity is derived from the authenticated
+        principal when one is present: customer tokens bind the session to the
+        token's customer; guest tokens (or anonymous callers, for whom a guest
+        token is minted and returned via a response header) bind it to the guest
+        customer, tagged with the owning guest instance. Policies without
+        authentication (e.g. development) trust the request body as-is.
         """
-        _ = await agent_store.read_agent(agent_id=params.agent_id)
+        principal = await authorization_policy.resolve_principal(request)
 
-        if params.customer_id:
+        customer_id = params.customer_id
+        metadata = dict(params.metadata or {})
+        validate_public_metadata(metadata)
+        guest_instance_id: str | None = None
+        guest_token_to_issue: str | None = None
+
+        match principal:
+            case CustomerPrincipal():
+                if customer_id is not None and customer_id != principal.customer_id:
+                    raise AuthorizationException(
+                        request,
+                        Operation.CREATE_CUSTOMER_SESSION,
+                        message_prefix=(
+                            "The requested session customer does not match "
+                            "the authenticated customer"
+                        ),
+                    )
+
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                )
+
+                customer_id = principal.customer_id
+            case GuestPrincipal():
+                if customer_id is not None and customer_id != CustomerStore.GUEST_ID:
+                    # A guest asking for a named customer's session: let the
+                    # permission gate reject this as a customer-session attempt.
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                    )
+
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_GUEST_SESSION
+                )
+
+                customer_id = CustomerStore.GUEST_ID
+                guest_instance_id = principal.guest_instance_id
+            case AdminPrincipal() | None:
+                # Full-access callers (and policies without principals, like
+                # development) keep the legacy body-driven behavior.
+                if customer_id:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                    )
+                else:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_GUEST_SESSION
+                    )
+
+                customer_id = customer_id or CustomerStore.GUEST_ID
+            case _:  # AnonymousPrincipal
+                if customer_id is not None and customer_id != CustomerStore.GUEST_ID:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                    )
+
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_GUEST_SESSION
+                )
+
+                customer_id = CustomerStore.GUEST_ID
+
+                guest_instance_id = str(generate_id())
+                guest_token_to_issue = authorization_policy.issue_guest_token(guest_instance_id)
+
+        # Opening a session with a persona is a capability of its own, checked
+        # here rather than inside each branch above so that every kind of
+        # caller is held to it.
+        #
+        # An unknown id is a real customer for this purpose: only the agent is
+        # validated on this path, so a session may be opened for a customer
+        # that was never stored, and an id nobody stored is not a persona.
+        # Treating the miss as a persona would turn a lookup failure into a
+        # permission failure and break that long-standing behavior.
+        try:
+            target_customer = await app.customers.read(customer_id)
+            target_kind = target_customer.kind
+        except ItemNotFoundError:
+            target_kind = CustomerKind.REAL
+
+        if target_kind is CustomerKind.PERSONA:
             await authorization_policy.authorize(
-                request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                request=request, operation=Operation.CREATE_PERSONA_SESSION
             )
 
-        else:
-            await authorization_policy.authorize(
-                request=request, operation=Operation.CREATE_GUEST_SESSION
-            )
+        # Record the browser that opened the session. Full-access callers are
+        # often an integrator's own server, so they count as a browser only
+        # when the request carries an Origin header.
+        parlant_metadata: dict[str, JSONSerializable] | None = None
+        full_access = principal is None or isinstance(principal, AdminPrincipal)
 
-        session = await application.create_customer_session(
-            customer_id=params.customer_id or CustomerStore.GUEST_ID,
+        if client_recorder.enabled and (not full_access or "origin" in request.headers):
+            # An Origin header, even an opaque one, is the browser's own answer;
+            # the Referer is consulted only when there is none.
+            page = request.headers.get("origin")
+            if page is None:
+                page = request.headers.get("referer")
+
+            client = await client_recorder.record(client_addresses.resolve(request), page)
+
+            if client is not None:
+                parlant_metadata = {SESSION_CLIENT_METADATA_KEY: dict(client)}
+
+        session = await app.sessions.create(
+            customer_id=customer_id,
             agent_id=params.agent_id,
             title=params.title,
             allow_greeting=allow_greeting,
+            metadata=metadata,
+            labels=params.labels,
+            guest_instance_id=guest_instance_id,
+            parlant_metadata=parlant_metadata,
+            customer_represented_by_an_agent=params.customer_represented_by_an_agent,
         )
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            customer_id=session.customer_id,
-            creation_utc=session.creation_utc,
-            consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
-            title=session.title,
-            mode=SessionModeDTO(session.mode),
-        )
+        if guest_token_to_issue is not None:
+            response.headers[GUEST_TOKEN_HEADER] = guest_token_to_issue
+
+        return session_to_dto(session)
 
     @router.get(
         "/{session_id}",
         operation_id="read_session",
-        response_model=SessionDTO,
+        response_model=SessionDetailsDTO,
         responses={
             status.HTTP_200_OK: {
                 "description": "Session details successfully retrieved",
-                "content": {"application/json": {"example": session_example}},
+                "content": {"application/json": {"example": session_details_example}},
             },
             status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
         },
@@ -1304,69 +1381,96 @@ def create_router(
     async def read_session(
         request: Request,
         session_id: SessionIdPath,
-    ) -> SessionDTO:
+    ) -> SessionDetailsDTO:
         """Retrieves details of a specific session by ID."""
         await authorization_policy.authorize(request=request, operation=Operation.READ_SESSION)
 
-        session = await session_store.read_session(session_id=session_id)
+        session = await app.sessions.read(session_id=session_id)
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            creation_utc=session.creation_utc,
-            title=session.title,
-            customer_id=session.customer_id,
-            consumption_offsets=ConsumptionOffsetsDTO(
-                client=session.consumption_offsets["client"],
-            ),
-            mode=SessionModeDTO(session.mode),
-        )
+        await authorization_policy.authorize_session_access(request=request, session=session)
+
+        return session_to_details_dto(session)
 
     @router.get(
         "",
         operation_id="list_sessions",
-        response_model=Sequence[SessionDTO],
+        response_model=SessionListingDTO | Sequence[SessionDTO],
         responses={
             status.HTTP_200_OK: {
-                "description": "List of all matching sessions",
-                "content": {"application/json": {"example": [session_example]}},
+                "description": (
+                    "If a limit is provided, a paginated list of sessions will be returned. "
+                    "Otherwise, the full list of sessions will be returned."
+                ),
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "items": [session_example],
+                            "total_count": 1,
+                            "has_more": False,
+                            "next_cursor": None,
+                        }
+                    }
+                },
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
-                "description": "Validation error in request parameters"
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
+                "description": "Validation error in the request parameters."
             },
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_sessions(
         request: Request,
-        agent_id: Optional[AgentIdQuery] = None,
-        customer_id: Optional[CustomerIdQuery] = None,
-    ) -> Sequence[SessionDTO]:
-        """Lists all sessions matching the specified filters.
+        agent_id: AgentIdQuery | None = None,
+        customer_id: CustomerIdQuery | None = None,
+        labels: list[str] = Query(default=[]),
+        limit: LimitQuery | None = None,
+        cursor: CursorQuery | None = None,
+        sort: SortQuery | None = None,
+        min_modified_utc: MinModifiedUTCQuery | None = None,
+    ) -> SessionListingDTO | Sequence[SessionDTO]:
+        """Lists all sessions matching the specified filters with pagination support.
 
-        Can filter by agent_id and/or customer_id. Returns all sessions if no
-        filters are provided."""
+        Can filter by agent_id and/or customer_id. Supports cursor-based pagination
+        with configurable sort direction."""
         await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
 
-        sessions = await session_store.list_sessions(
+        principal = await authorization_policy.resolve_principal(request)
+
+        if isinstance(principal, CustomerPrincipal):
+            # A customer may only ever list its own sessions.
+            if customer_id is not None and customer_id != principal.customer_id:
+                raise AuthorizationException(
+                    request,
+                    Operation.LIST_SESSIONS,
+                    message_prefix=(
+                        "The requested session listing customer does not match "
+                        "the authenticated customer"
+                    ),
+                )
+
+            customer_id = principal.customer_id
+
+        sessions_result = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
+            limit=limit,
+            cursor=decode_cursor(cursor) if cursor else None,
+            sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
+            labels=set(labels) if labels else None,
+            min_modified_utc=min_modified_utc,
         )
 
-        return [
-            SessionDTO(
-                id=s.id,
-                agent_id=s.agent_id,
-                creation_utc=s.creation_utc,
-                title=s.title,
-                customer_id=s.customer_id,
-                consumption_offsets=ConsumptionOffsetsDTO(
-                    client=s.consumption_offsets["client"],
-                ),
-                mode=SessionModeDTO(s.mode),
-            )
-            for s in sessions
-        ]
+        if limit is None:
+            return [session_to_dto(s) for s in sessions_result.items]
+
+        return SessionListingDTO(
+            items=[session_to_dto(s) for s in sessions_result.items],
+            total_count=sessions_result.total_count,
+            has_more=sessions_result.has_more,
+            next_cursor=encode_cursor(sessions_result.next_cursor)
+            if sessions_result.next_cursor
+            else None,
+        )
 
     @router.delete(
         "/{session_id}",
@@ -1387,8 +1491,7 @@ def create_router(
         The operation is idempotent - deleting a non-existent session will return 404."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSION)
 
-        await session_store.read_session(session_id)
-        await session_store.delete_session(session_id)
+        await app.sessions.delete(session_id=session_id)
 
     @router.delete(
         "",
@@ -1398,7 +1501,7 @@ def create_router(
             status.HTTP_204_NO_CONTENT: {
                 "description": "All matching sessions successfully deleted"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -1406,8 +1509,8 @@ def create_router(
     )
     async def delete_sessions(
         request: Request,
-        agent_id: Optional[AgentIdQuery] = None,
-        customer_id: Optional[CustomerIdQuery] = None,
+        agent_id: AgentIdQuery | None = None,
+        customer_id: CustomerIdQuery | None = None,
     ) -> None:
         """Deletes all sessions matching the specified filters.
 
@@ -1415,13 +1518,13 @@ def create_router(
         filters are provided."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSIONS)
 
-        sessions = await session_store.list_sessions(
+        sessions_result = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
         )
 
-        for s in sessions:
-            await session_store.delete_session(s.id)
+        for s in sessions_result.items:
+            await app.sessions.delete(s.id)
 
     @router.patch(
         "/{session_id}",
@@ -1429,7 +1532,7 @@ def create_router(
         responses={
             status.HTTP_200_OK: {"description": "Session successfully updated"},
             status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },
@@ -1444,43 +1547,175 @@ def create_router(
 
         Only provided attributes will be updated; others remain unchanged."""
         await authorization_policy.authorize(request=request, operation=Operation.UPDATE_SESSION)
+        if params.metadata:
+            validate_public_metadata(params.metadata.set)
+            for key in params.metadata.unset or ():
+                try:
+                    metadata_utils.ensure_public_metadata_key(key)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail=str(exc),
+                    ) from exc
 
-        async def from_dto(dto: SessionUpdateParamsDTO) -> SessionUpdateParams:
-            params: SessionUpdateParams = {}
+        async def from_dto(dto: SessionUpdateParamsDTO) -> SessionUpdateParamsModel:
+            params: SessionUpdateParamsModel = {}
 
-            if dto.consumption_offsets:
-                session = await session_store.read_session(session_id)
-
-                if dto.consumption_offsets.client:
-                    params["consumption_offsets"] = {
-                        **session.consumption_offsets,
-                        "client": dto.consumption_offsets.client,
-                    }
-
-            if dto.title:
+            if dto.title is not None:
                 params["title"] = dto.title
 
-            if dto.mode:
+            if dto.mode is not None:
                 params["mode"] = dto.mode.value
+
+            if dto.customer_id is not None:
+                params["customer_id"] = dto.customer_id
+
+            if dto.agent_id is not None:
+                params["agent_id"] = dto.agent_id
 
             return params
 
-        session = await session_store.update_session(
+        session = await app.sessions.update(
             session_id=session_id,
             params=await from_dto(params),
+            metadata=(
+                EventMetadataUpdateParamsModel(
+                    set=params.metadata.set or {},
+                    unset=params.metadata.unset or (),
+                )
+                if params.metadata
+                else None
+            ),
+            labels=SessionLabelsUpdateParams(
+                upsert=params.labels.upsert,
+                remove=params.labels.remove,
+            )
+            if params.labels
+            else None,
         )
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            creation_utc=session.creation_utc,
-            title=session.title,
-            customer_id=session.customer_id,
-            consumption_offsets=ConsumptionOffsetsDTO(
-                client=session.consumption_offsets["client"],
-            ),
-            mode=SessionModeDTO(session.mode),
+        return session_to_dto(session)
+
+    @router.post(
+        "/{session_id}/claim",
+        operation_id="claim_session",
+        responses={
+            status.HTTP_200_OK: {"description": "The session now belongs to the customer"},
+            status.HTTP_403_FORBIDDEN: {
+                "description": (
+                    "Not a customer, the guest token does not own the session, "
+                    "or the claim secret is wrong or has expired"
+                )
+            },
+            status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
+            status.HTTP_409_CONFLICT: {"description": "The session already belongs to a customer"},
+        },
+        **apigen_config(group_name=API_GROUP, method_name="claim"),
+    )
+    async def claim_session(
+        request: Request,
+        session_id: SessionIdPath,
+        params: SessionClaimParamsDTO,
+    ) -> SessionDTO:
+        """Hands a guest's session to the customer the guest just signed in as.
+
+        Authorized by the customer's token, with proof that the session is
+        theirs in the body: the owning guest's token, or the secret of a claim
+        prepared for the session. The conversation carries on in the same
+        session: the agent is told the customer signed in and responds, and
+        the token's scopes apply to that response."""
+        await authorization_policy.authorize(request=request, operation=Operation.CLAIM_SESSION)
+
+        principal = await authorization_policy.resolve_principal(request)
+        guest = (
+            authorization_policy.verify_guest_token(params.guest_token)
+            if params.guest_token is not None
+            else None
         )
+
+        if not isinstance(principal, CustomerPrincipal) or (
+            params.guest_token is not None and guest is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Claiming a session needs a customer token, and the owning guest's "
+                    "token or a prepared claim's secret"
+                ),
+            )
+
+        try:
+            session = await app.sessions.claim(
+                session_id=session_id,
+                customer_id=principal.customer_id,
+                guest_instance_id=guest.guest_instance_id if guest else None,
+                claim_secret=params.claim_secret,
+                scopes=principal.scopes,
+                scopes_expire_at=principal.scopes_expire_at,
+            )
+        except ClaimSecretRejectedError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The claim secret is wrong or has expired",
+            )
+        except SessionNotOwnedByGuestError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The guest token does not own this session",
+            )
+        except SessionAlreadyClaimedError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This session already belongs to a customer",
+            )
+
+        return session_to_dto(session)
+
+    @router.post(
+        "/{session_id}/authorize",
+        operation_id="authorize_session",
+        responses={
+            status.HTTP_200_OK: {"description": "The customer's new scopes are recorded"},
+            status.HTTP_403_FORBIDDEN: {
+                "description": "Not a customer, or not the customer the session belongs to"
+            },
+            status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
+        },
+        **apigen_config(group_name=API_GROUP, method_name="authorize"),
+    )
+    async def authorize_session(
+        request: Request,
+        session_id: SessionIdPath,
+    ) -> SessionDTO:
+        """Records that the session's customer, already signed in, allowed more.
+
+        Authorized by a fresh customer token for the session's own customer; its
+        scopes apply from here on. The agent is told and responds, so it can
+        carry on with what the customer just allowed."""
+        await authorization_policy.authorize(request=request, operation=Operation.AUTHORIZE_SESSION)
+
+        principal = await authorization_policy.resolve_principal(request)
+
+        if not isinstance(principal, CustomerPrincipal):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Allowing more needs the session's customer's token",
+            )
+
+        try:
+            session = await app.sessions.authorize(
+                session_id=session_id,
+                customer_id=principal.customer_id,
+                scopes=principal.scopes,
+                scopes_expire_at=principal.scopes_expire_at,
+            )
+        except SessionNotOwnedByCustomerError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This session belongs to another customer",
+            )
+
+        return session_to_dto(session)
 
     @router.post(
         "/{session_id}/events",
@@ -1493,8 +1728,14 @@ def create_router(
                 "content": {"application/json": {"example": event_example}},
             },
             status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in event parameters"
+            },
+            status.HTTP_409_CONFLICT: {
+                "description": "Cancellation requested, but no processing task is active"
+            },
+            status.HTTP_504_GATEWAY_TIMEOUT: {
+                "description": "Cancellation requested, but no cancellation event was emitted"
             },
         },
         **apigen_config(group_name=API_GROUP, method_name="create_event"),
@@ -1503,18 +1744,41 @@ def create_router(
         request: Request,
         session_id: SessionIdPath,
         params: EventCreationParamsDTO,
-        moderation: ModerationQuery = Moderation.NONE,
     ) -> EventDTO:
         """Creates a new event in the specified session.
 
         Currently supports creating message events from customer and human agent sources."""
+        validate_public_metadata(params.metadata)
 
         if params.kind == EventKindDTO.MESSAGE:
             if params.source == EventSourceDTO.CUSTOMER:
                 await authorization_policy.authorize(
                     request=request, operation=Operation.CREATE_CUSTOMER_EVENT
                 )
-                return await _add_customer_message(session_id, params, moderation)
+                await authorization_policy.authorize_session_access(
+                    request=request,
+                    session=await app.sessions.read(session_id=session_id),
+                )
+                if params.participant:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.OVERRIDE_CUSTOMER_PARTICIPANT
+                    )
+                if params.attachments and not await authorization_policy.check_permission(
+                    request, Operation.CREATE_CUSTOMER_EVENT_WITH_ATTACHMENTS
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=(
+                            "This caller is not authorized to attach files to customer "
+                            "messages. Retry without 'attachments', or ask the operator to "
+                            "grant the 'create_customer_event_with_attachments' permission."
+                        ),
+                    )
+                return await _add_customer_message(
+                    session_id,
+                    params,
+                    principal=await authorization_policy.resolve_principal(request),
+                )
             elif params.source == EventSourceDTO.AI_AGENT:
                 await authorization_policy.authorize(
                     request=request, operation=Operation.CREATE_AGENT_EVENT
@@ -1534,7 +1798,7 @@ def create_router(
                 return await _add_human_agent_message_on_behalf_of_ai_agent(session_id, params)
             else:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail='Only "customer", "human_agent", and "human_agent_on_behalf_of_ai_agent" sources are supported for direct posting.',
                 )
 
@@ -1542,17 +1806,25 @@ def create_router(
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_CUSTOM_EVENT
             )
+            await authorization_policy.authorize_session_access(
+                request=request,
+                session=await app.sessions.read(session_id=session_id),
+            )
             return await _add_custom_event(session_id, params)
 
         elif params.kind == EventKindDTO.STATUS:
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_STATUS_EVENT
             )
+            await authorization_policy.authorize_session_access(
+                request=request,
+                session=await app.sessions.read(session_id=session_id),
+            )
             return await _add_status_event(session_id, params)
 
         else:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Only message, custom and status events can currently be added manually",
             )
 
@@ -1577,28 +1849,39 @@ def create_router(
 
         if params.status is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail='Missing "status" field for status event',
             )
+
+        session_status = status_dto_to_status(params.status)
 
         raw_data = params.data or {}
         if not isinstance(raw_data, dict):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail='Status event "data" must be a JSON object',
             )
 
-        status_data: StatusEventData = {
-            "status": status_dto_to_status(params.status),
-            "data": raw_data,
-        }
+        if session_status == "cancelled":
+            try:
+                return event_to_dto(await app.sessions.cancel_processing(session_id))
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=str(exc),
+                ) from exc
+            except TimeoutError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=str(exc),
+                ) from exc
 
-        event = await application.post_event(
+        event = await app.sessions.create_status_event(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=status_data,
+            status=session_status,
+            data=raw_data,
+            metadata=params.metadata,
             source=_event_source_dto_to_event_source(params.source),
-            trigger_processing=False,
         )
 
         return event_to_dto(event)
@@ -1606,53 +1889,38 @@ def create_router(
     async def _add_customer_message(
         session_id: SessionIdPath,
         params: EventCreationParamsDTO,
-        moderation: Moderation = Moderation.NONE,
+        principal: Principal | None,
     ) -> EventDTO:
-        if not params.message:
+        if not params.message and not params.attachments:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Missing 'message' field for event",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="A customer message needs 'message' text or at least one attachment",
             )
 
-        flagged = False
-        tags: Set[str] = set()
+        # The scopes the message was sent with belong to this message only, so
+        # tools answering it can check them; a later message with a narrower
+        # token grants less. Written as trusted metadata clients can't set.
+        parlant_metadata: dict[str, JSONSerializable] | None = None
 
-        if moderation in [Moderation.AUTO, Moderation.PARANOID]:
-            moderation_service = await nlp_service.get_moderation_service()
-            check = await moderation_service.check(params.message)
-            flagged |= check.flagged
-            tags.update(check.tags)
+        if isinstance(principal, CustomerPrincipal) and principal.scopes:
+            parlant_metadata = {
+                "auth": {
+                    "scopes": list(principal.scopes),
+                    "expires_at": principal.scopes_expire_at,
+                }
+            }
 
-        if moderation == Moderation.PARANOID:
-            check = await _get_jailbreak_moderation_service(logger).check(params.message)
-            if "jailbreak" in check.tags:
-                flagged = True
-                tags.update({"jailbreak"})
-
-        session = await session_store.read_session(session_id)
-
-        try:
-            customer = await customer_store.read_customer(session.customer_id)
-            customer_display_name = customer.name
-        except Exception:
-            customer_display_name = session.customer_id
-
-        message_data: MessageEventData = {
-            "message": params.message,
-            "participant": {
-                "id": session.customer_id,
-                "display_name": customer_display_name,
-            },
-            "flagged": flagged,
-            "tags": list(tags),
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_customer_message(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=message_data,
+            message=params.message or "",
+            metadata=params.metadata,
+            parlant_metadata=parlant_metadata,
             source=EventSource.CUSTOMER,
             trigger_processing=True,
+            participant=_participant_dto_to_participant(params.participant)
+            if params.participant
+            else None,
+            attachments=_attachment_dtos_to_refs(params.attachments),
         )
 
         return event_to_dto(event)
@@ -1663,42 +1931,16 @@ def create_router(
     ) -> EventDTO:
         if params.message:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="If you add an agent message, you cannot specify what the message will be, as it will be auto-generated by the agent.",
             )
 
-        session = await session_store.read_session(session_id)
-
-        if params.guidelines:
-            requests = [
-                agent_message_guideline_dto_to_utterance_request(a) for a in params.guidelines
-            ]
-            correlation_id = await application.utter(session, requests)
-            event, *_ = await session_store.list_events(
-                session_id=session_id,
-                correlation_id=correlation_id,
-                kinds=[EventKind.MESSAGE],
-            )
+        if params.rules:
+            requests = [agent_message_rule_dto_to_utterance_request(a) for a in params.rules]
+            event = await app.sessions.utter(session_id, requests)
             return event_to_dto(event)
         else:
-            correlation_id = await application.dispatch_processing_task(session)
-
-            await session_listener.wait_for_events(
-                session_id=session_id,
-                correlation_id=correlation_id,
-                timeout=Timeout(60),
-            )
-
-            event = next(
-                iter(
-                    await session_store.list_events(
-                        session_id=session_id,
-                        correlation_id=correlation_id,
-                        kinds=[EventKind.STATUS],
-                    )
-                )
-            )
-
+            event = await app.sessions.process(session_id)
             return event_to_dto(event)
 
     async def _add_human_agent_message(
@@ -1707,29 +1949,20 @@ def create_router(
     ) -> EventDTO:
         if not params.message:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Missing 'message' field for event",
             )
         if not params.participant or not params.participant.display_name:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Missing 'participant' with 'display_name' for human agent message",
             )
 
-        message_data: MessageEventData = {
-            "message": params.message,
-            "participant": {
-                "id": AgentId(params.participant.id) if params.participant.id else None,
-                "display_name": params.participant.display_name,
-            },
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_human_agent_message_event(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=message_data,
-            source=EventSource.HUMAN_AGENT,
-            trigger_processing=False,
+            message=params.message,
+            participant=_participant_dto_to_participant(params.participant),
+            metadata=params.metadata,
         )
 
         return event_to_dto(event)
@@ -1740,39 +1973,17 @@ def create_router(
     ) -> EventDTO:
         if not params.message:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Missing 'data' field for message",
             )
 
-        session = await session_store.read_session(session_id)
-        agent = await agent_store.read_agent(session.agent_id)
-
-        message_data: MessageEventData = {
-            "message": params.message,
-            "participant": {
-                "id": agent.id,
-                "display_name": agent.name,
-            },
-        }
-
-        event = await application.post_event(
+        event = await app.sessions.create_human_agent_on_behalf_of_ai_agent_message_event(
             session_id=session_id,
-            kind=_event_kind_dto_to_event_kind(params.kind),
-            data=message_data,
-            source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
-            trigger_processing=False,
+            message=params.message,
+            metadata=params.metadata,
         )
 
-        return EventDTO(
-            id=event.id,
-            source=_event_source_to_event_source_dto(event.source),
-            kind=_event_kind_to_event_kind_dto(event.kind),
-            offset=event.offset,
-            creation_utc=event.creation_utc,
-            correlation_id=event.correlation_id,
-            data=cast(JSONSerializableDTO, event.data),
-            deleted=event.deleted,
-        )
+        return event_to_dto(event)
 
     async def _add_custom_event(
         session_id: SessionIdPath,
@@ -1780,28 +1991,28 @@ def create_router(
     ) -> EventDTO:
         if not params.data:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Missing 'data' field for custom event",
             )
 
-        event = await application.post_event(
+        try:
+            ensure_custom_event_type_is_not_reserved(params.data)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+        event = await app.sessions.create_event(
             session_id=session_id,
             kind=_event_kind_dto_to_event_kind(params.kind),
             data=params.data,
+            metadata=params.metadata,
             source=_event_source_dto_to_event_source(params.source),
             trigger_processing=False,
         )
 
-        return EventDTO(
-            id=event.id,
-            source=_event_source_to_event_source_dto(event.source),
-            kind=_event_kind_to_event_kind_dto(event.kind),
-            offset=event.offset,
-            creation_utc=event.creation_utc,
-            correlation_id=event.correlation_id,
-            data=cast(JSONSerializableDTO, event.data),
-            deleted=event.deleted,
-        )
+        return event_to_dto(event)
 
     @router.get(
         "/{session_id}/events",
@@ -1815,7 +2026,7 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Session not found",
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
             status.HTTP_504_GATEWAY_TIMEOUT: {
@@ -1827,42 +2038,112 @@ def create_router(
     async def list_events(
         request: Request,
         session_id: SessionIdPath,
-        min_offset: Optional[MinOffsetQuery] = None,
-        source: Optional[EventSourceDTO] = None,
-        correlation_id: Optional[CorrelationIdQuery] = None,
-        kinds: Optional[KindsQuery] = None,
+        min_offset: MinOffsetQuery | None = None,
+        source: EventSourceDTO | None = None,
+        trace_id: TraceIdQuery | None = None,
+        kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
-    ) -> Sequence[EventDTO]:
+        sse: bool = False,
+    ) -> Union[Sequence[EventDTO], Response]:
         """Lists events from a session with optional filtering and waiting capabilities.
 
         This endpoint retrieves events from a specified session and can:
-        1. Filter events by their offset, source, type, and correlation ID
+        1. Filter events by their offset, source, type, and trace ID
         2. Wait for new events to arrive if requested
         3. Return events in chronological order based on their offset
+        4. Stream events via Server-Sent Events (SSE) when sse=true
 
         Notes:
-            Long Polling Behavior:
+            Long Polling Behavior (when sse=false):
             - When wait_for_data = 0:
                 Returns immediately with any existing events that match the criteria
             - When wait_for_data > 0:
                 - If new matching events arrive within the timeout period, returns with those events
                 - If no new events arrive before timeout, raises 504 Gateway Timeout
                 - If matching events already exist, returns immediately with those events
+
+            SSE Mode (when sse=true):
+            - Returns a text/event-stream response
+            - Continuously sends events as they arrive
+            - wait_for_data is used as the timeout between events before closing the stream
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
+
+        await authorization_policy.authorize_session_access(
+            request=request,
+            session=await app.sessions.read(session_id=session_id),
+        )
+
+        redact_reasoning, redact_tool_data, redact_internal_metadata = await _event_redaction_flags(
+            authorization_policy, request
+        )
 
         kind_list: Sequence[EventKind] = [
             _event_kind_dto_to_event_kind(EventKindDTO(k))
             for k in (kinds.split(",") if kinds else [])
         ]
 
+        event_source = _event_source_dto_to_event_source(source) if source else None
+
+        if sse:
+            # Return SSE stream
+            async def event_stream() -> AsyncIterator[str]:
+                current_offset = min_offset or 0
+                try:
+                    while True:
+                        # Wait for new events
+                        has_events = await app.sessions.wait_for_more_events(
+                            session_id=session_id,
+                            min_offset=current_offset,
+                            source=event_source,
+                            kinds=kind_list,
+                            trace_id=trace_id,
+                            timeout=Timeout(wait_for_data),
+                        )
+
+                        if not has_events:
+                            # Timeout - close the stream
+                            break
+
+                        # Get new events
+                        events = await app.sessions.find_events(
+                            session_id=session_id,
+                            min_offset=current_offset,
+                            source=event_source,
+                            kinds=kind_list,
+                            trace_id=trace_id,
+                        )
+
+                        for e in events:
+                            event_dto = event_to_dto(
+                                e,
+                                redact_reasoning=redact_reasoning,
+                                redact_tool_data=redact_tool_data,
+                                redact_internal_metadata=redact_internal_metadata,
+                            )
+                            yield f"data: {event_dto.model_dump_json()}\n\n"
+                            current_offset = max(current_offset, e.offset + 1)
+                except ItemNotFoundError:
+                    # Session was deleted or doesn't exist - gracefully close the stream
+                    return
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        # Standard long-polling behavior
         if wait_for_data > 0:
-            if not await session_listener.wait_for_events(
+            if not await app.sessions.wait_for_more_events(
                 session_id=session_id,
                 min_offset=min_offset or 0,
-                source=_event_source_dto_to_event_source(source) if source else None,
+                source=event_source,
                 kinds=kind_list,
-                correlation_id=correlation_id,
+                trace_id=trace_id,
                 timeout=Timeout(wait_for_data),
             ):
                 raise HTTPException(
@@ -1870,27 +2151,150 @@ def create_router(
                     detail="Request timed out",
                 )
 
-        events = await session_store.list_events(
+        events = await app.sessions.find_events(
             session_id=session_id,
-            min_offset=min_offset,
-            source=_event_source_dto_to_event_source(source) if source else None,
+            min_offset=min_offset or 0,
+            source=event_source,
             kinds=kind_list,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
         )
 
         return [
-            EventDTO(
-                id=e.id,
-                source=_event_source_to_event_source_dto(e.source),
-                kind=_event_kind_to_event_kind_dto(e.kind),
-                offset=e.offset,
-                creation_utc=e.creation_utc,
-                correlation_id=e.correlation_id,
-                data=cast(JSONSerializableDTO, e.data),
-                deleted=e.deleted,
+            event_to_dto(
+                e,
+                redact_reasoning=redact_reasoning,
+                redact_tool_data=redact_tool_data,
+                redact_internal_metadata=redact_internal_metadata,
             )
             for e in events
         ]
+
+    @router.get(
+        "/{session_id}/events/{event_id}",
+        operation_id="read_event",
+        response_model=EventDTO,
+        responses={
+            status.HTTP_200_OK: {
+                "description": "Event details successfully retrieved",
+                "content": {"application/json": {"example": event_example}},
+            },
+            status.HTTP_404_NOT_FOUND: {
+                "description": "Session or event not found",
+            },
+        },
+        **apigen_config(group_name=API_GROUP, method_name="read_event"),
+    )
+    async def read_event(
+        request: Request,
+        session_id: SessionIdPath,
+        event_id: EventIdPath,
+        wait_for_completion: bool = False,
+        wait_for_data: int = 60,
+        sse: bool = False,
+    ) -> Union[EventDTO, Response]:
+        """Reads a single event from a session.
+
+        This endpoint retrieves a specific event by its ID and optionally waits
+        for the event to complete (useful for streaming messages).
+
+        Args:
+            wait_for_completion: If true, wait for the event to complete (for streaming events,
+                this means waiting until chunks contains None terminator)
+            wait_for_data: Timeout in seconds for wait_for_completion
+            sse: If true, stream event updates via Server-Sent Events until completion
+
+        Notes:
+            For streaming message events (events with 'chunks' property):
+            - The event is considered complete when chunks contains a None terminator
+            - Use wait_for_completion=true to wait for the full message
+            - Use sse=true to stream updates as chunks are added
+
+            SSE Mode (when sse=true):
+            - Returns a text/event-stream response
+            - Sends the event each time it's updated
+            - Closes when the event is complete (chunks ends with None)
+        """
+        await authorization_policy.authorize(request=request, operation=Operation.READ_EVENT)
+
+        await authorization_policy.authorize_session_access(
+            request=request,
+            session=await app.sessions.read(session_id=session_id),
+        )
+
+        redact_reasoning, redact_tool_data, redact_internal_metadata = await _event_redaction_flags(
+            authorization_policy, request
+        )
+
+        if sse:
+            # Return SSE stream that sends event updates until completion
+            async def event_stream() -> AsyncIterator[str]:
+                chunk_count = 0
+                while True:
+                    event = await app.sessions.read_event(
+                        session_id=session_id,
+                        event_id=event_id,
+                    )
+                    event_dto = event_to_dto(
+                        event,
+                        redact_reasoning=redact_reasoning,
+                        redact_tool_data=redact_tool_data,
+                        redact_internal_metadata=redact_internal_metadata,
+                    )
+                    yield f"data: {event_dto.model_dump_json()}\n\n"
+
+                    # Check if event is complete (for streaming events)
+                    data = cast(dict[str, object], event.data)
+                    if "chunks" in data:
+                        chunks = cast(list[str | None], data["chunks"])
+                        chunk_count = len(chunks)
+                        if chunks and chunks[-1] is None:
+                            break
+                    else:
+                        # Non-streaming event, just return it once
+                        break
+
+                    # Wait for new chunks (not full completion)
+                    if not await app.sessions.wait_for_new_streaming_chunks(
+                        session_id=session_id,
+                        event_id=event_id,
+                        last_known_chunk_count=chunk_count,
+                        timeout=Timeout(wait_for_data),
+                    ):
+                        break
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        # Standard read
+        event = await app.sessions.read_event(
+            session_id=session_id,
+            event_id=event_id,
+        )
+
+        if wait_for_completion:
+            await app.sessions.wait_for_event_completion(
+                session_id=session_id,
+                event_id=event_id,
+                timeout=Timeout(wait_for_data),
+            )
+            # Re-read the event after waiting
+            event = await app.sessions.read_event(
+                session_id=session_id,
+                event_id=event_id,
+            )
+
+        return event_to_dto(
+            event,
+            redact_reasoning=redact_reasoning,
+            redact_tool_data=redact_tool_data,
+            redact_internal_metadata=redact_internal_metadata,
+        )
 
     @router.delete(
         "/{session_id}/events",
@@ -1899,7 +2303,7 @@ def create_router(
         responses={
             status.HTTP_204_NO_CONTENT: {"description": "Events successfully deleted"},
             status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -1915,76 +2319,67 @@ def create_router(
         This operation is permanent and cannot be undone."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_EVENTS)
 
-        session = await session_store.read_session(session_id)
+        try:
+            await app.sessions.delete_events(session_id=session_id, min_offset=min_offset)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{e}")
 
-        events = await session_store.list_events(
-            session_id=session_id,
-            min_offset=0,
-            exclude_deleted=True,
-        )
-
-        events_starting_from_min_offset = [e for e in events if e.offset >= min_offset]
-
-        if not events_starting_from_min_offset:
-            return
-
-        event_at_min_offset = events_starting_from_min_offset[0]
-
-        first_event_of_correlation_id = next(
-            e for e in events if e.correlation_id == event_at_min_offset.correlation_id
-        )
-
-        if event_at_min_offset.id != first_event_of_correlation_id.id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Cannot delete events with offset < min_offset unless they are the first event of their correlation ID",
-            )
-
-        for e in events_starting_from_min_offset:
-            await session_store.delete_event(e.id)
-
-        if not session.agent_states:
-            return
-
-        state_index_offset = next(
-            i
-            for i, s in enumerate(session.agent_states, start=0)
-            if s.correlation_id.startswith(event_at_min_offset.correlation_id)
-        )
-
-        agent_states = session.agent_states[:state_index_offset]
-
-        await session_store.update_session(
-            session_id=session_id,
-            params={"agent_states": agent_states},
-        )
-
-    async def _find_correlated_tool_calls(
+    @router.patch(
+        "/{session_id}/events/{event_id}",
+        operation_id="update_event",
+        response_model=EventDTO,
+        responses={
+            status.HTTP_200_OK: {
+                "description": "Event successfully updated",
+                "content": {"application/json": {"example": event_example}},
+            },
+            status.HTTP_404_NOT_FOUND: {"description": "Session or event not found"},
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
+                "description": "Validation error in update parameters"
+            },
+        },
+        **apigen_config(group_name=API_GROUP, method_name="update_event"),
+    )
+    async def update_event(
+        request: Request,
         session_id: SessionIdPath,
-        event: Event,
-    ) -> Sequence[ToolCallDTO]:
-        """Helper function to find tool calls correlated with an event."""
+        event_id: EventIdPath,
+        params: EventUpdateParamsDTO,
+    ) -> EventDTO:
+        """Updates an event's properties.
 
-        tool_events = await session_store.list_events(
+        Currently only supports updating metadata. Other event properties cannot be modified.
+        This API is designed to be extensible for future event property updates.
+        """
+        await authorization_policy.authorize(request=request, operation=Operation.UPDATE_EVENT)
+        if params.metadata:
+            validate_public_metadata(params.metadata.set)
+            for key in params.metadata.unset or ():
+                try:
+                    metadata_utils.ensure_public_metadata_key(key)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail=str(exc),
+                    ) from exc
+
+        update_params: EventUpdateParamsModel = {}
+        if params.metadata is not None:
+            # Convert API DTO to app_modules model - pass through set/unset operations
+            metadata_update: EventMetadataUpdateParamsModel = {}
+            if params.metadata.set:
+                metadata_update["set"] = params.metadata.set
+            if params.metadata.unset:
+                metadata_update["unset"] = params.metadata.unset
+
+            update_params["metadata"] = metadata_update
+
+        event = await app.sessions.update_event(
             session_id=session_id,
-            kinds=[EventKind.TOOL],
-            correlation_id=event.correlation_id,
+            event_id=event_id,
+            params=update_params,
         )
 
-        tool_calls = list(
-            chain.from_iterable(cast(ToolEventData, e.data)["tool_calls"] for e in tool_events)
-        )
-
-        return [
-            ToolCallDTO(
-                tool_id=tc["tool_id"],
-                arguments=cast(Mapping[str, JSONSerializableDTO], tc["arguments"]),
-                result=ToolResultDTO(
-                    data=cast(JSONSerializableDTO, tc["result"]["data"]),
-                    metadata=cast(Mapping[str, JSONSerializableDTO], tc["result"]["metadata"]),
-                ),
-            )
-            for tc in tool_calls
-        ]
+        return event_to_dto(event)
 
     return router

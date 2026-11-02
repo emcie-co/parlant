@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,18 +13,24 @@
 # limitations under the License.
 
 from __future__ import annotations
+
 from ast import literal_eval
 from datetime import datetime, timezone
+import json
 from mailbox import FormatError
-from types import TracebackType
-from typing import Any, Sequence, Mapping, Optional, Literal, Callable
-from fastmcp.client.transports import StreamableHttpTransport
-from typing_extensions import override
-from fastmcp import FastMCP
-from fastmcp.client import Client
 from mcp.types import Tool as McpTool
+from types import TracebackType
+from typing import Any, Sequence, Mapping, Optional, Literal, Callable, Awaitable, cast
+from typing_extensions import override
 import asyncio
-from parlant.core.loggers import Logger
+import httpx
+
+from fastmcp import FastMCP
+from fastmcp.tools import Tool as FastMCPTool
+from fastmcp.client import Client
+from fastmcp.client.transports import StreamableHttpTransport
+
+from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.tools import (
     Tool,
     ToolError,
@@ -37,10 +43,12 @@ from parlant.core.tools import (
     ToolParameterType,
 )
 from parlant.core.common import JSONSerializable
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.tracer import Tracer
 from parlant.core.emissions import EventEmitterFactory
 
 DEFAULT_MCP_PORT: int = 8181
+DEFAULT_MCP_CONNECTION_ATTEMPTS: int = 3
+DEFAULT_MCP_RETRY_DELAY_SECONDS: float = 0.5
 
 StringBasedTypes = [
     "string",
@@ -67,17 +75,23 @@ class MCPToolServer:
     ) -> None:
         self._server: FastMCP[Any] = FastMCP(name=name)
 
-        self._server.settings.port = port
+        self._port = port
 
         if "://" in host:
             host = host.split("://")[1]
-        self._server.settings.host = host
+        self._host = host
         self.transport = transport
         for tool in tools:
-            self._server.add_tool(tool)
+            self._server.add_tool(FastMCPTool.from_function(tool))
 
     async def __aenter__(self) -> MCPToolServer:
-        self._task = asyncio.create_task(self._server.run_async(transport=self.transport))
+        self._task = asyncio.create_task(
+            self._server.run_async(
+                transport=self.transport,
+                host=self._host,
+                port=self._port,
+            )
+        )
 
         start_timeout = 10
         sample_frequency = 0.1
@@ -104,7 +118,11 @@ class MCPToolServer:
         return False
 
     async def serve(self) -> None:
-        await self._server.run_async(transport=self.transport)
+        await self._server.run_async(
+            transport=self.transport,
+            host=self._host,
+            port=self._port,
+        )
 
     async def shutdown(self) -> None:
         """At the time of creating this server, there is no graceful shutdown for the FactMCP http server"""
@@ -117,7 +135,7 @@ class MCPToolServer:
         return False
 
     def get_port(self) -> int:
-        return self._server.settings.port
+        return self._port
 
 
 class MCPToolClient(ToolService):
@@ -126,12 +144,14 @@ class MCPToolClient(ToolService):
         url: str,
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
         port: int = DEFAULT_MCP_PORT,
     ) -> None:
         self._event_emitter_factory = event_emitter_factory
-        self._logger = logger
-        self._correlator = correlator
+        self._logger = ScopedLogger(logger, "MCPToolClient")
+        self._tracer = tracer
+        self._client: Client[StreamableHttpTransport] | None = None
+        self._client_lock = asyncio.Lock()
         if ":" in url[-6:]:
             parts = url.split(":")
             self.url = ":".join(parts[:-1])
@@ -139,16 +159,11 @@ class MCPToolClient(ToolService):
         else:
             self.url = url
             self.port = port
+        self.endpoint_url = f"{self.url}:{self.port}"
 
     async def __aenter__(self) -> MCPToolClient:
-        try:
-            self._client = Client(StreamableHttpTransport(url=f"{self.url}:{self.port}/mcp"))
-            await asyncio.wait_for(self._client.__aenter__(), timeout=10.0)  # type: ignore
-            return self
-        except asyncio.TimeoutError:
-            raise ConnectionError(f"Connection to MCP service at {self.url}:{self.port} timed out")
-        except Exception as e:
-            raise Exception(f"Failed to connect to MCP service: {str(e)}")
+        await self._connect(force=True)
+        return self
 
     async def __aexit__(
         self,
@@ -156,20 +171,128 @@ class MCPToolClient(ToolService):
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> bool:
-        if self._client:
-            try:
-                await self._client.__aexit__(exc_type, exc_value, traceback)  # type: ignore
-            except RuntimeError:
-                pass
+        await self._disconnect(exc_type, exc_value, traceback)
         return False
+
+    def _create_client(self) -> Client[StreamableHttpTransport]:
+        return Client(StreamableHttpTransport(url=f"{self.url}:{self.port}/mcp"))
+
+    def _is_connected(self) -> bool:
+        return self._client is not None and self._client.is_connected()
+
+    def _is_reconnectable_exception(self, exc: Exception) -> bool:
+        if isinstance(
+            exc,
+            (
+                asyncio.TimeoutError,
+                ConnectionError,
+                httpx.HTTPError,
+                httpx.TimeoutException,
+                httpx.TransportError,
+            ),
+        ):
+            return True
+
+        if isinstance(exc, RuntimeError):
+            message = str(exc).lower()
+            reconnectable_markers = (
+                "client is not connected",
+                "session was closed unexpectedly",
+                "closed unexpectedly",
+            )
+            return any(marker in message for marker in reconnectable_markers)
+
+        return False
+
+    async def _close_client(
+        self,
+        client: Client[StreamableHttpTransport],
+        exc_type: Optional[type[BaseException]] = None,
+        exc_value: Optional[BaseException] = None,
+        traceback: Optional[TracebackType] = None,
+    ) -> None:
+        try:
+            await client.__aexit__(exc_type, exc_value, traceback)  # type: ignore[no-untyped-call]
+        except RuntimeError:
+            pass
+        except Exception as exc:
+            self._logger.warning(f"Failed to close MCP client cleanly: {exc}")
+
+    async def _disconnect(
+        self,
+        exc_type: Optional[type[BaseException]] = None,
+        exc_value: Optional[BaseException] = None,
+        traceback: Optional[TracebackType] = None,
+    ) -> None:
+        async with self._client_lock:
+            if self._client:
+                client = self._client
+                self._client = None
+                await self._close_client(client, exc_type, exc_value, traceback)
+
+    async def _connect(self, force: bool = False) -> Client[StreamableHttpTransport]:
+        async with self._client_lock:
+            if not force and self._is_connected():
+                assert self._client is not None
+                return self._client
+
+            if self._client:
+                stale_client = self._client
+                self._client = None
+                await self._close_client(stale_client)
+
+            last_error: Exception | None = None
+
+            for attempt in range(1, DEFAULT_MCP_CONNECTION_ATTEMPTS + 1):
+                client = self._create_client()
+
+                try:
+                    await asyncio.wait_for(client.__aenter__(), timeout=10.0)  # type: ignore[no-untyped-call]
+                    self._client = client
+                    return client
+                except asyncio.TimeoutError:
+                    last_error = ConnectionError(
+                        f"Connection to MCP service at {self.url}:{self.port} timed out"
+                    )
+                except Exception as exc:
+                    last_error = Exception(f"Failed to connect to MCP service: {str(exc)}")
+                finally:
+                    if self._client is None:
+                        await self._close_client(client)
+
+                if attempt < DEFAULT_MCP_CONNECTION_ATTEMPTS:
+                    self._logger.warning(
+                        f"MCP connection attempt {attempt} failed for {self.url}:{self.port}; retrying"
+                    )
+                    await asyncio.sleep(DEFAULT_MCP_RETRY_DELAY_SECONDS * attempt)
+
+            assert last_error is not None
+            raise last_error
+
+    async def _with_reconnect(
+        self,
+        operation: Callable[[Client[StreamableHttpTransport]], Awaitable[Any]],
+        *,
+        retry_once: bool = True,
+    ) -> Any:
+        client = await self._connect()
+
+        try:
+            return await operation(client)
+        except Exception as exc:
+            if not retry_once or not self._is_reconnectable_exception(exc):
+                raise
+
+            self._logger.warning(
+                f"MCP client session dropped for {self.url}:{self.port}; reconnecting and retrying"
+            )
+            client = await self._connect(force=True)
+            return await operation(client)
 
     @override
     async def list_tools(self) -> Sequence[Tool]:
         try:
-            if not self._client:
-                raise ToolError("Client not initialized.")
-
-            tools = await self._client.list_tools()
+            tools = await self._with_reconnect(lambda client: client.list_tools())
             return [mcp_tool_to_parlant_tool(t) for t in tools]
         except Exception as e:
             raise ToolError(str(e))
@@ -177,7 +300,7 @@ class MCPToolClient(ToolService):
     @override
     async def read_tool(self, name: str) -> Tool:
         try:
-            tools = await self._client.list_tools()
+            tools = await self._with_reconnect(lambda client: client.list_tools())
             tool = next(t for t in tools if t.name == name)
             return mcp_tool_to_parlant_tool(tool)
         except Exception as e:
@@ -201,9 +324,9 @@ class MCPToolClient(ToolService):
         try:
             tool = await self.read_tool(name)
             arguments = prepare_tool_arguments(arguments, tool.parameters)
-            result = await self._client.call_tool(name, dict(arguments))
-            text = next((r.text for r in result if r.type == "text"), None)
-            return ToolResult(data=text)
+            client = await self._connect()
+            result = await client.call_tool(name, dict(arguments))
+            return ToolResult(data=mcp_result_to_tool_result_data(result))
         except Exception as e:
             raise ToolError(str(e))
 
@@ -224,7 +347,7 @@ mcp_parameter_type_map: dict[tuple[str, str | None], ToolParameterType] = {
 
 def mcp_tool_to_parlant_tool(mcp_tool: McpTool) -> Tool:
     parameters = {}
-    for param in mcp_tool.inputSchema["properties"]:
+    for param in mcp_tool.inputSchema.get("properties", {}):
         parameters[param] = (
             mcp_parameter_to_parlant_parameter(param, mcp_tool.inputSchema),
             ToolParameterOptions(),
@@ -235,8 +358,8 @@ def mcp_tool_to_parlant_tool(mcp_tool: McpTool) -> Tool:
         description=(mcp_tool.description if mcp_tool.description else ""),
         metadata={},
         parameters=parameters,
-        required=mcp_tool.inputSchema["required"],
-        consequential=False,
+        required=mcp_tool.inputSchema.get("required", []),
+        consequential=True,
         overlap=ToolOverlap.ALWAYS,
     )
     return tool
@@ -250,11 +373,11 @@ def mcp_parameter_to_parlant_parameter(
         """ Union of types - currently only optional is supported"""
         mcp_param = resolve_optional(mcp_param["anyOf"])
 
-    param_type = mcp_param.get("type", None)
-    param_format = mcp_param.get("format", None)
-    description = mcp_param.get("title", None)
+    param_type: str | None = mcp_param.get("type", None)
+    param_format: str | None = mcp_param.get("format", None)
+    description = mcp_param.get("title") or mcp_param.get("description")
 
-    if (param_type, param_format) in mcp_parameter_type_map:
+    if param_type is not None and (param_type, param_format) in mcp_parameter_type_map:
         """ basic types + easily serializable types """
         return ToolParameterDescriptor(
             type=mcp_parameter_type_map[(param_type, param_format)], description=description
@@ -267,8 +390,10 @@ def mcp_parameter_to_parlant_parameter(
         )
 
     if "$ref" in mcp_param:
-        """ Reference to another schema - currently only enum is supported"""
+        """ Reference to another schema - enum and object references are supported"""
         def_ = resolve_ref(mcp_param["$ref"], schema)
+        if _is_object_schema(def_):
+            return ToolParameterDescriptor(type="string", description=description or "")
         return parse_enum_def(def_)
 
     if param_type == "array":
@@ -276,23 +401,85 @@ def mcp_parameter_to_parlant_parameter(
         if "items" not in mcp_param:
             raise FormatError("Only lists and sets are supported collections")
 
-        enum_desc = None
-        if "$ref" in mcp_param["items"]:
-            """ Reference to another schema - currently only enum is supported"""
-            def_ = resolve_ref(mcp_param["items"]["$ref"], schema)
-            enum_desc = parse_enum_def(def_)
+        item_type, enum = parse_mcp_array_item(mcp_param["items"], schema)
 
         return ToolParameterDescriptor(
             type="array",
-            item_type=(
-                enum_desc["type"]
-                if enum_desc
-                else mcp_parameter_type_map[(mcp_param["items"]["type"], None)]
-            ),
-            **({"enum": enum_desc["enum"]} if enum_desc is not None else {}),
+            item_type=item_type,
+            **({"enum": enum} if enum is not None else {}),
             description=mcp_param.get("title", ""),
         )
+    if _is_object_schema(mcp_param):
+        return ToolParameterDescriptor(type="string", description=description or "")
     raise FormatError(f"Unsupported parameter type: {param_type} (parameter is {parameter_name})")
+
+
+def parse_mcp_array_item(
+    item_schema: dict[str, Any],
+    root_schema: dict[str, Any],
+) -> tuple[ToolParameterType, Sequence[str] | None]:
+    if "$ref" in item_schema:
+        def_ = resolve_ref(item_schema["$ref"], root_schema)
+        if _is_object_schema(def_):
+            return ("string", None)
+
+        enum_desc = parse_enum_def(def_)
+        return (enum_desc["type"], enum_desc["enum"])
+
+    item_type = cast(str, item_schema.get("type"))
+    item_format = cast(str, item_schema.get("format"))
+
+    if _is_object_schema(item_schema):
+        return ("string", None)
+
+    key = (item_type, item_format)
+    if key in mcp_parameter_type_map:
+        return (mcp_parameter_type_map[cast(tuple[str, str | None], key)], None)
+
+    raise FormatError(f"Unsupported array item type: {item_type}")
+
+
+def _is_object_schema(schema_part: Mapping[str, Any]) -> bool:
+    return schema_part.get("type") == "object" or "properties" in schema_part
+
+
+def mcp_result_to_tool_result_data(result: Any) -> Any:
+    raw_data = getattr(result, "data", None)
+    if raw_data is not None:
+        return _deserialize_mcp_data(raw_data)
+
+    structured_content = getattr(result, "structuredContent", None)
+    if structured_content is None:
+        structured_content = getattr(result, "structured_content", None)
+    if structured_content is not None:
+        return structured_content
+
+    text_blocks = [
+        content.text for content in getattr(result, "content", []) if content.type == "text"
+    ]
+
+    if not text_blocks:
+        return None
+
+    parsed_blocks = [_deserialize_mcp_text(text) for text in text_blocks]
+
+    if len(parsed_blocks) == 1:
+        return parsed_blocks[0]
+
+    return parsed_blocks
+
+
+def _deserialize_mcp_text(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def _deserialize_mcp_data(data: Any) -> Any:
+    if isinstance(data, str):
+        return _deserialize_mcp_text(data)
+    return data
 
 
 def resolve_ref(ref_: str, schema: dict[str, Any]) -> dict[str, Any]:

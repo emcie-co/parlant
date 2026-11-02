@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,14 +16,51 @@ from __future__ import annotations
 import base64
 from collections import defaultdict
 from enum import Enum
-import asyncio
-import hashlib
-from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
-from typing_extensions import Self
+import json
+import os
+import xxhash
+
+from typing import (
+    Any,
+    Awaitable,
+    Generic,
+    Mapping,
+    NewType,
+    Optional,
+    Sequence,
+    TypeAlias,
+    TypeVar,
+    Union,
+    Callable,
+)
+from uuid import uuid4
 
 import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
-import semver  # type: ignore
+import semver
+
+
+DISABLE_WARNINGS = os.getenv("PARLANT_WARNINGS", "1") in (
+    "0",
+    "false",
+    "False",
+    "no",
+    "No",
+    "n",
+    "N",
+)
+
+_ClassPropertyReturnType = TypeVar("_ClassPropertyReturnType")
+
+
+class classproperty(Generic[_ClassPropertyReturnType]):
+    """A descriptor that enables class-level properties."""
+
+    def __init__(self, func: Callable[..., _ClassPropertyReturnType]) -> None:
+        self.func = func
+
+    def __get__(self, instance: Any, owner: type) -> _ClassPropertyReturnType:
+        return self.func(owner)
 
 
 def _without_dto_suffix(obj: Any, *args: Any) -> str:
@@ -70,6 +107,16 @@ JSONSerializable: TypeAlias = Union[
 ]
 """A JSON-serializable value."""
 
+
+def to_prompt_json(
+    value: Any,
+    *,
+    default: Callable[[Any], Any] | None = None,
+) -> str:
+    """Serialize a value as compact, Unicode-preserving JSON for an LLM prompt."""
+    return json.dumps(value, ensure_ascii=False, indent=None, default=default)
+
+
 UniqueId = NewType("UniqueId", str)
 
 
@@ -114,39 +161,41 @@ class Version:
             return NotImplemented
         return self._v > other._v
 
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        return self._v >= other._v
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        return self._v <= other._v
+
 
 class ItemNotFoundError(Exception):
-    def __init__(self, item_id: UniqueId, message: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        item_id: UniqueId,
+        message: Optional[str] = None,
+        *,
+        item_type: Optional[str] = None,
+    ) -> None:
+        self.item_id = item_id
+        self.item_type = item_type
         if message:
             super().__init__(f"{message} (id='{item_id}')")
         else:
             super().__init__(f"Item '{item_id}' not found")
 
 
-class CancellationSuppressionLatch:
-    def __init__(self) -> None:
-        self._suppressed = False
-        self._task = None
+_T = TypeVar("_T")
 
-    def __enter__(self) -> Self:
-        return self
 
-    def __exit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
-    ) -> bool:
-        if (
-            self._suppressed
-            and exc_type is not None
-            and issubclass(exc_type, asyncio.CancelledError)
-        ):
-            return True
-        return False
-
-    def enable(self) -> None:
-        self._suppressed = True
+async def try_or_none(coro: Awaitable[_T]) -> Optional[_T]:
+    try:
+        return await coro
+    except ItemNotFoundError:
+        return None
 
 
 id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -157,7 +206,7 @@ class IdGenerator:
         self._unique_checksums: dict[str, int] = defaultdict(int)
 
     def _generate_deterministic_id(self, unique_str: str, size: int = 10) -> str:
-        h = hashlib.md5(unique_str.encode("utf-8")).digest()
+        h = xxhash.xxh3_128(unique_str.encode("utf-8")).digest()
         b64 = base64.urlsafe_b64encode(h).decode()
         id = "".join([c for c in b64 if c in id_generation_alphabet])[:size]
 
@@ -178,15 +227,19 @@ class IdGenerator:
         return UniqueId(new_id)
 
 
-def generate_id() -> UniqueId:
-    return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
+def generate_id(hints: Optional[Mapping[str, Any]] = None) -> UniqueId:
+    hints = hints or {}
+
+    strategy = hints.get("strategy", "nanoid")
+
+    if strategy == "uuid4":
+        return UniqueId(uuid4().hex)
+    else:
+        return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
 
 
-def md5_checksum(input: str) -> str:
-    md5_hash = hashlib.md5()
-    md5_hash.update(input.encode("utf-8"))
-
-    return md5_hash.hexdigest()
+def xxh3_checksum(input: str) -> str:
+    return xxhash.xxh3_64_hexdigest(input.encode("utf-8"))
 
 
 def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -196,3 +249,16 @@ def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
         return v
 
     return {k: adapt_value(v) for k, v in d.items()}
+
+
+class Weight(Enum):
+    """Enumeration of rule weight levels."""
+
+    LOW = "low"
+    """Low-weight rule."""
+
+    MEDIUM = "medium"
+    """Medium-weight rule (default)."""
+
+    HIGH = "high"
+    """High-weight rule."""

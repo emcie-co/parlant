@@ -14,14 +14,19 @@
 
 """HealthView for the NLP layer.
 
-Aggregates ``nlp.request`` and ``nlp.embed`` reports into a per-schema
-status with success rate, latency percentiles, and a recent-error
-breakdown. The view's status is the worst across all observed schemas.
+Aggregates ``nlp.request`` and ``nlp.embed`` reports into a per-ROUTE
+status with success rate, latency percentiles, a recent-error breakdown,
+and a per-agent drill-down inside each route. Routes are the stable model
+configuration vocabulary, and agents can define their own route configs,
+so health is attributed to (route, agent) at the model-routing layer.
+Reports from server-scope (agentless) calls group under the ``server``
+bucket. The view's status is the worst across all observed routes; a
+route's status is the worst across its agents.
 """
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from parlant.core.health.reporter import (
@@ -34,12 +39,30 @@ from parlant.core.health.reporter import (
 
 
 @dataclass(frozen=True)
-class SchemaThresholds:
-    """Per-schema overrides for ``NLPHealthView`` classification.
+class PercentileResult:
+    """Result of a per-route percentile query.
+
+    ``is_stale`` is ``True`` when the result is served from a frozen
+    snapshot taken the last time a query found live data — the live
+    buffer is currently empty for the requested route. Callers
+    making time-sensitive decisions (e.g. request hedging) should
+    inspect ``is_stale`` and ``sample_count`` before trusting the
+    values.
+    """
+
+    values: dict[float, float]
+    sample_count: int
+    captured_at: datetime
+    is_stale: bool
+
+
+@dataclass(frozen=True)
+class RouteThresholds:
+    """Per-route overrides for ``NLPHealthView`` classification.
 
     Any field left as ``None`` falls back to the view's default for that
     threshold, so callers only need to specify the thresholds they care
-    about for a given schema.
+    about for a given route.
     """
 
     degraded_p50_ms: float | None = None
@@ -55,6 +78,10 @@ NLP_EMBED_KIND = "nlp.embed"
 
 NLP_REQUESTS_COUNTER = "nlp.requests"
 NLP_TOKENS_COUNTER = "nlp.tokens"
+
+# Rendered bucket for reports with no agent attribution (server-scope calls:
+# indexing, evaluation, background jobs).
+SERVER_AGENT_BUCKET = "server"
 
 _RATE_WINDOWS: tuple[tuple[str, timedelta], ...] = (
     ("1m", timedelta(minutes=1)),
@@ -73,7 +100,7 @@ def _percentile(values: list[float], p: float) -> float:
 
 
 class NLPHealthView:
-    """Renders NLP health grouped by schema.
+    """Renders NLP health grouped by route, then agent.
 
     Status thresholds are constructor parameters so deployments can tune
     them without changing the view itself. Defaults err toward leniency
@@ -85,6 +112,8 @@ class NLPHealthView:
     kinds: tuple[str, ...] = (NLP_REQUEST_KIND, NLP_EMBED_KIND)
 
     # Report attribute keys — producers and the renderer share these.
+    ATTR_ROUTE = "route"
+    ATTR_AGENT = "agent_id"
     ATTR_SCHEMA = "schema"
     ATTR_MODEL = "model"
     ATTR_SUCCESS = "success"
@@ -102,7 +131,7 @@ class NLPHealthView:
         degraded_p95_ms: float = 45_000.0,
         unhealthy_p95_ms: float = 60_000.0,
         recent_errors_top_k: int = 5,
-        schema_thresholds: Mapping[str, SchemaThresholds] | None = None,
+        route_thresholds: Mapping[str, RouteThresholds] | None = None,
     ) -> None:
         self._health_reporter = health_reporter
         self._degraded_below_success_rate = degraded_below_success_rate
@@ -112,63 +141,171 @@ class NLPHealthView:
         self._degraded_p95_ms = degraded_p95_ms
         self._unhealthy_p95_ms = unhealthy_p95_ms
         self._recent_errors_top_k = recent_errors_top_k
-        self._schema_thresholds: Mapping[str, SchemaThresholds] = dict(schema_thresholds or {})
+        self._route_thresholds: Mapping[str, RouteThresholds] = dict(route_thresholds or {})
+        self._frozen_per_route: dict[str, PercentileResult] = {}
+
+    def percentiles_for_route(
+        self,
+        route: str,
+        ps: Sequence[float] = (0.5, 0.95, 0.99),
+        value_attribute: str = "latency_ms",
+    ) -> PercentileResult:
+        """Return p50/p95/p99 (or custom ``ps``) for ``route``.
+
+        Reads the current ``NLP_REQUEST_KIND`` buffer (after age-pruning).
+        If matching entries exist, computes live percentiles and freezes
+        them as the route's last-known snapshot. If no matching entries
+        exist, returns the frozen snapshot (with ``is_stale=True``) if
+        one was ever captured for this route, otherwise a zero-filled
+        ``is_stale=True`` result.
+        """
+        if self._health_reporter is None:
+            return PercentileResult(
+                values={p: 0.0 for p in ps},
+                sample_count=0,
+                captured_at=datetime.now(timezone.utc),
+                is_stale=True,
+            )
+
+        reports = self._health_reporter.read_reports(NLP_REQUEST_KIND)
+
+        values: list[float] = []
+        for r in reports:
+            if r.attributes.get(self.ATTR_ROUTE) != route:
+                continue
+            raw = r.attributes.get(value_attribute)
+            if raw is None:
+                continue
+            values.append(float(raw))
+
+        now = datetime.now(timezone.utc)
+
+        if values:
+            live = PercentileResult(
+                values={p: _percentile(values, p) for p in ps},
+                sample_count=len(values),
+                captured_at=now,
+                is_stale=False,
+            )
+            self._frozen_per_route[route] = live
+            return live
+
+        frozen = self._frozen_per_route.get(route)
+        if frozen is not None:
+            return PercentileResult(
+                values=frozen.values,
+                sample_count=frozen.sample_count,
+                captured_at=frozen.captured_at,
+                is_stale=True,
+            )
+
+        return PercentileResult(
+            values={p: 0.0 for p in ps},
+            sample_count=0,
+            captured_at=now,
+            is_stale=True,
+        )
 
     def render(
         self,
         reports_by_kind: Mapping[str, Sequence[HealthReport]],
     ) -> ViewSnapshot:
-        request_reports = list(reports_by_kind.get(NLP_REQUEST_KIND, ()))
-        embed_reports = list(reports_by_kind.get(NLP_EMBED_KIND, ()))
+        reports = [
+            *reports_by_kind.get(NLP_REQUEST_KIND, ()),
+            *reports_by_kind.get(NLP_EMBED_KIND, ()),
+        ]
 
         rate_blocks = self._render_rate_blocks()
-        total_count = len(request_reports) + len(embed_reports)
+
+        by_route: dict[str, list[HealthReport]] = {}
+        for report in reports:
+            route = str(report.attributes.get(self.ATTR_ROUTE) or "<unknown>")
+            by_route.setdefault(route, []).append(report)
 
         worst = OverallHealth.HEALTHY
-
-        schemas_body, worst_schema = self._render_grouped(
-            request_reports,
-            classify=lambda name, **kw: self._classify(schema=name, **kw),
-        )
-        if _rank(worst_schema) > _rank(worst):
-            worst = worst_schema
-
-        embedders_body, worst_embedder = self._render_grouped(
-            embed_reports,
-            classify=lambda name, **kw: self._classify(schema=None, **kw),
-        )
-        if _rank(worst_embedder) > _rank(worst):
-            worst = worst_embedder
+        routes_body: dict[str, Any] = {}
+        for route, route_reports in by_route.items():
+            entry, status = self._render_route(route, route_reports)
+            routes_body[route] = entry
+            if _rank(status) > _rank(worst):
+                worst = status
 
         return ViewSnapshot(
             status=worst,
             body={
-                "sample_count": total_count,
-                "schemas": schemas_body,
-                "embedders": embedders_body,
+                "sample_count": len(reports),
+                "routes": routes_body,
                 **rate_blocks,
             },
         )
 
-    def _render_grouped(
+    def _render_route(
         self,
-        reports: Sequence[HealthReport],
-        *,
-        classify: Any,
+        route: str,
+        reports: list[HealthReport],
     ) -> tuple[dict[str, Any], OverallHealth]:
-        groups: dict[str, list[HealthReport]] = {}
+        by_agent: dict[str, list[HealthReport]] = {}
         for report in reports:
-            name = str(report.attributes.get(self.ATTR_SCHEMA, "<unknown>"))
-            groups.setdefault(name, []).append(report)
+            agent = report.attributes.get(self.ATTR_AGENT)
+            bucket = str(agent) if agent else SERVER_AGENT_BUCKET
+            by_agent.setdefault(bucket, []).append(report)
 
-        body: dict[str, Any] = {}
+        agents_body: dict[str, Any] = {}
         worst = OverallHealth.HEALTHY
-        for name, group_reports in groups.items():
-            entry, status = self._render_group(name, group_reports, classify=classify)
-            body[name] = entry
+        for bucket, agent_reports in by_agent.items():
+            metrics = self._compute_metrics(agent_reports)
+            status = self._classify(route=route, **metrics)
+            agents_body[bucket] = self._render_metrics(metrics, status, len(agent_reports))
             if _rank(status) > _rank(worst):
                 worst = status
-        return body, worst
+
+        # Route-level metrics span all the route's reports; the route STATUS is
+        # the worst of its agents so one failing agent can't hide in the rollup.
+        route_metrics = self._compute_metrics(reports)
+        entry = self._render_metrics(route_metrics, worst, len(reports))
+        entry["agents"] = agents_body
+        return entry, worst
+
+    def _compute_metrics(self, reports: Sequence[HealthReport]) -> dict[str, Any]:
+        successes = sum(1 for r in reports if bool(r.attributes.get(self.ATTR_SUCCESS)))
+        sample_count = len(reports)
+        success_rate = successes / sample_count if sample_count else 1.0
+
+        latencies = [
+            float(r.attributes[self.ATTR_LATENCY_MS])
+            for r in reports
+            if self.ATTR_LATENCY_MS in r.attributes
+            and r.attributes[self.ATTR_LATENCY_MS] is not None
+        ]
+
+        error_counter: Counter[str] = Counter()
+        for r in reports:
+            if r.attributes.get(self.ATTR_SUCCESS):
+                continue
+            error_class = str(r.attributes.get(self.ATTR_ERROR_CLASS) or "Unknown")
+            error_counter[error_class] += 1
+
+        return {
+            "success_rate": success_rate,
+            "p50_ms": _percentile(latencies, 0.5),
+            "p95_ms": _percentile(latencies, 0.95),
+            "recent_errors": dict(error_counter.most_common(self._recent_errors_top_k)),
+        }
+
+    @staticmethod
+    def _render_metrics(
+        metrics: Mapping[str, Any],
+        status: OverallHealth,
+        sample_count: int,
+    ) -> dict[str, Any]:
+        return {
+            "status": status.value,
+            "success_rate": round(metrics["success_rate"], 4),
+            "p50_latency_ms": round(metrics["p50_ms"], 2),
+            "p95_latency_ms": round(metrics["p95_ms"], 2),
+            "recent_errors": metrics["recent_errors"],
+            "sample_count": sample_count,
+        }
 
     def _render_rate_blocks(self) -> dict[str, Any]:
         if self._health_reporter is None:
@@ -193,58 +330,16 @@ class NLPHealthView:
         except KeyError:
             return {}
 
-    def _render_group(
-        self,
-        name: str,
-        reports: list[HealthReport],
-        *,
-        classify: Any,
-    ) -> tuple[dict[str, Any], OverallHealth]:
-        successes = sum(1 for r in reports if bool(r.attributes.get(self.ATTR_SUCCESS)))
-        sample_count = len(reports)
-        success_rate = successes / sample_count if sample_count else 1.0
-
-        latencies = [
-            float(r.attributes[self.ATTR_LATENCY_MS])
-            for r in reports
-            if self.ATTR_LATENCY_MS in r.attributes
-            and r.attributes[self.ATTR_LATENCY_MS] is not None
-        ]
-        p50 = _percentile(latencies, 0.5)
-        p95 = _percentile(latencies, 0.95)
-
-        error_counter: Counter[str] = Counter()
-        for r in reports:
-            if r.attributes.get(self.ATTR_SUCCESS):
-                continue
-            error_class = str(r.attributes.get(self.ATTR_ERROR_CLASS) or "Unknown")
-            error_counter[error_class] += 1
-        recent_errors = dict(error_counter.most_common(self._recent_errors_top_k))
-
-        status = classify(name, success_rate=success_rate, p50_ms=p50, p95_ms=p95)
-
-        return {
-            "status": status.value,
-            "success_rate": round(success_rate, 4),
-            "p50_latency_ms": round(p50, 2),
-            "p95_latency_ms": round(p95, 2),
-            "recent_errors": recent_errors,
-            "sample_count": sample_count,
-        }, status
-
     def _classify(
         self,
         *,
-        schema: str | None,
+        route: str,
         success_rate: float,
         p50_ms: float,
         p95_ms: float,
+        recent_errors: Mapping[str, int] | None = None,
     ) -> OverallHealth:
-        overrides = (
-            self._schema_thresholds.get(schema, SchemaThresholds())
-            if schema
-            else SchemaThresholds()
-        )
+        overrides = self._route_thresholds.get(route, RouteThresholds())
 
         deg_sr = (
             overrides.degraded_below_success_rate

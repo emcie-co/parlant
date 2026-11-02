@@ -14,7 +14,10 @@
 
 from dataclasses import dataclass
 
+from parlant.core.environment import Environment
+
 
 @dataclass(frozen=True)
 class ApplicationContext:
     instance_id: str
+    environment: Environment = Environment.DEVELOPMENT

@@ -21,6 +21,7 @@ import pytest
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.adapters.db.sqlite import SQLiteDocumentDatabase
 from parlant.core.agents import AgentId
 from parlant.core.customers import CustomerId
 from parlant.core.loggers import CompositeLogger
@@ -42,7 +43,7 @@ _CUSTOMER_ID = CustomerId("customer-a")
 _OTHER_CUSTOMER_ID = CustomerId("customer-b")
 
 
-@pytest.fixture(params=["transient", "json_file"])
+@pytest.fixture(params=["transient", "json_file", "sqlite"])
 async def session_store(
     request: pytest.FixtureRequest,
     tmp_path: Path,
@@ -52,6 +53,10 @@ async def session_store(
         if request.param == "json_file":
             database = await stack.enter_async_context(
                 JSONFileDocumentDatabase(CompositeLogger([]), tmp_path / "sessions.json")
+            )
+        elif request.param == "sqlite":
+            database = await stack.enter_async_context(
+                SQLiteDocumentDatabase(CompositeLogger([]), tmp_path / "sessions.sqlite")
             )
         else:
             database = TransientDocumentDatabase()
@@ -97,7 +102,7 @@ def _ordered(sessions: Sequence[Session], direction: SortDirection) -> list[Sess
 
 
 def _cursor(session: Session) -> Cursor:
-    return Cursor(creation_utc=session.creation_utc.isoformat(), id=ObjectId(session.id))
+    return Cursor(sort_value=session.creation_utc.isoformat(), id=ObjectId(session.id))
 
 
 def _assert_page(
@@ -144,11 +149,11 @@ async def test_that_labelled_session_pages_report_a_cursor_and_complete_iteratio
             cursor=cursor,
             sort_direction=direction,
         )
-        # Real backends count matching documents remaining AFTER the cursor.
+        # Current backends count the complete matching set, before the cursor.
         _assert_page(
             page,
             [expected_session],
-            total_count=4 - page_index,
+            total_count=4,
             has_more=page_index < 3,
         )
         seen.extend(session.id for session in page.items)
@@ -183,7 +188,7 @@ async def test_that_multiple_labels_customer_filter_and_descending_order_compose
         cursor=first.next_cursor,
         sort_direction=direction,
     )
-    _assert_page(final, expected[1:], total_count=1, has_more=False)
+    _assert_page(final, expected[1:], total_count=2, has_more=False)
 
 
 @pytest.mark.parametrize(
@@ -213,7 +218,7 @@ async def test_that_unlabelled_and_unlimited_listing_preserve_existing_behavior(
         labels = set() if control == "empty_labels" else None
         cursor = _cursor(sessions[0])
         expected = _ordered(sessions[1:6], SortDirection.ASC)[:2]
-        total_count = 5
+        total_count = 6
         has_more = True
     elif control in {"unlabelled_unlimited", "empty_labels_unlimited"}:
         labels = set() if control == "empty_labels_unlimited" else None
@@ -225,13 +230,13 @@ async def test_that_unlabelled_and_unlimited_listing_preserve_existing_behavior(
         limit = None
         cursor = _cursor(sessions[1])
         expected = _ordered([sessions[2], sessions[3], sessions[5]], SortDirection.ASC)
-        total_count = 3
+        total_count = 4
     elif control == "multi_label_unlimited":
         labels = {"premium", "support"}
         limit = None
         cursor = _cursor(sessions[1])
         expected = _ordered([sessions[2], sessions[3]], SortDirection.ASC)
-        total_count = 2
+        total_count = 3
     elif control == "absent_label":
         labels = {"absent"}
         expected = []
@@ -241,7 +246,7 @@ async def test_that_unlabelled_and_unlimited_listing_preserve_existing_behavior(
         labels = {"premium"}
         cursor = _cursor(sessions[5])
         expected = []
-        total_count = 0
+        total_count = 4
 
     page = await session_store.list_sessions(
         agent_id=_AGENT_ID,

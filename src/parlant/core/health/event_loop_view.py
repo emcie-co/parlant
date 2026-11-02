@@ -53,5 +53,5 @@ class EventLoopHealthView:
         status = self._monitor.status
         return ViewSnapshot(
             status=_HEALTH_TO_OVERALL[status.health],
-            body={"latency_ms": status.latency_ms},
+            body={"latency_ms": status.latency_ms, "lag_share": status.lag_share},
         )

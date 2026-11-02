@@ -12,105 +12,231 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-import time
-from typing import Any, Mapping
-from typing_extensions import override
+"""LiteLLM-backed NLP service.
+
+LiteLLM is a unified gateway over 100+ providers (OpenAI, Anthropic, Bedrock,
+Vertex, Azure, Ollama, ...). This adapter drives it through the LiteLLM Python
+SDK (``litellm.acompletion`` / ``litellm.aembedding``) rather than an HTTP proxy,
+so a single provider reaches any model.
+
+Cost correctness is the point: LiteLLM prices every response it can, and the
+adapter surfaces that authoritative figure as ``UsageInfo.extra["reported_cost"]``
+— which :mod:`parlant.core.pricing` prefers over token-derived pricing. Usage
+and cost reports, budgets/cost-control, and the frontend therefore work without
+any provider-specific pricing table, because they all key off ``UsageInfo``.
+"""
+
+import itertools
 import json
+import time
+from typing import Any, AsyncIterator, Iterator, Mapping, Optional, Sequence, cast
+from weakref import WeakKeyDictionary
+
 import jsonfinder  # type: ignore
-import os
-
-from pydantic import ValidationError
-import tiktoken
-
 import litellm
+from litellm.exceptions import BadRequestError
+from pydantic import ValidationError
 
-from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
-from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.loggers import Logger
-from parlant.core.tracer import Tracer
-from parlant.core.meter import Meter
-from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import (
-    EmbedderHints,
-    NLPService,
-    SchematicGeneratorHints,
-    StreamingTextGeneratorHints,
+from parlant.core.container import Container
+
+from parlant.adapters.nlp.common import (
+    RESULT_ONLY_TOOL_NAME,
+    result_only_tool_output,
+    parlant_client_headers,
+    parlant_user_agent_token,
+    decorate_schematic_generator,
+    normalize_json_output,
+    record_llm_metrics,
+    validate_model_arguments,
 )
-from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
+from parlant.core.common import to_prompt_json
+from parlant.core.engines.compass.prompt_builder import PromptBuilder
+from parlant.core.loggers import ScopedLogger, Logger
+from parlant.core.meter import Meter
+from parlant.core.nlp.common import UsageInfo, format_reported_cost
+from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
-    StreamingTextGenerator,
 )
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.nlp.moderation import (
-    ModerationService,
-    NoModeration,
+from parlant.core.nlp.generation_info import GenerationInfo
+from parlant.core.nlp.model_routing import ModelCapability, ModelImplementationRegistry
+from parlant.core.nlp.react import (
+    CacheConfig,
+    FinishReason,
+    Message,
+    ReactGenerator,
+    ReactGeneratorHints,
+    ReasoningConfig,
+    ReasoningDelta,
+    Role,
+    StreamEvent,
+    TextDelta,
+    ToolCallStarted,
+    ToolChoice,
+    ToolSpec,
+    TurnBuilder,
+    Usage,
 )
-from parlant.core.health import HealthReporter
+from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
 
-RATE_LIMIT_ERROR_MESSAGE = (
-    "LiteLLM to provider API rate limit exceeded. Possible reasons:\n"
-    "1. Your account may have insufficient API credits.\n"
-    "2. You may be using a free-tier account with limited request capacity.\n"
-    "3. You might have exceeded the requests-per-minute limit for your account.\n\n"
-    "Recommended actions:\n"
-    "- Check your LLM Provider account balance and billing status.\n"
-    "- Review your API usage limits in Provider's dashboard.\n"
-    "- For more details on rate limits and usage tiers, visit:\n"
-    "  Your Provider's API documentation."
+# LiteLLM chatters on stdout/stderr by default; keep it quiet and let Parlant's
+# logger own diagnostics.
+litellm.suppress_debug_info = True
+
+_JSON_INSTRUCTION = (
+    "IMPORTANT: You must respond with ONLY valid JSON — a single JSON object, "
+    "with no explanatory text before or after it."
 )
+
+
+def _reported_cost(response: Any) -> float | None:
+    """LiteLLM's authoritative USD cost for a response, if it could price it.
+
+    Primary source is ``response._hidden_params["response_cost"]`` (populated by
+    LiteLLM's cost tracking); ``litellm.completion_cost`` is the fallback. Absent
+    or non-positive → ``None`` (pricing falls back to token derivation)."""
+    hidden = getattr(response, "_hidden_params", None)
+    if isinstance(hidden, Mapping):
+        cost = hidden.get("response_cost")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0:
+            return float(cost)
+
+    try:
+        cost = litellm.completion_cost(completion_response=response)
+    except Exception:
+        return None
+
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0:
+        return float(cost)
+    return None
+
+
+def _cached_input_tokens(usage: Any) -> int:
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached = getattr(details, "cached_tokens", 0) if details else 0
+    return cached if isinstance(cached, int) and cached > 0 else 0
+
+
+def _usage_info(response: Any) -> UsageInfo:
+    """Map a LiteLLM response to Parlant's provider-neutral ``UsageInfo``.
+
+    The token fields come from the OpenAI-compatible ``usage`` block; the
+    provider-reported cost (when LiteLLM could price the model) rides in
+    ``extra["reported_cost"]`` and overrides token-derived pricing downstream."""
+    usage = getattr(response, "usage", None)
+
+    input_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+    if not isinstance(input_tokens, int):
+        input_tokens = 0
+    output_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+    if not isinstance(output_tokens, int):
+        output_tokens = 0
+    cached_input_tokens = _cached_input_tokens(usage) if usage else 0
+
+    extra: dict[str, int | float | str] = {}
+    if (cost := _reported_cost(response)) is not None:
+        if (reported_cost := format_reported_cost(cost)) is not None:
+            extra["reported_cost"] = reported_cost
+
+    return UsageInfo(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_input_tokens=cached_input_tokens,
+        extra=extra,
+    )
+
+
+def _extract_embedding(data_point: Any) -> list[float]:
+    if isinstance(data_point, Mapping):
+        return list(data_point.get("embedding", []))
+    return list(getattr(data_point, "embedding", []))
+
+
+def _parse_json_content(raw: str, logger: Logger) -> dict[str, Any]:
+    text = raw.strip() or "{}"
+    try:
+        parsed = json.loads(normalize_json_output(text))
+        if isinstance(parsed, dict) and parsed:
+            return parsed
+    except json.JSONDecodeError:
+        logger.warning(f"LiteLLM returned non-JSON content; attempting recovery:\n{text}")
+
+    try:
+        return cast(dict[str, Any], jsonfinder.only_json(text)[2])
+    except Exception:
+        logger.error(f"Could not extract JSON from LiteLLM response:\n{text}")
+        return {}
+
+
+def _litellm_identity_headers() -> dict[str, str]:
+    """Parlant's identity for a LiteLLM call.
+
+    LiteLLM exposes no client object to carry default headers, so every call site
+    passes these explicitly. The User-Agent is set rather than appended: the
+    underlying provider SDK's own agent is not reachable from here."""
+    headers = dict(parlant_client_headers())
+
+    if token := parlant_user_agent_token():
+        headers["User-Agent"] = token
+
+    return headers
 
 
 class LiteLLMEstimatingTokenizer(EstimatingTokenizer):
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
-        self.encoding = tiktoken.encoding_for_model("gpt-4o-2024-08-06")
 
-    @override
     async def estimate_token_count(self, prompt: str) -> int:
-        tokens = self.encoding.encode(prompt)
-        return len(tokens)
+        try:
+            return int(litellm.token_counter(model=self.model_name, text=prompt))
+        except Exception:
+            # Unknown model tokenizer — fall back to a coarse char estimate.
+            return max(1, len(prompt) // 4)
 
 
 class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
-    supported_litellm_params = [
-        "temperature",
-        "max_tokens",
-        "logit_bias",
-        "adapter_id",
-        "adapter_source",
-    ]
-    supported_hints = supported_litellm_params + ["strict"]
+    # reasoning_effort is litellm-native: forwarded to models that support
+    # it and dropped (via drop_params below) for those that do not.
+    supported_arguments = ["temperature", "max_tokens", "reasoning_effort"]
 
-    def __init__(self,
-        base_url: str | None,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        usage_reporter: UsageReporter | None = None,
+        api_key: str | None = None,
+        provider_name: str | None = None,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
-
-        self.base_url = base_url
-        self._client = litellm
-
-        self._tokenizer = LiteLLMEstimatingTokenizer(model_name=self.model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            model_name=model_name,
+            usage_reporter=usage_reporter,
+            provider_name=provider_name or "litellm",
+        )
+        self._logger = ScopedLogger(logger, "LiteLLMSchematicGenerator")
+        self._api_key = api_key
+        self._tokenizer = LiteLLMEstimatingTokenizer(model_name=model_name)
 
     @property
-    @override
     def id(self) -> str:
         return f"litellm/{self.model_name}"
 
     @property
-    @override
     def tokenizer(self) -> LiteLLMEstimatingTokenizer:
         return self._tokenizer
 
-    @override
+    @property
+    def max_tokens(self) -> int:
+        return 8192
+
     async def do_generate(
         self,
         prompt: str | PromptBuilder,
@@ -119,230 +245,546 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
-        litellm_api_arguments = {
-            k: v for k, v in hints.items() if k in self.supported_litellm_params
-        }
-
-        # Only pass api_key if explicitly set; otherwise let LiteLLM auto-detect
-        # provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
+        args = {k: v for k, v in hints.items() if k in self.supported_arguments}
+        if self._api_key is not None:
+            args["api_key"] = self._api_key
 
         t_start = time.time()
-
-        response = await self._client.acompletion(
-            base_url=self.base_url,
-            api_key=api_key,
-            messages=[{"role": "user", "content": prompt}],
-            model=self.model_name,
-            max_tokens=5000,
-            response_format={"type": "json_object"},
-            **litellm_api_arguments,
-        )
-
+        try:
+            response = await litellm.acompletion(
+                extra_headers=_litellm_identity_headers(),
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                num_retries=2,
+                drop_params=True,
+                **args,
+            )
+        except BadRequestError:
+            # The routed model may not support JSON mode — retry with an explicit
+            # instruction instead of forcing response_format.
+            self._logger.warning(
+                f"Model '{self.model_name}' rejected JSON mode; retrying with a "
+                "JSON instruction instead."
+            )
+            response = await litellm.acompletion(
+                extra_headers=_litellm_identity_headers(),
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": _JSON_INSTRUCTION},
+                    {"role": "user", "content": prompt},
+                ],
+                num_retries=2,
+                drop_params=True,
+                **args,
+            )
         t_end = time.time()
 
-        if response.usage:
-            self.logger.trace(response.usage.model_dump_json(indent=2))
-
         raw_content = response.choices[0].message.content or "{}"
-
-        try:
-            json_content = json.loads(normalize_json_output(raw_content))
-        except json.JSONDecodeError:
-            self.logger.warning(
-                f"Invalid JSON returned by litellm/{self.model_name}:\n{raw_content})"
-            )
-            json_content = jsonfinder.only_json(raw_content)[2]
-            self.logger.warning("Found JSON content within model response; continuing...")
+        json_content = _parse_json_content(raw_content, self._logger)
 
         try:
             content = self.schema.model_validate(json_content)
-            assert response.usage
-
-            await record_llm_metrics(
-                self.meter,
-                self.model_name,
-                schema_name=self.schema.__name__,
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-                cached_input_tokens=getattr(
-                    response,
-                    "usage.prompt_cache_hit_tokens",
-                    0,
-                ),
-            )
-
-            return SchematicGenerationResult(
-                content=content,
-                info=GenerationInfo(
-                    schema_name=self.schema.__name__,
-                    model=self.id,
-                    duration=(t_end - t_start),
-                    usage=UsageInfo(
-                        input_tokens=response.usage.prompt_tokens,
-                        output_tokens=response.usage.completion_tokens,
-                        extra={
-                            "cached_input_tokens": getattr(
-                                response,
-                                "usage.prompt_cache_hit_tokens",
-                                0,
-                            )
-                        },
-                    ),
-                ),
-            )
-        except ValidationError:
-            self.logger.error(
-                f"JSON content returned by litellm/{self.model_name} does not match expected schema:\n{raw_content}"
+        except ValidationError as exc:
+            self._logger.error(
+                f"LiteLLM content from '{self.model_name}' does not match "
+                f"{self.schema.__name__}:\n{raw_content}\nErrors: {exc}"
             )
             raise
 
+        usage = _usage_info(response)
 
-class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter, base_url: str | None, model_name: str
-    ) -> None:
-        super().__init__(
-            base_url=base_url,
-            model_name=model_name,
-            logger=logger,
-            tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+        await record_llm_metrics(
+            self.meter,
+            self.model_name,
+            schema_name=self.schema.__name__,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cached_input_tokens=usage.cached_input_tokens,
         )
 
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 5000
-
-    # 8192 16381
+        return SchematicGenerationResult(
+            content=content,
+            info=GenerationInfo(
+                schema_name=self.schema.__name__,
+                model=self.id,
+                duration=(t_end - t_start),
+                usage=usage,
+            ),
+        )
 
 
 class LiteLLMEmbedder(BaseEmbedder):
-    """Embedder that uses LiteLLM to access various embedding providers."""
+    supported_arguments = ["dimensions"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
-        base_url: str | None = None,
+        meter: Meter,
+        usage_reporter: UsageReporter | None = None,
+        api_key: str | None = None,
+        dimensions: int | None = None,
+        provider_name: str | None = None,
     ) -> None:
-        super().__init__(logger, tracer, meter, model_name, health_reporter)
-        self._base_url = base_url
-        self._client = litellm
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            model_name=model_name,
+            usage_reporter=usage_reporter,
+            provider_name=provider_name or "litellm",
+        )
+        self._api_key = api_key
+        self._dimensions = dimensions
         self._tokenizer = LiteLLMEstimatingTokenizer(model_name=model_name)
 
     @property
-    @override
     def id(self) -> str:
         return f"litellm/{self.model_name}"
 
     @property
-    @override
     def tokenizer(self) -> LiteLLMEstimatingTokenizer:
         return self._tokenizer
 
     @property
-    @override
     def max_tokens(self) -> int:
-        return int(os.environ.get("LITELLM_EMBEDDING_MAX_TOKENS", 8192))
+        return 8192
 
     @property
-    @override
     def dimensions(self) -> int:
-        return int(os.environ.get("LITELLM_EMBEDDING_DIMENSIONS", 1536))
+        # Detected from the first response when not configured; 1536 is a safe
+        # default matching most OpenAI-family embedding models.
+        return self._dimensions or 1536
 
-    @override
     async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
+        args = {k: v for k, v in hints.items() if k in self.supported_arguments}
+        if self._api_key is not None:
+            args["api_key"] = self._api_key
+        if self._dimensions is not None and "dimensions" not in args:
+            args["dimensions"] = self._dimensions
 
-        response = await self._client.aembedding(
+        response = await litellm.aembedding(
+            extra_headers=_litellm_identity_headers(),
             model=self.model_name,
             input=texts,
-            api_key=api_key,
-            api_base=self._base_url,
+            num_retries=2,
+            **args,
         )
 
-        vectors = [data["embedding"] for data in response.data]
-        return EmbeddingResult(vectors=vectors)
+        vectors = [_extract_embedding(data_point) for data_point in response.data]
+
+        if self._dimensions is None and vectors:
+            self._dimensions = len(vectors[0])
+
+        return EmbeddingResult(vectors=vectors, usage=_usage_info(response))
 
 
-class LiteLLMService(NLPService):
-    @staticmethod
-    def verify_environment() -> str | None:
-        """Returns an error message if the environment is not set up correctly."""
+def _cost_from_tokens(model: str, input_tokens: int, output_tokens: int) -> float | None:
+    """Token-derived USD cost from LiteLLM's pricing tables.
 
-        if not os.environ.get("LITELLM_PROVIDER_MODEL_NAME"):
-            return """\
-You're using the LITELLM NLP service, but LITELLM_PROVIDER_MODEL_NAME is not set.
-Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlant.
-"""
-        # Note: LITELLM_PROVIDER_API_KEY is optional. If not set, LiteLLM will
-        # auto-detect provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-
+    Used on the streaming paths (React / streaming text), where the response is
+    assembled from chunks and ``_hidden_params["response_cost"]`` isn't reliably
+    present. LiteLLM prices the model from its own table; unknown model → None
+    (pricing then falls back to Parlant's token derivation downstream)."""
+    try:
+        prompt_cost, completion_cost = litellm.cost_per_token(
+            model=model,
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+        )
+    except Exception:
         return None
+    total = float(prompt_cost or 0.0) + float(completion_cost or 0.0)
+    return total if total > 0 else None
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
-        self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
-        self._embedding_model_name = os.environ.get("LITELLM_EMBEDDING_MODEL_NAME")
-        self.logger = logger
-        self._tracer = tracer
-        self._meter = meter
 
-        self._health_reporter = health_reporter
+def _stream_usage_info(usage: Any, model: str) -> UsageInfo:
+    input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    output_tokens = getattr(usage, "completion_tokens", 0) or 0
+    extra: dict[str, int | float | str] = {}
+    if (cost := _cost_from_tokens(model, int(input_tokens), int(output_tokens))) is not None:
+        if (reported_cost := format_reported_cost(cost)) is not None:
+            extra["reported_cost"] = reported_cost
+    return UsageInfo(
+        input_tokens=int(input_tokens),
+        output_tokens=int(output_tokens),
+        cached_input_tokens=_cached_input_tokens(usage),
+        extra=extra,
+    )
 
-        log_msg = f"Initialized LiteLLMService with {self._model_name}"
-        if self._embedding_model_name:
-            log_msg += f" (embeddings: {self._embedding_model_name})"
-        if self._base_url:
-            log_msg += f" at {self._base_url}"
-        self.logger.info(log_msg)
+
+# Per-stream tool-call bookkeeping for the React decoder. Chat-completions streams
+# tool calls by ``index`` — the id/name arrive on the first delta, arguments then
+# stream as JSON fragments under the same index. We remember index → id (and which
+# calls we've already announced) per TurnBuilder; the WeakKeyDictionary drops the
+# entry once the builder is collected at the end of the stream.
+_REACT_STREAM_STATE: "WeakKeyDictionary[TurnBuilder, dict[str, Any]]" = WeakKeyDictionary()
+
+_FINISH_REASONS: dict[str, FinishReason] = {
+    "stop": FinishReason.STOP,
+    "tool_calls": FinishReason.TOOL_CALLS,
+    "function_call": FinishReason.TOOL_CALLS,
+    "length": FinishReason.MAX_TOKENS,
+    "content_filter": FinishReason.CONTENT_FILTER,
+}
+
+
+def _stringify_tool_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    try:
+        return to_prompt_json(content)
+    except (TypeError, ValueError):
+        return str(content)
+
+
+def _react_usage(usage: Any, model: str) -> Usage:
+    input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+    output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    details = getattr(usage, "completion_tokens_details", None)
+    reasoning_tokens = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
+
+    extra: dict[str, int | float | str] = {}
+    if (cost := _cost_from_tokens(model, input_tokens, output_tokens)) is not None:
+        if (reported_cost := format_reported_cost(cost)) is not None:
+            extra["reported_cost"] = reported_cost
+
+    return Usage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_input_tokens=_cached_input_tokens(usage),
+        reasoning_tokens=reasoning_tokens,
+        extra=extra,
+        model_name=model,
+        requests=1,
+    )
+
+
+class LiteLLMReactGenerator(ReactGenerator):
+    """A native ReAct adapter over LiteLLM's streaming chat-completions API.
+
+    LiteLLM speaks the OpenAI chat-completions wire format across every provider
+    it fronts, so the encode/decode here is provider-neutral: history becomes
+    ``messages`` + ``tools``, and the streamed deltas (text, reasoning, tool-call
+    fragments, and the closing usage block) fold into the shared ``TurnBuilder``.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        logger: Logger,
+        cache: Optional[CacheConfig] = None,
+        api_key: str | None = None,
+        provider_name: Optional[str] = None,
+        usage_reporter: Optional[UsageReporter] = None,
+    ) -> None:
+        super().__init__(model=model, cache=cache, usage_reporter=usage_reporter)
+        self._logger = ScopedLogger(logger, "LiteLLMReactGenerator")
+        self._api_key = api_key
+        self._provider_name = provider_name or "litellm"
+        self._tokenizer = LiteLLMEstimatingTokenizer(model_name=model)
 
     @property
-    @override
-    def supports_streaming(self) -> bool:
-        return False
+    def id(self) -> str:
+        return f"litellm/{self.model}"
 
-    @override
-    async def get_streaming_text_generator(
-        self, hints: StreamingTextGeneratorHints = {}
-    ) -> StreamingTextGenerator:
-        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
+    @property
+    def provider_name(self) -> str:
+        return self._provider_name
 
-    @override
-    async def get_schematic_generator(
-        self, t: type[T], hints: SchematicGeneratorHints = {}
-    ) -> LiteLLMSchematicGenerator[T]:
-        return LiteLLM_Default[t](  # type: ignore
-            self.logger,
-            self._tracer,
-            self._meter,
-            self._health_reporter,
-            self._base_url,
-            self._model_name,
+    @property
+    def tokenizer(self) -> LiteLLMEstimatingTokenizer:
+        return self._tokenizer
+
+    @property
+    def max_tokens(self) -> int:
+        return 8192
+
+    def _encode(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        tool_choice: ToolChoice,
+        *,
+        reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
+    ) -> dict[str, Any]:
+        messages: list[dict[str, Any]] = []
+        # Call ids issued and not yet answered. A result that answers none of
+        # them is sent as a synthetic call plus its tool message, since
+        # providers reject a tool message that answers no tool call.
+        pending_calls: set[str] = set()
+        synthetic_ids = itertools.count(1)
+        for message in history:
+            if message.role == Role.TOOL:
+                messages.extend(self._encode_tool_results(message, pending_calls, synthetic_ids))
+                continue
+            pending_calls.update(call.id for call in message.tool_calls)
+            messages.extend(self._encode_message(message))
+
+        request: dict[str, Any] = {
+            "model": self._resolve_model(hints),
+            "messages": messages,
+            "num_retries": 2,
+        }
+        if tools:
+            request["tools"] = [self._encode_tool(spec) for spec in tools]
+            request["tool_choice"] = self._encode_tool_choice(tool_choice)
+        if self._api_key is not None:
+            request["api_key"] = self._api_key
+        return request
+
+    def _encode_tool_results(
+        self,
+        message: Message,
+        pending_calls: set[str],
+        synthetic_ids: Iterator[int],
+    ) -> list[dict[str, Any]]:
+        """A tool message's results: those answering an issued call first, as
+        they must directly follow it, then a synthetic call and its tool
+        message for each result that answers none."""
+        answered: list[dict[str, Any]] = []
+        calls: list[dict[str, Any]] = []
+        synthetic: list[dict[str, Any]] = []
+        for part in message.tool_results:
+            if part.call_id in pending_calls:
+                pending_calls.remove(part.call_id)
+                answered.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": part.call_id,
+                        "content": _stringify_tool_content(part.content),
+                    }
+                )
+                continue
+            call_id = f"call_context_{next(synthetic_ids)}"
+            calls.append(
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": RESULT_ONLY_TOOL_NAME, "arguments": "{}"},
+                }
+            )
+            synthetic.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": to_prompt_json(result_only_tool_output(part)),
+                }
+            )
+        if calls:
+            return [
+                *answered,
+                {"role": "assistant", "content": None, "tool_calls": calls},
+                *synthetic,
+            ]
+        return answered
+
+    def _encode_message(self, message: Message) -> list[dict[str, Any]]:
+        if message.role == Role.SYSTEM:
+            return [{"role": "system", "content": message.text}]
+
+        if message.role == Role.USER:
+            return [{"role": "user", "content": message.text}]
+
+        if message.role == Role.TOOL:
+            return [
+                {
+                    "role": "tool",
+                    "tool_call_id": part.call_id,
+                    "content": _stringify_tool_content(part.content),
+                }
+                for part in message.tool_results
+            ]
+
+        # Assistant: text and/or tool calls.
+        payload: dict[str, Any] = {"role": "assistant", "content": message.text or None}
+        if calls := message.tool_calls:
+            payload["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": to_prompt_json(dict(call.args)),
+                    },
+                }
+                for call in calls
+            ]
+        return [payload]
+
+    def _encode_tool(self, spec: ToolSpec) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.json_schema(),
+            },
+        }
+
+    def _encode_tool_choice(self, tool_choice: ToolChoice) -> Any:
+        if isinstance(tool_choice, Mapping):
+            return {"type": "function", "function": {"name": tool_choice.get("name", "")}}
+        return tool_choice
+
+    async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
+        stream = await litellm.acompletion(
+            extra_headers=_litellm_identity_headers(),
+            **request,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        async for chunk in stream:
+            yield chunk
+
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> Sequence[StreamEvent]:
+        events: list[StreamEvent] = []
+        state = _REACT_STREAM_STATE.setdefault(builder, {"ids": {}, "started": set()})
+        index_ids: dict[int, str] = state["ids"]
+        started: set[str] = state["started"]
+
+        if (usage := getattr(raw_event, "usage", None)) is not None:
+            builder.usage = _react_usage(usage, self.model)
+
+        choices = getattr(raw_event, "choices", None)
+        if not choices:
+            return events
+
+        choice = choices[0]
+        delta = getattr(choice, "delta", None)
+        if delta is not None:
+            if content := getattr(delta, "content", None):
+                builder.text_delta(content)
+                events.append(TextDelta(text=content))
+
+            if reasoning := getattr(delta, "reasoning_content", None):
+                builder.reasoning_delta(reasoning)
+                events.append(ReasoningDelta(text=reasoning))
+
+            for tool_call in getattr(delta, "tool_calls", None) or []:
+                index = getattr(tool_call, "index", 0) or 0
+                if tc_id := getattr(tool_call, "id", None):
+                    index_ids[index] = tc_id
+                call_id = index_ids.get(index) or getattr(tool_call, "id", None) or f"call_{index}"
+                index_ids.setdefault(index, call_id)
+
+                function = getattr(tool_call, "function", None)
+                name = getattr(function, "name", None) if function else None
+                args_delta = (getattr(function, "arguments", None) if function else None) or ""
+
+                builder.tool_call(call_id, name=name or None, args_delta=args_delta)
+                if name and call_id not in started:
+                    started.add(call_id)
+                    events.append(ToolCallStarted(id=call_id, name=name))
+
+        if finish := getattr(choice, "finish_reason", None):
+            builder.finish_reason = _FINISH_REASONS.get(finish, FinishReason.STOP)
+
+        return events
+
+
+def register_litellm_models(
+    registry: ModelImplementationRegistry,
+    container: Container,
+) -> None:
+    """Register the LiteLLM provider's model factories + default route resolvers.
+
+    The default model choices mirror the OpenRouter provider's, translated into
+    LiteLLM's namespace (``google/…`` → ``gemini/…``; ``openai/…`` /
+    ``anthropic/…`` unchanged). Any LiteLLM model string works via the routing
+    layer; these are only the defaults a bare route resolves to.
+    """
+    logger = container[Logger]
+    tracer = container[Tracer]
+    meter = container[Meter]
+    usage = container[UsageReporter]
+
+    async def schematic(
+        model: str,
+        schema: type[Any],
+        raw_args: Mapping[str, Any],
+    ) -> LiteLLMSchematicGenerator[Any]:
+        args = validate_model_arguments("litellm", raw_args, {"api_key"})
+        generator_type = LiteLLMSchematicGenerator[schema]  # type: ignore[valid-type]
+        return cast(
+            LiteLLMSchematicGenerator[Any],
+            decorate_schematic_generator(
+                generator_type(
+                    model_name=model,
+                    logger=logger,
+                    tracer=tracer,
+                    meter=meter,
+                    usage_reporter=usage,
+                    **args,
+                ),
+                tracer,
+            ),
         )
 
-    def create_embedder(self) -> Embedder:
-        if self._embedding_model_name:
-            return LiteLLMEmbedder(
-                model_name=self._embedding_model_name,
-                logger=self.logger,
-                tracer=self._tracer,
-                meter=self._meter,
-                health_reporter=self._health_reporter,
-                base_url=self._base_url,
-            )
-        return JinaAIEmbedder(self.logger, self._tracer, self._meter, self._health_reporter)
+    async def react(model: str, raw_args: Mapping[str, Any]) -> LiteLLMReactGenerator:
+        args = validate_model_arguments("litellm", raw_args, {"api_key"})
+        return LiteLLMReactGenerator(model=model, logger=logger, usage_reporter=usage, **args)
 
-    @override
-    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return self.create_embedder()
+    async def embedding(model: str, raw_args: Mapping[str, Any]) -> LiteLLMEmbedder:
+        args = validate_model_arguments("litellm", raw_args, {"api_key", "dimensions"})
+        return LiteLLMEmbedder(
+            model_name=model,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            usage_reporter=usage,
+            **args,
+        )
 
-    @override
-    async def get_moderation_service(self) -> ModerationService:
-        return NoModeration()
+    async def tokenizer(
+        model: str,
+        raw_args: Mapping[str, Any],
+    ) -> LiteLLMEstimatingTokenizer:
+        validate_model_arguments("litellm", raw_args, set())
+        return LiteLLMEstimatingTokenizer(model)
+
+    def schematic_model_resolver(route: str, qualifiers: Mapping[str, str]) -> str:
+        if route.startswith("review"):
+            return "gemini/gemini-3.6-flash"
+        elif route.startswith("matching.distill"):
+            return "gemini/gemini-3.5-flash-lite"
+        else:  # default
+            return "gemini/gemini-3.1-flash-lite"
+
+    def react_model_resolver(route: str, qualifiers: Mapping[str, str]) -> str:
+        if qualifiers.get("effort") in ("min", "low"):
+            return "openai/gpt-5.6-luna"
+        else:  # default
+            return "anthropic/claude-sonnet-5"
+
+    registry.register_schematic(
+        "litellm",
+        schematic,
+        default=schematic_model_resolver,
+    )
+    registry.register(
+        "litellm",
+        ModelCapability.REACT,
+        react,
+        default=react_model_resolver,
+    )
+    registry.register(
+        "litellm",
+        ModelCapability.EMBEDDING,
+        embedding,
+        default="openai/text-embedding-3-large",
+    )
+    registry.register(
+        "litellm",
+        ModelCapability.TOKENIZER,
+        tokenizer,
+        default="openai/gpt-4o",
+    )

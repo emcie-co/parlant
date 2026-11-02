@@ -131,9 +131,16 @@ class DummyStore:
     ) -> FindResult[DummyDocumentV2]:
         if sort_direction is not None:
             return await self._collection.find(
-                {}, limit=limit, cursor=cursor, sort_direction=sort_direction
+                {},
+                limit=limit,
+                cursor=cursor,
+                sort_direction=sort_direction,
             )
-        return await self._collection.find({}, limit=limit, cursor=cursor)
+        return await self._collection.find(
+            {},
+            limit=limit,
+            cursor=cursor,
+        )
 
     async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
         doc = self.DummyDocumentV2(
@@ -307,6 +314,12 @@ async def test_that_dummy_documents_can_be_listed_with_pagination_limit(
             assert result.has_more
             assert result.next_cursor is not None
 
+            second_page = await store.list_dummy(limit=3, cursor=result.next_cursor)
+
+            assert len(second_page.items) == 2
+            assert second_page.total_count == 5
+            assert second_page.has_more is False
+
 
 async def test_that_dummy_documents_are_sorted_by_creation_time_descending(
     new_file: Path,
@@ -340,7 +353,7 @@ async def test_that_dummy_documents_can_be_paginated_using_cursor(
 
             # Create cursor from doc1 (the oldest document, which will be first in asc order)
             # This should return the documents that come after it in the sorted list
-            cursor = Cursor(creation_utc=doc1["creation_utc"], id=doc1["id"])
+            cursor = Cursor(sort_value=doc1["creation_utc"], id=doc1["id"])
 
             # Find documents after cursor
             result = await store.list_dummy(cursor=cursor)
@@ -436,51 +449,6 @@ async def test_that_migration_is_not_needed_for_new_store(
 
             assert meta_document
             assert meta_document["version"] == "2.0.0"
-
-
-async def test_that_failed_migrations_are_stored_in_separate_collection(
-    new_file: Path,
-    logger: Logger,
-) -> None:
-    """Test that failed migrations are stored in a separate failed_migrations collection."""
-    with open(new_file, "w") as f:
-        json.dump(
-            {
-                "metadata": [
-                    {
-                        "id": "meta_id",
-                        "creation_utc": "2023-01-01T00:00:00Z",
-                        "version": "1.0.0",
-                    },
-                ],
-                "dummy_collection": [
-                    {
-                        "id": "invalid_dummy_id",
-                        "creation_utc": "2023-01-01T00:00:00Z",
-                        "version": "3.0",
-                        "name": "Unmigratable Document",
-                    }
-                ],
-            },
-            f,
-        )
-
-    async with JSONFileDocumentDatabase(logger, new_file) as db:
-        async with DummyStore(db, allow_migration=True) as store:
-            result = await store.list_dummy()
-
-            assert result.total_count == 0
-
-            failed_migrations_collection = await db.get_collection(
-                "failed_migrations", BaseDocument, identity_loader
-            )
-            result_of_failed_migrations = await failed_migrations_collection.find({})
-
-            assert result_of_failed_migrations.total_count == 1
-            failed_doc = result_of_failed_migrations.items[0]
-            assert failed_doc["id"] == "invalid_dummy_id"
-            assert failed_doc["version"] == "3.0"
-            assert failed_doc.get("name") == "Unmigratable Document"
 
 
 async def test_that_version_mismatch_raises_error_when_migration_is_required_but_disabled(

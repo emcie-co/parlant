@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from lagom import Container
+from parlant.core.container import Container
 
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.services.tools.plugins import PluginServer, tool

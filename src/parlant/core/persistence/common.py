@@ -44,7 +44,17 @@ class SortDirection(Enum):
 
 @dataclass(frozen=True)
 class Cursor:
-    creation_utc: str
+    """A keyset-pagination position: the sort-field value and id of the last
+    item on the previous page.
+
+    `sort_value` holds the value of whatever field the listing is sorted on —
+    `creation_utc` for regular listings, `modified_utc` for incremental
+    (min-modified) listings. Cursors from different listing modes encode to
+    identical-looking tokens and are NOT interchangeable: a cursor is only
+    valid for the same mode, filters, and sort that produced it.
+    """
+
+    sort_value: str
     id: ObjectId
 
 

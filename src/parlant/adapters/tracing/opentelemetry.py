@@ -14,9 +14,10 @@
 
 import contextvars
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
+from collections.abc import Generator
 from types import TracebackType
-from typing import Iterator, Mapping
+from typing import Mapping, Sequence
 from typing_extensions import override, Self
 
 from opentelemetry import trace, context
@@ -29,11 +30,11 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter as HttpOTLPSpanExporter,
 )
-from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags
+from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags, Link
 from opentelemetry.trace.span import TraceState
 
 from parlant.core.common import generate_id
-from parlant.core.tracer import Tracer, AttributeValue
+from parlant.core.tracer import Tracer, AttributeValue, TraceContext
 
 
 class OpenTelemetryTracer(Tracer):
@@ -64,6 +65,47 @@ class OpenTelemetryTracer(Tracer):
             "otel_tracer_current_span",
             default=None,
         )
+
+        self._root_links = contextvars.ContextVar[Sequence[TraceContext]](
+            "otel_trace_links", default=()
+        )
+
+        # Store the OpenTelemetry context for this tracer to maintain isolation
+        self._otel_context = contextvars.ContextVar[context.Context | None](
+            "otel_tracer_otel_context",
+            default=None,
+        )
+
+    @contextmanager
+    @override
+    def fresh_trace(
+        self,
+        span_id: str,
+        attributes: Mapping[str, AttributeValue] = {},
+        *,
+        links: Sequence[TraceContext] = (),
+        trace_id: str | None = None,
+    ) -> Generator[None, None, None]:
+        with ExitStack() as stack:
+            stack.callback(
+                self._trace_id.reset, self._trace_id.set(trace_id or self._generate_trace_id())
+            )
+            stack.callback(self._spans.reset, self._spans.set(""))
+            stack.callback(self._attributes.reset, self._attributes.set({}))
+            stack.callback(self._current_span.reset, self._current_span.set(None))
+            stack.callback(self._otel_context.reset, self._otel_context.set(None))
+            stack.callback(self._root_links.reset, self._root_links.set(tuple(links)))
+            with self.span(span_id, attributes):
+                yield
+
+    @property
+    @override
+    def current_span_context(self) -> TraceContext | None:
+        span = self._current_span.get()
+        native = span.get_span_context() if span else None
+        if native is None or not native.is_valid:
+            return None
+        return TraceContext(f"{native.trace_id:032x}", f"{native.span_id:016x}")
 
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
@@ -106,7 +148,7 @@ class OpenTelemetryTracer(Tracer):
             self._tracer_provider.add_span_processor(self._span_processor)
 
         trace.set_tracer_provider(self._tracer_provider)
-        self._tracer = trace.get_tracer(__name__)
+        self._tracer = self._tracer_provider.get_tracer(__name__)
 
         return self
 
@@ -127,91 +169,69 @@ class OpenTelemetryTracer(Tracer):
         self,
         span_id: str,
         attributes: Mapping[str, AttributeValue] = {},
-    ) -> Iterator[None]:
-        # Use standard OpenTelemetry span creation
-        current_spans = self._spans.get()
-
-        # Prepare attributes first
-        current_attributes = self._attributes.get()
-        new_attributes = {**current_attributes, **attributes}
-
-        if not current_spans:
-            new_spans = span_id
-            custom_trace_id = generate_id({"strategy": "uuid4"})
-            trace_id_reset_token = self._trace_id.set(custom_trace_id)
-
-            # Convert UUID hex to proper OpenTelemetry format
-            # Ensure exactly 32 hex chars (128 bits) for trace ID
-            trace_id_hex = str(custom_trace_id)[:32]
-            trace_id_int = int(trace_id_hex, 16)
-
-            # Ensure trace ID is non-zero (OpenTelemetry requirement)
-            if trace_id_int == 0:
-                trace_id_int = 1
-
-            # Generate 64-bit span ID (16 hex chars)
-            span_uuid = generate_id({"strategy": "uuid4"})
-            span_id_hex = str(span_uuid)[:16]
-            span_id_int = int(span_id_hex, 16)
-
-            # Ensure span ID is non-zero (OpenTelemetry requirement)
-            if span_id_int == 0:
-                span_id_int = 1
-
-            span_context = SpanContext(
-                trace_id=trace_id_int,
-                span_id=span_id_int,
-                is_remote=False,
-                trace_flags=TraceFlags(0x01),
-                trace_state=TraceState(),
+    ) -> Generator[None, None, None]:
+        with ExitStack() as stack:
+            parents = self._spans.get()
+            new_attributes = {**self._attributes.get(), **attributes}
+            if parents:
+                native_context = self._otel_context.get() or context.Context()
+            else:
+                custom_id = self._trace_id.get() or self._generate_trace_id()
+                stack.callback(self._trace_id.reset, self._trace_id.set(custom_id))
+                seed = SpanContext(
+                    trace_id=int(custom_id.replace("-", ""), 16),
+                    span_id=int(str(generate_id({"strategy": "uuid4"}))[:16], 16) or 1,
+                    is_remote=True,
+                    trace_flags=TraceFlags(TraceFlags.SAMPLED),
+                    trace_state=TraceState(),
+                )
+                native_context = trace.set_span_in_context(
+                    trace.NonRecordingSpan(seed), context.Context()
+                )
+            stack.callback(
+                self._spans.reset, self._spans.set(f"{parents}::{span_id}" if parents else span_id)
             )
-
-            # For root spans, create a completely isolated context
-            # We'll create the span with our custom context after setting up the isolated context
-            isolated_ctx = context.Context()
-            ctx = isolated_ctx
-        else:
-            new_spans = current_spans + f"::{span_id}"
-            trace_id_reset_token = None
-            ctx = context.get_current()
-
-        spans_reset_token = self._spans.set(new_spans)
-        attributes_reset_token = self._attributes.set(new_attributes)
-
-        # Create span with the prepared context
-        if not current_spans:
-            # For root spans, we need to manually create a span with our custom context
-            # Start the span normally first
-            span = self._tracer.start_span(name=span_id, attributes=new_attributes, context=ctx)
-            # Then update its context with our custom IDs (this is a workaround)
-            if hasattr(span, "_context"):
-                span._context = span_context
-        else:
-            # For child spans, create normally
-            span = self._tracer.start_span(name=span_id, attributes=new_attributes, context=ctx)
-
-        span_token = self._current_span.set(span)
-
-        try:
-            with trace.use_span(span, end_on_exit=True):
-                yield
-        except Exception as e:
-            span.set_status(Status(StatusCode.ERROR, str(e)))
-            span.record_exception(e)
-            raise
-        finally:
-            self._spans.reset(spans_reset_token)
-            self._attributes.reset(attributes_reset_token)
-            self._current_span.reset(span_token)
-            if trace_id_reset_token is not None:
-                self._trace_id.reset(trace_id_reset_token)
+            stack.callback(self._attributes.reset, self._attributes.set(new_attributes))
+            links = (
+                [
+                    Link(
+                        SpanContext(
+                            trace_id=int(link.trace_id.replace("-", ""), 16),
+                            span_id=int(link.span_id, 16),
+                            is_remote=True,
+                            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+                        )
+                    )
+                    for link in self._root_links.get()
+                ]
+                if not parents
+                else []
+            )
+            span = self._tracer.start_span(
+                name=span_id, attributes=new_attributes, context=native_context, links=links
+            )
+            stack.callback(span.end)
+            stack.callback(
+                self._otel_context.reset,
+                self._otel_context.set(trace.set_span_in_context(span, native_context)),
+            )
+            stack.callback(self._current_span.reset, self._current_span.set(span))
+            try:
+                with trace.use_span(
+                    span, end_on_exit=False, record_exception=False, set_status_on_exception=False
+                ):
+                    yield
+            except Exception as exc:
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                span.record_exception(exc)
+                raise
 
     @contextmanager
     @override
     def attributes(
         self,
         attributes: Mapping[str, AttributeValue],
-    ) -> Iterator[None]:
+    ) -> Generator[None, None, None]:
         current_attributes = self._attributes.get()
         new_attributes = {**current_attributes, **attributes}
 

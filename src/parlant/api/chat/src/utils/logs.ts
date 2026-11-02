@@ -92,8 +92,16 @@ export function clearIndexedDBData(dbName = DB_NAME, objectStoreName = STORE_NAM
 	});
 }
 
+// Reuse a single connection. openDB is called on every log read AND every log
+// write (handleChatLogs); during a live turn that's hundreds of opens, each
+// spinning up — and leaking — a fresh IndexedDB connection. Memoize the open
+// promise and drop it if the connection ever closes so it reopens cleanly.
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDB(storeName = STORE_NAME) {
-	return new Promise<IDBDatabase>((resolve, reject) => {
+	if (dbPromise) return dbPromise;
+
+	dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
 		const request = indexedDB.open(DB_NAME, 1);
 
 		request.onupgradeneeded = () => {
@@ -106,9 +114,25 @@ function openDB(storeName = STORE_NAME) {
 			}
 		};
 
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error);
+		request.onsuccess = () => {
+			const db = request.result;
+			db.onclose = () => {
+				dbPromise = null;
+			};
+			// Another tab requesting a version change would otherwise block it forever.
+			db.onversionchange = () => {
+				db.close();
+				dbPromise = null;
+			};
+			resolve(db);
+		};
+		request.onerror = () => {
+			dbPromise = null;
+			reject(request.error);
+		};
 	});
+
+	return dbPromise;
 }
 
 async function getLogs(trace_id: string): Promise<Log[]> {
@@ -122,34 +146,78 @@ async function getLogs(trace_id: string): Promise<Log[]> {
 	});
 }
 
-export const handleChatLogs = async (log: Log) => {
-	if (hasOtherOpenedTabs()) return;
+// Incoming logs are buffered and flushed to IndexedDB in batches rather than
+// written one-transaction-per-log. A live, in-progress turn emits logs far faster
+// than per-log read-modify-write transactions can keep up; the WebSocket receive
+// queue (and the inspector that reads from IndexedDB) then falls behind and only
+// catches up when the turn ends — which is the "blank logs for ~30s" symptom.
+// Buffering keeps the WS handler O(1) and collapses a burst into a handful of
+// grouped transactions, and it relieves the TCP backpressure that otherwise
+// stalls the server's log drain.
+const pendingLogs: Log[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const FLUSH_INTERVAL = 100;
+
+const flushPendingLogs = async () => {
+	flushTimer = null;
+	if (!pendingLogs.length) return;
+
+	const batch = pendingLogs.splice(0, pendingLogs.length);
+
+	// Group by trace_id so each bucket is read-modify-written once for the batch.
+	const byTrace = new Map<string, Log[]>();
+	for (const log of batch) {
+		const existing = byTrace.get(log.trace_id);
+		if (existing) existing.push(log);
+		else byTrace.set(log.trace_id, [log]);
+	}
+
 	const db = await openDB();
 	const transaction = db.transaction(STORE_NAME, 'readwrite');
 	const store = transaction.objectStore(STORE_NAME);
+	const timestamp = Date.now();
 
-	const logEntry = store.get(log.trace_id);
+	for (const [traceId, traceLogs] of byTrace) {
+		const logEntry = store.get(traceId);
+		logEntry.onsuccess = () => {
+			const data = logEntry.result;
+			if (!data?.values) {
+				// Same gate as before, applied to the batch: drop leading HTTP noise
+				// (except /events) when first creating a bucket.
+				const seed = traceLogs.filter((l) => !l.message?.trim().startsWith('HTTP') || l.message?.includes('/events'));
+				if (seed.length) store.put({timestamp, values: seed}, traceId);
+			} else {
+				data.values.push(...traceLogs);
+				store.put({timestamp, values: data.values}, traceId);
+			}
+		};
+		logEntry.onerror = () => console.error(logEntry.error);
+	}
 
-	logEntry.onsuccess = () => {
-		const data = logEntry.result;
-		const timestamp = Date.now();
-		if (!data?.values) {
-			if (!log.message?.trim().startsWith('HTTP') || log.message?.includes('/events')) store.put({timestamp, values: [log]}, log.trace_id);
-		} else {
-			data.values.push(log);
-			store.put({timestamp, values: data.values}, log.trace_id);
+	// Overlapping-scope readwrite transactions are serialized by IndexedDB, so a
+	// later flush always sees an earlier flush's writes — no lost updates.
+	transaction.oncomplete = () => {
+		for (const traceId of byTrace.keys()) {
+			window.dispatchEvent(new CustomEvent('new-log', {detail: {trace_id: traceId}}));
 		}
-		window.dispatchEvent(new CustomEvent('new-log', {detail: {trace_id: log.trace_id}}));
 	};
-	logEntry.onerror = () => console.error(logEntry.error);
+	transaction.onerror = () => console.error(transaction.error);
+};
+
+export const handleChatLogs = async (log: Log) => {
+	if (hasOtherOpenedTabs()) return;
+	pendingLogs.push(log);
+	if (!flushTimer) flushTimer = setTimeout(flushPendingLogs, FLUSH_INTERVAL);
 };
 
 export const getMessageLogs = async (trace_id: string): Promise<Log[]> => {
 	return getLogs(trace_id);
 };
 
-export const getMessageLogsWithFilters = async (trace_id: string, filters: {level: string; types?: string[]; content?: string[]}): Promise<Log[]> => {
-	const logs = await getMessageLogs(trace_id);
+// Pure, in-memory filter over an already-loaded log array. Kept separate from any
+// IndexedDB read so callers that already hold the logs (e.g. the live inspector)
+// can re-filter without paying for another DB round-trip per change.
+export const filterLogs = (logs: Log[], filters: {level: string; types?: string[]; content?: string[]}): Log[] => {
 	const escapedWords = filters?.content?.map((word) => word.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1'));
 	const pattern = escapedWords?.map((word) => `\\[?${word}\\]?`).join('.*?');
 	const levelIndex = filters.level ? logLevels.indexOf(filters.level) : null;
@@ -175,32 +243,25 @@ export const getMessageLogsWithFilters = async (trace_id: string, filters: {leve
 	});
 };
 
-export async function getAgentMessageLogsCount(): Promise<Log[]> {
+export const getMessageLogsWithFilters = async (trace_id: string, filters: {level: string; types?: string[]; content?: string[]}): Promise<Log[]> => {
+	return filterLogs(await getMessageLogs(trace_id), filters);
+};
+
+// Count records cheaply, WITHOUT walking a cursor over the whole store on the
+// main thread. The previous getAgentMessageLogsCount cursored every record (and
+// collected their full values) on app load and every CHECK_INTERVAL. Combined
+// with pruning that never matched — it keyed on a legacy "::" trace-id format that
+// today's plain-uuid4 trace ids don't have, so nothing was ever deleted and the
+// store grew without bound — that walk flooded the main thread for tens of seconds
+// and blocked the log inspector from rendering, even for old messages with only a
+// handful of logs. A keyed `count()` does the work in the IDB engine instead.
+async function countLogRecords(): Promise<number> {
 	const db = await openDB();
-	return new Promise((resolve, reject) => {
-		try {
-			const transaction = db.transaction(STORE_NAME, 'readonly');
-			const store = transaction.objectStore(STORE_NAME);
-			const index = store.index('timestampIndex');
-			const data = index.openCursor();
-
-			const items: any[] = [];
-
-			data.onsuccess = (event) => {
-				const cursor = (event.target as IDBRequest).result;
-				if (cursor) {
-					if (cursor.primaryKey?.includes('::')) items.push(cursor.value);
-					cursor.continue();
-				} else {
-					resolve(items);
-				}
-			};
-
-			data.onerror = () => reject(data.error);
-		} catch (error) {
-			db.close();
-			reject(error);
-		}
+	return new Promise<number>((resolve, reject) => {
+		const transaction = db.transaction(STORE_NAME, 'readonly');
+		const request = transaction.objectStore(STORE_NAME).count();
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
 	});
 }
 
@@ -223,103 +284,43 @@ export async function getAllLogKeys(): Promise<IDBValidKey[]> {
 	});
 }
 
-export async function deleteOldestLogs(deleteTimestamp = 0): Promise<void> {
-	if (!deleteTimestamp || deleteTimestamp <= 0) {
-		console.log('No valid deletion timestamp provided, skipping cleanup');
-		return;
-	}
+// Delete the oldest records via the timestamp index. Work is bounded by the
+// number being removed (not the whole store), and capped per run so a large
+// backlog drains over several runs instead of one long, read-blocking
+// transaction. Does NOT close the shared connection.
+const MAX_DELETES_PER_RUN = 2000;
 
-	try {
-		const db = await openDB();
-		const transaction = db.transaction(STORE_NAME, 'readonly');
-		const store = transaction.objectStore(STORE_NAME);
-		const keysRequest = store.getAllKeys();
-		const valuesRequest = store.getAll();
+async function deleteOldestRecords(numToDelete: number): Promise<void> {
+	if (numToDelete <= 0) return;
 
-		return new Promise((resolve, reject) => {
-			let keys: IDBValidKey[] = [];
-			let values: any[] = [];
+	const db = await openDB();
+	const limit = Math.min(numToDelete, MAX_DELETES_PER_RUN);
 
-			keysRequest.onsuccess = () => {
-				keys = keysRequest.result;
-				if (values.length > 0) deleteOldest();
-			};
+	return new Promise<void>((resolve, reject) => {
+		const transaction = db.transaction(STORE_NAME, 'readwrite');
+		const index = transaction.objectStore(STORE_NAME).index('timestampIndex');
+		const cursorRequest = index.openCursor(); // ascending by timestamp -> oldest first
+		let deleted = 0;
 
-			valuesRequest.onsuccess = () => {
-				values = valuesRequest.result;
-				if (keys.length > 0) deleteOldest();
-			};
-
-			const deleteOldest = () => {
-				const keysToDelete = [];
-				for (const i in keys) {
-					const data = values[i];
-					if (data.timestamp < deleteTimestamp) keysToDelete.push(keys[i]);
-				}
-
-				if (keysToDelete.length === 0) {
-					db.close();
-					resolve();
-					return;
-				}
-
-				const deleteTransaction = db.transaction(STORE_NAME, 'readwrite');
-				const deleteStore = deleteTransaction.objectStore(STORE_NAME);
-
-				let completed = 0;
-				let errors = 0;
-
-				keysToDelete.forEach((key) => {
-					const deleteRequest = deleteStore.delete(key);
-
-					deleteRequest.onsuccess = () => {
-						completed++;
-						if (completed + errors === keysToDelete.length) {
-							if (errors > 0) {
-								console.warn(`Completed with ${errors} errors`);
-							}
-						}
-					};
-
-					deleteRequest.onerror = (event) => {
-						errors++;
-						console.error(`Failed to delete key ${key}:`, (event.target as IDBRequest).error);
-					};
-				});
-
-				deleteTransaction.oncomplete = () => {
-					db.close();
-					console.log(`Successfully deleted ${completed} records older than ${new Date(deleteTimestamp).toISOString()}`);
-					resolve();
-				};
-
-				deleteTransaction.onerror = (event) => {
-					db.close();
-					reject((event.target as IDBTransaction).error);
-				};
-			};
-
-			transaction.onerror = (event) => {
-				db.close();
-				reject((event.target as IDBTransaction).error);
-			};
-		});
-	} catch (error) {
-		console.error('Error in deleteOldestLogs:', error);
-		throw error;
-	}
+		cursorRequest.onsuccess = () => {
+			const cursor = cursorRequest.result;
+			if (cursor && deleted < limit) {
+				cursor.delete();
+				deleted++;
+				cursor.continue();
+			}
+		};
+		cursorRequest.onerror = () => reject(cursorRequest.error);
+		transaction.oncomplete = () => resolve();
+		transaction.onerror = () => reject(transaction.error);
+	});
 }
 
 export async function checkAndCleanupLogs(): Promise<void> {
 	try {
-		const agentMessages = await getAgentMessageLogsCount();
-
-		if (agentMessages[MAX_RECORDS]) {
-			const recordsToDeleteDate = agentMessages[agentMessages.length - MAX_RECORDS]?.timestamp || 0;
-			console.log(`Log count exceeds maximum (${MAX_RECORDS}), deleting logs before ${new Date(recordsToDeleteDate)?.toLocaleString()}`);
-			await deleteOldestLogs(recordsToDeleteDate);
-			console.log('Cleanup completed');
-		}
+		const count = await countLogRecords();
+		if (count <= MAX_RECORDS) return;
+		await deleteOldestRecords(count - MAX_RECORDS);
 	} catch (error) {
 		console.error('Error during log cleanup:', error);
 	}

@@ -17,32 +17,30 @@ from pathlib import Path
 import tempfile
 from typing import AsyncIterator, Iterator, Optional, TypedDict, cast
 from typing_extensions import Required
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture, raises
 
-from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.qdrant import QdrantCollection, QdrantDatabase
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import IdGenerator, Version, xxh3_checksum
 from parlant.core.glossary import GlossaryVectorStore
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NullEmbedder, NullEmbeddingCache
+from parlant.core.nlp.embedding import Embedder, NullEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
-from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
-from parlant.core.tags import Tag, TagId
+from parlant.core.groups import GroupIds, GroupId
 from parlant.core.tracer import Tracer
-from tests.test_utilities import SyncAwaiter
+from tests.test_utilities import DeterministicEmbedder, SyncAwaiter
 
 
-async def _openai_embedder_type_provider() -> type[Embedder]:
-    return OpenAITextEmbedding3Large
+async def _default_embedder() -> Embedder:
+    return DeterministicEmbedder()
 
 
-async def _null_embedder_type_provider() -> type[Embedder]:
-    return NullEmbedder
+async def _null_embedder() -> Embedder:
+    return NullEmbedder()
 
 
 class _TestDocument(TypedDict, total=False):
@@ -65,7 +63,7 @@ def agent_id(
     sync_await: SyncAwaiter,
 ) -> AgentId:
     store = container[AgentStore]
-    agent = sync_await(store.create_agent(name="test-agent", max_engine_iterations=2))
+    agent = sync_await(store.create_agent(name="test-agent", max_steps=2))
     return agent.id
 
 
@@ -95,7 +93,6 @@ def create_database(context: _TestContext) -> QdrantDatabase:
         logger=context.container[Logger],
         tracer=context.container[Tracer],
         path=context.home_dir,
-        embedder_factory=EmbedderFactory(context.container),
         embedding_cache_provider=NullEmbeddingCache,
     )
 
@@ -103,11 +100,12 @@ def create_database(context: _TestContext) -> QdrantDatabase:
 @fixture
 async def qdrant_collection(
     qdrant_database: QdrantDatabase,
+    context: _TestContext,
 ) -> AsyncIterator[QdrantCollection[_TestDocument]]:
     collection = await qdrant_database.get_or_create_collection(
         "test_collection",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
     yield collection
@@ -329,7 +327,7 @@ async def test_loading_collections(
         created_collection = await first_db.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -347,7 +345,7 @@ async def test_loading_collections(
         fetched_collection: QdrantCollection[_TestDocument] = await second_db.get_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -361,23 +359,18 @@ async def test_that_glossary_qdrant_store_correctly_finds_relevant_terms_from_la
     container: Container,
     agent_id: AgentId,
 ) -> None:
-    async def embedder_type_provider() -> type[Embedder]:
-        return type(await container[NLPService].get_embedder())
-
     with tempfile.TemporaryDirectory() as temp_dir:
         async with QdrantDatabase(
             logger=container[Logger],
             tracer=container[Tracer],
             path=Path(temp_dir),
-            embedder_factory=EmbedderFactory(container),
             embedding_cache_provider=NullEmbeddingCache,
         ) as qdrant_db:
             async with GlossaryVectorStore(
                 id_generator=container[IdGenerator],
                 vector_db=qdrant_db,
                 document_db=TransientDocumentDatabase(),
-                embedder_factory=EmbedderFactory(container),
-                embedder_type_provider=embedder_type_provider,
+                embedder_provider=_default_embedder,
             ) as glossary_qdrant_store:
                 bazoo = await glossary_qdrant_store.create_term(
                     name="Bazoo",
@@ -427,8 +420,7 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
             id_generator=IdGenerator(),
             vector_db=qdrant_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_null_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=False,
         ):
             metadata = await qdrant_db.read_metadata()
@@ -461,7 +453,7 @@ async def test_that_document_loader_updates_documents_in_current_qdrant_collecti
         collection = await qdrant_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -496,7 +488,7 @@ async def test_that_document_loader_updates_documents_in_current_qdrant_collecti
         new_collection = await qdrant_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_document_loader,
         )
 
@@ -529,7 +521,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
         collection = await qdrant_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -577,7 +569,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
         collection_with_loader = await qdrant_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_document_loader,
         )
 
@@ -609,7 +601,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
         failed_migrations_collection = await qdrant_database.get_or_create_collection(
             "failed_migrations",
             BaseDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=NullEmbedder(),
             document_loader=_identity_loader,
         )
 
@@ -647,8 +639,7 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
                 IdGenerator(),
                 vector_db=qdrant_db,
                 document_db=TransientDocumentDatabase(),
-                embedder_factory=EmbedderFactory(context.container),
-                embedder_type_provider=_null_embedder_type_provider,
+                embedder_provider=_null_embedder,
                 allow_migration=False,
             ):
                 pass
@@ -664,8 +655,7 @@ async def test_that_new_store_creates_metadata_with_correct_version(
             IdGenerator(),
             vector_db=qdrant_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_openai_embedder_type_provider,
+            embedder_provider=_default_embedder,
             allow_migration=False,
         ):
             metadata = await qdrant_db.read_metadata()
@@ -679,7 +669,7 @@ async def test_that_new_store_creates_metadata_with_correct_version(
             )
 
 
-async def test_that_documents_are_indexed_when_changing_embedder_type(
+async def test_that_documents_are_indexed_when_changing_embedder(
     context: _TestContext,
     agent_id: AgentId,
 ) -> None:
@@ -688,8 +678,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             IdGenerator(),
             vector_db=qdrant_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_openai_embedder_type_provider,
+            embedder_provider=_default_embedder,
             allow_migration=True,
         ) as store:
             term = await store.create_term(
@@ -697,9 +686,9 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
                 description="a type of cow",
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=term.id,
-                tag_id=Tag.for_agent_id(agent_id).id,
+                group_id=GroupIds.for_agent_id(agent_id),
             )
 
     async with create_database(context) as qdrant_db:
@@ -707,15 +696,14 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             id_generator=IdGenerator(),
             vector_db=qdrant_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_null_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=True,
         ) as store:
             # Get the collection and check embeddings are zero vectors
             collection = await qdrant_db.get_collection(
                 "glossary",
                 BaseDocument,
-                embedder_type=NullEmbedder,
+                embedder=NullEmbedder(),
                 document_loader=_identity_loader,
             )
 
@@ -726,7 +714,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             assert any(str(d["id"]) == str(term.id) for d in docs)
 
 
-async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
+async def test_that_documents_are_migrated_and_reindexed_for_new_embedder(
     context: _TestContext,
 ) -> None:
     async def _document_loader(doc: BaseDocument) -> _TestDocumentV2:
@@ -744,7 +732,7 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
         collection = await qdrant_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 
@@ -771,7 +759,7 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
         new_collection = await qdrant_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=NullEmbedder,
+            embedder=NullEmbedder(),
             document_loader=_document_loader,
         )
 
@@ -794,8 +782,7 @@ async def test_that_in_filter_works_with_list_of_strings(
             IdGenerator(),
             vector_db=qdrant_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_null_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
@@ -811,45 +798,47 @@ async def test_that_in_filter_works_with_list_of_strings(
                 description="a type of cow",
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("a"),
+                group_id=GroupId("a"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("b"),
+                group_id=GroupId("b"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=second_term.id,
-                tag_id=TagId("b"),
+                group_id=GroupId("b"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=third_term.id,
-                tag_id=TagId("c"),
+                group_id=GroupId("c"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=third_term.id,
-                tag_id=TagId("d"),
+                group_id=GroupId("d"),
             )
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b")])
+            terms = await store.list_terms(groups=[GroupId("a"), GroupId("b")])
             assert len(terms) == 2
             term_ids = {term.id for term in terms}
             assert first_term.id in term_ids
             assert second_term.id in term_ids
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c")])
+            terms = await store.list_terms(groups=[GroupId("a"), GroupId("b"), GroupId("c")])
             assert len(terms) == 3
             term_ids = {term.id for term in terms}
             assert first_term.id in term_ids
             assert second_term.id in term_ids
             assert third_term.id in term_ids
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c"), TagId("d")])
+            terms = await store.list_terms(
+                groups=[GroupId("a"), GroupId("b"), GroupId("c"), GroupId("d")]
+            )
             assert len(terms) == 3
             term_ids = {term.id for term in terms}
             assert first_term.id in term_ids
@@ -865,21 +854,20 @@ async def test_that_in_filter_works_with_single_tag(
             id_generator=IdGenerator(),
             vector_db=qdrant_db,
             document_db=TransientDocumentDatabase(),
-            embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_null_embedder_type_provider,
+            embedder_provider=_null_embedder,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
                 name="Bazoo",
                 description="a type of cow",
             )
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("unique_tag"),
+                group_id=GroupId("unique_tag"),
             )
 
-            # Test with a single tag that matches one term
-            terms = await store.list_terms(tags=[TagId("unique_tag")])
+            # Test with a single group that matches one term
+            terms = await store.list_terms(groups=[GroupId("unique_tag")])
             assert len(terms) == 1
             assert terms[0].id == first_term.id
             assert terms[0].name == "Bazoo"

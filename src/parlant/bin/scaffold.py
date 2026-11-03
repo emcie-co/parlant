@@ -2429,7 +2429,7 @@ async def request_team_follow_up(
         data={
             "requested": True,
             "contact": contact,
-            "tell_visitor": "Someone from the team will contact them to find a time.",
+            "tell_visitor": "Someone from the team will be in touch.",
         }
     )
 '''

@@ -24,6 +24,15 @@ Each entry says what changed and what it means for you, under `Added`,
   `narration`, such as "Checking which days are free" or "Tracking your
   shipment". The chat shows it while the tool runs, instead of the generic
   "Running tools".
+- The `lead-gen` scaffold's agent no longer guesses when a visitor asks about
+  the business, its products or their project and its product knowledge has no
+  answer. It says it's a great question but hard to answer properly in the
+  chat, offers to connect them with the team, asks for an email or phone
+  number, and passes the question on with `request_team_follow_up`. Unrelated
+  questions, existing customers' order questions and prices are handled as
+  before. To make that possible, `record_lead` now accepts a lead with just a
+  goal and a contact: `buying_for` and `role` are optional, and an unknown one
+  scores nothing.
 
 ### Fixed
 

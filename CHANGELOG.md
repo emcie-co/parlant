@@ -60,6 +60,12 @@ Each entry says what changed and what it means for you, under `Added`,
   "Connection interrupted" banner appearing just after a send. The transcript
   stayed pinned to the bottom only as messages grew, not as its view shrank.
 
+### Security
+
+- Raise the minimum `python-multipart` version to 0.0.30 for both uv
+  and pip installations, preventing installation of versions affected by
+  CVE-2026-53539.
+
 ## [4.0.1] - 2026-11-02
 
 ### Changed

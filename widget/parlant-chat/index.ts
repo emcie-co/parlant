@@ -6,7 +6,7 @@
 // No Tailwind, no build config — styles.css is imported by the widget itself.
 
 export { ChatWidget } from "./components/chat-widget";
-export type { ChatWidgetProps, ThemeName } from "./components/chat-widget";
+export type { AgentAvatar, ChatWidgetProps, LauncherCrop, ThemeName } from "./components/chat-widget";
 export { registerWidget } from "./components/tool-widget";
 export type { WidgetContext, WidgetProps, WidgetRenderer } from "./components/tool-widget";
 export { ParlantTransport } from "./lib/transport";

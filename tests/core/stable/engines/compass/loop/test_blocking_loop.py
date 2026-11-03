@@ -1933,6 +1933,112 @@ async def test_that_a_cancellation_during_generation_abandons_the_reply_before_e
     assert not message_events
 
 
+async def test_that_a_cancellation_during_a_rejected_tool_step_is_raised_instead_of_restarting() -> (
+    None
+):
+    """A newer customer message cancels the turn while a hook is rejecting the
+    step's tool calls. The rejection restarts the step; the deferred cancellation
+    must win over that restart, or the superseded turn runs to completion and
+    replies to the old message as if nothing happened."""
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "what is parlant?")])
+    context.state = ResponseState(agent_effort=Effort.LOW)
+    _offer_tool(context, _tool("lookup_account", consequential=False))
+
+    react = _ToolThenMessageReact()
+    loop = _make_blocking_loop()
+    cast(_ModelRouterStub, loop._model_router).react = react
+
+    run_task: asyncio.Task[Any] | None = None
+
+    async def reject_while_superseded(ctx: Any, payload: Any, exc: Any) -> CompassHookResult:
+        assert run_task is not None
+        run_task.cancel()
+        await asyncio.sleep(0)  # let the cancellation reach the step shield
+        payload.note = "Answer from what you already know."
+        return CompassHookResult.BAIL
+
+    context.dependencies.hooks.on_reviewing_tool_calls.append(reject_while_superseded)
+
+    run_task = asyncio.create_task(loop.run(LoopJob(context=context, system_instructions="SYSTEM")))
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    assert len(react.calls) == 1
+    emitter = cast(EventBuffer, context.session_event_emitter)
+    assert not [e for e in emitter.events if e.kind == EventKind.MESSAGE]
+
+
+async def test_that_a_cancellation_during_a_rejected_message_step_is_raised_instead_of_restarting() -> (
+    None
+):
+    """Same supersede, but the restart comes from message review: the
+    rejection must not swallow the pending cancellation either."""
+    context = _message_review_context(effort=Effort.MEDIUM, agent_message_review=True)
+
+    loop = _make_blocking_loop()
+    cast(_ModelRouterStub, loop._model_router).react = _SimpleMessageReact()
+    loop._reviewer = cast(Any, _MessageSpyReviewer())
+
+    run_task: asyncio.Task[Any] | None = None
+    rejections = 0
+
+    async def reject_while_superseded(ctx: Any, payload: Any, exc: Any) -> CompassHookResult:
+        nonlocal rejections
+        rejections += 1
+        if rejections == 1:
+            assert run_task is not None
+            run_task.cancel()
+            await asyncio.sleep(0)  # let the cancellation reach the step shield
+        payload.note = "Never quote another customer's balance."
+        return CompassHookResult.BAIL
+
+    context.dependencies.hooks.on_reviewing_message.append(reject_while_superseded)
+
+    run_task = asyncio.create_task(loop.run(LoopJob(context=context, system_instructions="SYSTEM")))
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    assert rejections == 1
+    emitter = cast(EventBuffer, context.session_event_emitter)
+    assert not [e for e in emitter.events if e.kind == EventKind.MESSAGE]
+
+
+async def test_that_a_cancellation_during_a_hook_requested_give_up_is_raised_instead_of_giving_up() -> (
+    None
+):
+    """A hook that rejects with give_up forces a final message; a pending
+    cancellation must still win, so the superseded turn emits nothing."""
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "what is parlant?")])
+    context.state = ResponseState(agent_effort=Effort.LOW)
+    _offer_tool(context, _tool("lookup_account", consequential=False))
+
+    react = _ToolThenMessageReact()
+    loop = _make_blocking_loop()
+    cast(_ModelRouterStub, loop._model_router).react = react
+
+    run_task: asyncio.Task[Any] | None = None
+
+    async def give_up_while_superseded(ctx: Any, payload: Any, exc: Any) -> CompassHookResult:
+        assert run_task is not None
+        run_task.cancel()
+        await asyncio.sleep(0)  # let the cancellation reach the step shield
+        payload.give_up = True
+        return CompassHookResult.BAIL
+
+    context.dependencies.hooks.on_reviewing_tool_calls.append(give_up_while_superseded)
+
+    run_task = asyncio.create_task(loop.run(LoopJob(context=context, system_instructions="SYSTEM")))
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    assert len(react.calls) == 1
+    emitter = cast(EventBuffer, context.session_event_emitter)
+    assert not [e for e in emitter.events if e.kind == EventKind.MESSAGE]
+
+
 class _EventRecordingTracer(LocalTracer):
     def __init__(self) -> None:
         super().__init__()

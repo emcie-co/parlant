@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import pytest
@@ -43,6 +44,7 @@ from parlant.core.nlp.react import (
     Usage,
 )
 from parlant.core.sessions import EventKind, EventSource
+from parlant.core.tools import Tool, ToolId, ToolOverlap
 from parlant.core.nlp.tokenization import ZeroEstimatingTokenizer
 from parlant.core.tracer import LocalTracer
 from parlant.core.cost_control import NullCostControlPolicy
@@ -575,6 +577,100 @@ async def test_that_a_supersede_arriving_mid_stream_lets_the_streamed_message_co
     data = cast(dict[str, Any], message_events[0].data)
     assert data["message"] == "Hello world"
     assert data["chunks"][-1] is None
+
+
+class _ToolThenMessageReact(_ModelResolvingStubReact):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def serialize_tool_messages(self, messages: list[Message], serializer: Any) -> None:
+        return None
+
+    async def stream_step(
+        self,
+        *,
+        history: list[Message],
+        tools: list[Any],
+        tool_choice: str,
+        reasoning: Any,
+        hints: dict[str, Any],
+    ) -> Any:
+        self.calls += 1
+
+        if self.calls == 1:
+            tool_call = ToolCallPart(id="call-1", name="lookup_account", args={})
+            yield ToolCallStarted(id=tool_call.id, name=tool_call.name)
+            yield StepCompleted(
+                result=StepResult(
+                    message=Message(role=Role.ASSISTANT, parts=[tool_call]),
+                    finish_reason=FinishReason.TOOL_CALLS,
+                    usage=Usage(),
+                )
+            )
+            return
+
+        yield TextDelta(text="I checked that and can help.")
+        yield StepCompleted(
+            result=StepResult(
+                message=Message(
+                    role=Role.ASSISTANT,
+                    parts=[TextPart(text="I checked that and can help.")],
+                ),
+                finish_reason=FinishReason.STOP,
+                usage=Usage(),
+            )
+        )
+
+
+def _offer_tool(context: EngineContext, name: str) -> None:
+    tool = Tool(
+        name=name,
+        creation_utc=datetime.now(timezone.utc),
+        description="",
+        metadata={},
+        parameters={},
+        required=[],
+        consequential=False,
+        overlap=ToolOverlap.NONE,
+    )
+    context.state.available_tools = [tool]
+    context.state.tool_ids_by_name = {name: ToolId(service_name="test_service", tool_name=name)}
+
+
+async def test_that_a_cancellation_during_a_rejected_tool_step_is_raised_instead_of_restarting() -> (
+    None
+):
+    # A newer customer message cancels the turn while a hook is rejecting the
+    # step's tool calls. The rejection restarts the step (resetting any streamed
+    # output); the deferred cancellation must win over that restart, or the
+    # superseded turn runs to completion and streams a reply to the old message.
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "what is parlant?")])
+    context.state = ResponseState()
+    _offer_tool(context, "lookup_account")
+
+    react = _ToolThenMessageReact()
+    loop = _make_streaming_loop()
+    cast(_ModelRouterStub, loop._model_router).react = react
+
+    run_task: asyncio.Task[Any] | None = None
+
+    async def reject_while_superseded(ctx: Any, payload: Any, exc: Any) -> CompassHookResult:
+        assert run_task is not None
+        run_task.cancel()
+        await asyncio.sleep(0)  # let the cancellation reach the step shield
+        payload.note = "Answer from what you already know."
+        return CompassHookResult.BAIL
+
+    context.dependencies.hooks.on_reviewing_tool_calls.append(reject_while_superseded)
+
+    run_task = asyncio.create_task(loop.run(LoopJob(context=context, system_instructions="SYSTEM")))
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    assert react.calls == 1
+    emitter = cast(EventBuffer, context.session_event_emitter)
+    assert not [e for e in emitter.events if e.kind == EventKind.MESSAGE]
 
 
 class _EventRecordingTracer(LocalTracer):

@@ -74,6 +74,14 @@ Each entry says what changed and what it means for you, under `Added`,
   stayed pinned to the bottom only as messages grew, not as its view shrank.
 - Invalid context-variable freshness schedules are rejected before saving,
   so a failed schedule update leaves the variable's existing data intact.
+- A customer message that arrives while the agent is still working on the
+  previous one now replaces that turn, as intended, even when the engine was in
+  the middle of rejecting a step: a tool call or message turned down by a
+  review hook, by the reviewer, or by moderation. Before, the rejection restarted
+  the step and dropped the pending cancellation, so the agent finished replying
+  to the first message and then answered the second one in a separate turn.
+  Customers who send two messages in quick succession now get one reply that
+  takes both into account.
 
 ### Security
 

@@ -204,7 +204,9 @@ Use `openingSuggestions` for conversation starters and `persistentSuggestions`
 for prompts that remain available after the conversation begins. Selecting a
 persistent chip sends its text and removes it for that session, including when
 this browser resumes it. A new session gets the prompts again. Typing the same
-text manually does not select the chip.
+text manually does not select the chip. Persistent chips stand out from the
+starters: outlined and lettered in the theme's primary color, on the chat's
+background (`.parlant-cmp-suggestion--persistent`).
 
 `maxVisibleSuggestions` defaults to 3. Opening suggestions take priority, then
 unchosen persistent suggestions fill the remaining slots, in their configured

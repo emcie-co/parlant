@@ -932,6 +932,13 @@
 .parlant-widget .parlant-cmp-suggestion-icon { width: .8rem; height: .8rem; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
 .parlant-widget .parlant-cmp-suggestion:hover { background-color: hsl(var(--foreground) / 0.06); }
 .parlant-widget .parlant-cmp-suggestion:disabled { opacity: .5; }
+/* Persistent suggestions stay through the conversation, so they stand out: outlined and
+ * lettered in the primary color on the chat's own background. The outline is an inset
+ * shadow, so the chip keeps the size of the borderless ones beside it. */
+.parlant-widget .parlant-cmp-suggestion--persistent,
+.parlant-widget .parlant-cmp-suggestion--persistent .parlant-cmp-suggestion-icon { color: hsl(var(--primary)); }
+.parlant-widget .parlant-cmp-suggestion--persistent { background-color: hsl(var(--background)); box-shadow: inset 0 0 0 1px hsl(var(--primary)); }
+.parlant-widget .parlant-cmp-suggestion--persistent:hover { background-color: hsl(var(--primary) / 0.06); }
 .parlant-widget .parlant-cmp-attachments { margin-bottom: .5rem; display: flex; flex-wrap: wrap; gap: .5rem; padding-left: .25rem; padding-right: .25rem; }
 .parlant-widget .parlant-cmp-attachment { display: inline-flex; align-items: center; gap: .25rem; border-radius: 9999px; border: 1px solid hsl(var(--border)); padding: .125rem .5rem; font-size: .75rem; line-height: 1rem; }
 .parlant-widget .parlant-cmp-attachment-name { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

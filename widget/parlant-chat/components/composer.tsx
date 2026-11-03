@@ -19,6 +19,8 @@ export interface ComposerProps {
   /** Conversation starters shown as chips above the input; clicking one sends it. The
    *  caller decides when they apply — see `openingSuggestions` and `persistentSuggestions` on ChatWidgetProps. */
   suggestions?: string[];
+  /** The suggestions among `suggestions` that persist, drawn in the primary color. */
+  persistentSuggestions?: string[];
   /** Called only when a suggestion chip is selected, before sending its text. */
   onSuggestionSelect?: (text: string) => void;
   /** Show the "Powered by Parlant" attribution (default true). */
@@ -45,6 +47,7 @@ export function Composer({
   accept,
   disclaimer,
   suggestions,
+  persistentSuggestions,
   onSuggestionSelect,
   showPoweredBy = true,
   placeholder = "Type a message…",
@@ -186,7 +189,7 @@ export function Composer({
               // focus in bar mode) don't vanish before the send fires.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { onSuggestionSelect?.(s); onSend(s); dismissKeyboard(); }}
-              className="parlant-cmp-suggestion"
+              className={cn("parlant-cmp-suggestion", persistentSuggestions?.includes(s) && "parlant-cmp-suggestion--persistent")}
               dir="auto"
             >
               <svg

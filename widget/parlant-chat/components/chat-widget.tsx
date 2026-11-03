@@ -840,6 +840,7 @@ function ChatPanel({
         accept={acceptFileTypes}
         disclaimer={disclaimer}
         suggestions={visibleSuggestions}
+        persistentSuggestions={persistentSuggestions}
         onSuggestionSelect={(text) => {
           if (persistentSuggestions?.includes(text)) persistent.choose(text);
         }}

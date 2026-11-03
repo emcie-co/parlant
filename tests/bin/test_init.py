@@ -325,6 +325,62 @@ def test_that_the_lead_gen_example_offers_every_qualified_visitor_a_call(
         assert "asked for, or agreed to, a call" in tools
 
 
+def test_that_the_lead_gen_example_offers_the_team_for_an_on_topic_question_it_cannot_answer(
+    runner: CliRunner,
+) -> None:
+    # A guessed answer to a question about the business costs more than no
+    # answer. When product knowledge doesn't cover an on-topic question, the
+    # agent says so, offers the team and asks for a way to reach the visitor,
+    # and then really passes it on: a promise of contact needs a follow-up.
+    with runner.isolated_filesystem():
+        assert (
+            runner.invoke(
+                cli,
+                ["init", "--package-manager", "uv", "--no-git", "--scaffold", "lead-gen"],
+            ).exit_code
+            == 0
+        )
+
+        domain = Path("domains/leadgen/domain.py").read_text()
+
+        policy = domain[domain.index('title="On-topic question we can\'t answer here"') :]
+        policy = policy[: policy.index("await agent.create_policy(")]
+        assert "unrelated" in policy
+        assert "tools=[record_lead, request_team_follow_up]" in policy
+        assert "canned_responses=[team_offer]" in policy
+
+        offer = domain[domain.index("team_offer = await agent.create_canned_response(") :]
+        offer = offer[: offer.index("note=")]
+        assert "great question" in offer
+        assert "connect you with our team" in offer
+        assert "email or phone number" in offer
+
+
+def test_that_the_lead_gen_example_records_a_lead_from_a_contact_alone(
+    runner: CliRunner,
+) -> None:
+    # A visitor handed to the team over a question has given a way to reach
+    # them and nothing else. record_lead takes that, rather than making the
+    # agent ask who they're buying for and their role before it can pass on.
+    with runner.isolated_filesystem():
+        assert (
+            runner.invoke(
+                cli,
+                ["init", "--package-manager", "uv", "--no-git", "--scaffold", "lead-gen"],
+            ).exit_code
+            == 0
+        )
+
+        tools = Path("domains/leadgen/tools.py").read_text()
+        service = Path("domains/leadgen/service.py").read_text()
+
+        signature = tools[tools.index("async def record_lead(") :]
+        signature = signature[: signature.index(") -> p.ToolResult:")]
+        assert "BuyingFor | None" in signature
+        assert "role: str = " in signature
+        assert "buying_for: BuyingFor | None" in service
+
+
 def test_that_the_lead_gen_example_offers_times_with_the_built_in_choices_widget(
     runner: CliRunner,
 ) -> None:

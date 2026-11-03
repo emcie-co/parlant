@@ -1599,13 +1599,17 @@ Band = Literal["hot", "warm", "cold"]
 
 
 def score_lead(
-    buying_for: BuyingFor,
+    buying_for: BuyingFor | None,
     role: str,
     window_count: int | None,
     timeline_days: int | None,
     named_competitor: bool,
 ) -> int:
-    """Score a lead in code, so the same answers always get the same score."""
+    """Score a lead in code, so the same answers always get the same score.
+
+    Anything the visitor hasn't told us (None, or an empty role) scores nothing
+    either way, like an unknown window count.
+    """
     score = 0
 
     if buying_for is BuyingFor.BUSINESS:  # trade buyers are where the volume is
@@ -2119,13 +2123,13 @@ def typed_phone(phone: str, typed: str) -> str | None:
 async def record_lead(
     goal: str,
     buying_for: Annotated[
-        BuyingFor,
+        BuyingFor | None,
         p.ToolParameterOptions(
             description="'business or client' for designers, hotels, landlords, developers, offices; "
-            "'own home' for homeowners and renters",
+            "'own home' for homeowners and renters. Leave empty if they haven't said.",
         ),
-    ],
-    role: str,
+    ] = None,
+    role: str = "",
     email: Annotated[
         str,
         p.ToolParameterOptions(
@@ -2186,7 +2190,7 @@ async def record_lead(
         phone=phone_ok,
         fields={
             "goal": goal,
-            "buying_for": buying_for.value,
+            "buying_for": buying_for.value if buying_for else None,
             "role": role,
             "window_count": window_count,
             "timeline_days": timeline_days,
@@ -2397,7 +2401,8 @@ async def request_team_follow_up(
         ),
     ],
 ) -> p.ToolResult:
-    """Ask the sales team to contact the visitor themselves, when none of the offered times work."""
+    """Ask the sales team to contact the visitor themselves: when none of the offered times
+    work, or when they asked something we can't answer here."""
     session = p.Session.current
     lead_id = await session.metadata.get("lead_id")
 
@@ -3376,6 +3381,35 @@ async def install(agent: p.Agent) -> None:
         ),
     )
 
+    # -- Questions we can't answer here --------------------------------------
+    team_offer = await agent.create_canned_response(
+        template=(
+            "That's a great question, but it's hard to answer properly here. I'd love to "
+            "connect you with our team. What's the best email or phone number to reach you?"
+        ),
+        note=(
+            "When product knowledge doesn't answer what they asked about us. Don't guess an "
+            "answer first, and accept a phone number just as gladly as an email."
+        ),
+    )
+
+    await agent.create_policy(
+        title="On-topic question we can't answer here",
+        content=(
+            "When the visitor asks about Hearth & Drape, our products or services, or their own "
+            "project, and product knowledge doesn't give you the answer, don't guess. Say it's "
+            "a great question but hard to answer properly here, that you'd love to connect them "
+            "with our team, and ask for the best email or phone number. When they give one, "
+            "record it with `record_lead` (their question as the goal; don't ask anything else "
+            "first) and pass their question to the team with `request_team_follow_up`. If they'd "
+            "rather not share contact details, don't push. This is not for unrelated questions, "
+            "for existing customers who need help with an order, or for prices, discounts and "
+            "quotes, which the policies for those cover."
+        ),
+        tools=[record_lead, request_team_follow_up],
+        canned_responses=[team_offer],
+    )
+
     # -- The qualification procedure ----------------------------------------
     call_offer = await agent.create_canned_response(
         template=(
@@ -3689,6 +3723,11 @@ def test_that_a_whole_house_homeowner_is_warm_even_without_a_timeline() -> None:
 
 def test_that_an_unknown_window_count_is_not_penalised() -> None:
     assert score_lead(BuyingFor.BUSINESS, "purchasing", None, None, False) == 25
+
+
+def test_that_a_visitor_who_only_left_a_contact_scores_nothing() -> None:
+    # Handed to the team over a question: who they buy for and their role are unknown.
+    assert score_lead(None, "", None, None, False) == 0
 
 
 def test_that_a_one_window_student_is_cold() -> None:
@@ -4693,6 +4732,10 @@ Replace each fake with your own system: the real adapters are declared in
 - *"None of those work for me."* — the agent searches again with what would,
   and if nothing suits, asks the team to get in touch
   (`request_team_follow_up`).
+- *"Will blackout linings cope with a heating vent right under the window?"* —
+  the catalog doesn't say, so the agent doesn't guess: it offers to connect
+  you with the team and asks for an email or phone number, then passes your
+  question on (`request_team_follow_up`).
 - Give `unsubscribe@example.com` as your email. The fake CRM flags it
   do-not-contact, and the agent stops offering calls for the rest of the
   conversation.

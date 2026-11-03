@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-from ast import literal_eval
 from datetime import datetime, timezone
 import json
 from mailbox import FormatError
@@ -41,6 +40,7 @@ from parlant.core.tools import (
     ToolContext,
     ToolService,
     ToolParameterType,
+    split_arg_list as split_tool_arg_list,
 )
 from parlant.core.common import JSONSerializable
 from parlant.core.tracer import Tracer
@@ -517,17 +517,7 @@ def parse_enum_def(def_: dict[str, Any]) -> ToolParameterDescriptor:
 
 
 def split_arg_list(argument: str | list[Any], item_type: str) -> list[str]:
-    if isinstance(argument, list):
-        return argument
-    if item_type in StringBasedTypes:
-        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
-        return list(literal_eval(argument))
-    else:
-        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
-        if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(", ")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
+    return split_tool_arg_list(argument, str)
 
 
 def prepare_tool_arguments(

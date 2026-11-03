@@ -15,6 +15,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from ast import literal_eval
+import shlex
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -737,13 +738,23 @@ def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
     if isinstance(argument, list):
         # Already a list - no work required
         return argument
-    if item_type is str or issubclass(item_type, Enum):
-        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
-        return list(literal_eval(argument))
-    if item_type in VALID_TOOL_BASE_TYPES:
-        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
-        if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(",")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
-    raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")
+    if item_type not in VALID_TOOL_BASE_TYPES and not issubclass(item_type, Enum):
+        raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")
+
+    text = argument.strip()
+    try:
+        parsed = literal_eval(text)
+    except (ValueError, SyntaxError):
+        if not text or text.startswith(("[", "(", "{")) or text.endswith(("]", ")", "}")):
+            raise ValueError(f"Invalid list format for argument '{argument}'") from None
+        # Recover comma-separated bare values without splitting commas inside quotes.
+        lexer = shlex.shlex(text, posix=True)
+        lexer.whitespace = ","
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return [value.strip() for value in lexer]
+
+    values = parsed if isinstance(parsed, (list, tuple)) else [parsed]
+    if any(isinstance(value, (list, tuple, dict, set)) for value in values):
+        raise ValueError(f"Nested values are not supported for argument '{argument}'")
+    return [value if isinstance(value, str) else str(value) for value in values]

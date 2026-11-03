@@ -61,6 +61,8 @@ Each entry says what changed and what it means for you, under `Added`,
 - On iPhone, focusing the chat widget's message box no longer zooms the page
   in, which pushed the open chat off the right edge of the screen. The box
   uses a 16px font on touch screens, the size below which iOS zooms.
+- Local and MCP tools now accept comma-separated list arguments without
+  brackets while preserving quoted commas and empty lists.
 - The chat widget's latest message no longer slips under the suggestions and
   message box when something takes the transcript's space, such as the
   "Connection interrupted" banner appearing just after a send. The transcript

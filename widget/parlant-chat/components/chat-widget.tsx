@@ -768,7 +768,7 @@ function ChatPanel({
 
       {/* Before the transcript shows, the video sits under the header; once it shows, the
           video leads the transcript, so it scrolls away with the conversation. */}
-      {video && !transcriptShown && <IntroVideo src={video.src} poster={video.poster} />}
+      {video && !transcriptShown && <IntroVideo {...video} offline={connectionIssue} />}
 
       {statusBanner && (
         <div className="parlant-cw-banner">
@@ -809,7 +809,7 @@ function ChatPanel({
             reasoningStreaming={reasoningStreaming}
             reasoningByTrace={reasoningByTrace}
             reasoningMode={reasoningMode}
-            lead={video && <IntroVideo src={video.src} poster={video.poster} />}
+            lead={video && <IntroVideo {...video} offline={connectionIssue} />}
             preface={preface}
             streamStyle={streamStyle}
             streamSpeed={streamSpeed}
@@ -932,11 +932,12 @@ function isEditable(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
-/** The intro video, spanning the card under the header. */
-function IntroVideo({ src, poster }: { src: string; poster?: string }) {
+/** The intro video, spanning the card under the header, with the live dot in its corner. */
+function IntroVideo({ src, poster, live, offline = false }: { src: string; poster?: string; live?: boolean; offline?: boolean }) {
   return (
     <div className="parlant-cw-video">
       <LoopingVideo src={src} poster={poster} />
+      {live && <LiveDot offline={offline} />}
     </div>
   );
 }

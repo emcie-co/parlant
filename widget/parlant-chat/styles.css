@@ -705,6 +705,14 @@
   /* The video ignores the pointer, so the browser shows no controls over it. */
   pointer-events: none;
 }
+/* The live dot sits inside the video's bottom-right corner. */
+.parlant-widget .parlant-cw-video .parlant-cw-live,
+.parlant-widget .parlant-input--open .parlant-cw-video .parlant-cw-live {
+  right: 0.5rem;
+  bottom: 0.5rem;
+  height: 0.75rem;
+  width: 0.75rem;
+}
 /* The closed bar stays a slim input; the video shows once it opens. */
 .parlant-widget .parlant-bar:not(.parlant-bar--open) .parlant-cw-video { display: none; }
 /* Once the transcript shows, the video leads it and scrolls away with it, keeping its gap

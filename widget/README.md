@@ -229,7 +229,8 @@ order. Duplicate text appears only once. Set the limit to 0 to hide chips.
   muted line under it, and `avatar` for a logo, photo or video instead of the initials. With a
   photo, `live: true` adds a green dot on its corner that pulses twice as the widget appears.
 - **Video avatar** — `avatar={{ type: "video", src, poster }}` shows a short muted loop under the
-  header in place of the avatar, with the subtitle beside the name. Once the conversation starts,
+  header in place of the avatar, with the subtitle beside the name and, with `live: true`, the
+  live dot in its bottom-right corner. Once the conversation starts,
   it leads the transcript and scrolls away with it, and expanding the chat keeps it at its
   opened size. Use an H.264 MP4 with its index at the start (`ffmpeg -movflags +faststart`), so
   it streams; iPhone Safari stalls on WebM. `poster` is its first frame, shown while it loads and

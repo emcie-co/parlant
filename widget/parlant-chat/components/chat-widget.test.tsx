@@ -251,6 +251,15 @@ describe("persistent suggestions", () => {
     expect(labels()).toEqual([]);
   });
 
+  it("marks only the persistent chips, so they can stand out", async () => {
+    server();
+    const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input"
+      openingSuggestions={["Track my order"]} persistentSuggestions={["Book a call"]} />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Book a call" })).not.toBeNull());
+    const marked = [...view.container.querySelectorAll(".parlant-cmp-suggestion--persistent")].map((e) => e.textContent);
+    expect(marked).toEqual(["Book a call"]);
+  });
+
   it("fills a vacated persistent slot with the next unchosen suggestion", async () => {
     rememberConversation("earlier-session");
     server([message(0, "customer", "Hi"), message(1, "ai_agent", "Hello")]);
@@ -1683,6 +1692,15 @@ describe("avatar", () => {
     expect(el.getAttribute("poster")).toBe("/shira.jpg");
     expect(container.querySelector(".parlant-cw-avatar")).toBeNull();
     expect(container.querySelector(".parlant-cw-header-text--inline")).not.toBeNull();
+  });
+
+  it("puts the live dot in the video's corner, only when it's live", async () => {
+    server();
+    const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={video} />);
+    await waitFor(() => expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).not.toBeNull());
+
+    view.rerender(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={{ ...video, live: false }} />);
+    expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).toBeNull();
   });
 
   it("moves the video into the transcript once the conversation starts, so it scrolls away", async () => {

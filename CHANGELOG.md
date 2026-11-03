@@ -11,7 +11,56 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
-## [Unreleased]
+## [4.0.2] - Unreleased
+
+### Added
+
+- The chat widget (`parlant widget init`) takes the agent's picture in one
+  `avatar` prop: `{ type: "logo", src }`, `{ type: "photo", src, live? }` or
+  `{ type: "video", src?, poster?, live?, launcher? }`. A video avatar plays a
+  short muted loop under the header, scrolls away with the conversation once
+  it starts, and keeps its opened size when the chat is expanded. On the closed
+  launcher, `launcher` crops it onto the face. Leave out `src` to use the
+  widget's own video of an agent. `live` adds the green dot, on the video's
+  corner too, red while the server can't be reached. Use an H.264 MP4 saved
+  with `-movflags +faststart`; iPhone Safari stalls on WebM.
+
+### Changed
+
+- The chat widget's persistent suggestions stand out from its opening ones:
+  outlined and lettered in the theme's primary color on the chat's background,
+  instead of the grey fill.
+- On phones and tablets, the chat widget closes the on-screen keyboard once a
+  message is sent, whether typed or picked from the suggestions, so the reply
+  isn't hidden behind it.
+- The `lead-gen` scaffold's agent no longer guesses when a visitor asks about
+  the business, its products or their project and its product knowledge has no
+  answer. It says it's a great question but hard to answer properly in the
+  chat, offers to connect them with the team, asks for an email or phone
+  number, and passes the question on with `request_team_follow_up`. Unrelated
+  questions, existing customers' order questions and prices are handled as
+  before. To make that possible, `record_lead` now accepts a lead with just a
+  goal and a contact: `buying_for` and `role` are optional, and an unknown one
+  scores nothing.
+
+### Deprecated
+
+- The chat widget's `avatarUrl`, `avatarStyle` and `liveIndicator` props, in
+  favor of `avatar`. They still work when `avatar` isn't set.
+
+### Fixed
+
+- MongoDB cursor pagination now preserves `$or` filters on later pages, so
+  filtered listings no longer include records outside the requested set.
+- On iPhone, focusing the chat widget's message box no longer zooms the page
+  in, which pushed the open chat off the right edge of the screen. The box
+  uses a 16px font on touch screens, the size below which iOS zooms.
+- The chat widget's latest message no longer slips under the suggestions and
+  message box when something takes the transcript's space, such as the
+  "Connection interrupted" banner appearing just after a send. The transcript
+  stayed pinned to the bottom only as messages grew, not as its view shrank.
+
+## [4.0.1] - 2026-11-02
 
 ### Changed
 
@@ -24,20 +73,9 @@ Each entry says what changed and what it means for you, under `Added`,
   `narration`, such as "Checking which days are free" or "Tracking your
   shipment". The chat shows it while the tool runs, instead of the generic
   "Running tools".
-- The `lead-gen` scaffold's agent no longer guesses when a visitor asks about
-  the business, its products or their project and its product knowledge has no
-  answer. It says it's a great question but hard to answer properly in the
-  chat, offers to connect them with the team, asks for an email or phone
-  number, and passes the question on with `request_team_follow_up`. Unrelated
-  questions, existing customers' order questions and prices are handled as
-  before. To make that possible, `record_lead` now accepts a lead with just a
-  goal and a contact: `buying_for` and `role` are optional, and an unknown one
-  scores nothing.
 
 ### Fixed
 
-- MongoDB cursor pagination now preserves `$or` filters on later pages, so
-  filtered listings no longer include records outside the requested set.
 - With the Anthropic provider, indexing no longer fails on Claude Opus 4.7 and
   later or any Claude 5 model, including the default routes (Sonnet 5.5 and
   Haiku 5.5). Parlant sent a `temperature`, which those models reject with

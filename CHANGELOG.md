@@ -50,6 +50,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- Filtering sessions by labels now returns complete pages and working
+  continuation cursors, with consistent total counts in either sort order.
 - MongoDB cursor pagination now preserves `$or` filters on later pages, so
   filtered listings no longer include records outside the requested set.
 - On iPhone, focusing the chat widget's message box no longer zooms the page

@@ -65,6 +65,7 @@ from parlant.core.persistence.document_database import (
     CollectionIndex,
     DocumentDatabase,
     DocumentCollection,
+    FindResult,
 )
 from parlant.core.glossary import TermId
 from parlant.core.persistence.document_database_helper import (
@@ -1234,26 +1235,48 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.find(
                 filters=cast(Where, filters),
-                limit=limit,
-                cursor=cursor,
+                limit=None if labels else limit,
+                cursor=None if labels else cursor,
                 sort_direction=sort_direction,
             )
 
-            # Filter by labels if specified
             if labels:
-                items = [
-                    self._deserialize_session(d)
-                    for d in result.items
-                    if labels.issubset(set(d.get("labels", [])))
+                matching_documents = [
+                    d for d in result.items if labels.issubset(set(d.get("labels", [])))
                 ]
-            else:
-                items = [self._deserialize_session(d) for d in result.items]
+                total_count = len(matching_documents)
+                if cursor:
+                    position = (cursor.sort_value, str(cursor.id))
+                    matching_documents = [
+                        d
+                        for d in matching_documents
+                        if (
+                            (str(d["creation_utc"]), str(d["id"])) < position
+                            if sort_direction == SortDirection.DESC
+                            else (str(d["creation_utc"]), str(d["id"])) > position
+                        )
+                    ]
+                if limit is not None:
+                    result = replace(
+                        FindResult.create(
+                            items=matching_documents[:limit],
+                            total_count=len(matching_documents),
+                            limit=limit,
+                        ),
+                        total_count=total_count,
+                    )
+                else:
+                    result = FindResult(
+                        items=matching_documents,
+                        total_count=total_count,
+                        has_more=False,
+                    )
 
             return SessionListing(
-                items=items,
-                total_count=len(items) if labels else result.total_count,
-                has_more=result.has_more if not labels else False,
-                next_cursor=result.next_cursor if not labels else None,
+                items=[self._deserialize_session(d) for d in result.items],
+                total_count=result.total_count,
+                has_more=result.has_more,
+                next_cursor=result.next_cursor,
             )
 
     @override

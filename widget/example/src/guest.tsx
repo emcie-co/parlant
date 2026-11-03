@@ -3,7 +3,7 @@
 
 import { ChatWidget } from "../../parlant-chat/components/chat-widget";
 import { mockUpload } from "./mock-upload";
-import type { WidgetDemoConfig } from "./demo-config";
+import { type WidgetDemoConfig, demoAvatar } from "./demo-config";
 
 export function GuestExample({
   serverUrl,
@@ -51,9 +51,7 @@ export function GuestExample({
       openingSuggestions={openingSuggestions}
       title={title || undefined}
       subtitle={subtitle || undefined}
-      avatarUrl={avatarUrl.trim() || undefined}
-      avatarStyle={avatarStyle}
-      liveIndicator={liveIndicator}
+      avatar={demoAvatar({ avatarUrl, avatarStyle, liveIndicator })}
       placeholder={placeholder || undefined}
       onUpload={mockUpload}
       showAttachments={showAttachments}

@@ -1727,3 +1727,27 @@ describe("avatar", () => {
     expect(launcher.querySelector("img")?.getAttribute("src")).toBe("/new.jpg");
   });
 });
+
+describe("default video avatar", () => {
+  it("plays the widget's own video, with its poster and launcher crop, when a video names none", async () => {
+    server();
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={{ type: "video", live: true }} />);
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    const video = launcher.querySelector("video")!;
+    expect(video.getAttribute("src")).toMatch(/assets\/agent\.mp4$/);
+    expect(video.getAttribute("poster")).toMatch(/assets\/agent-poster\.jpg$/);
+    const crop = launcher.querySelector(".parlant-launcher-photo") as HTMLElement;
+    expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("1.6");
+    expect(launcher.querySelector(".parlant-cw-live")).not.toBeNull();
+  });
+
+  it("keeps a crop given for the default video", async () => {
+    server();
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={{ type: "video", launcher: { zoom: 2 } }} />);
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    const crop = launcher.querySelector(".parlant-launcher-photo") as HTMLElement;
+    expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("2");
+  });
+});

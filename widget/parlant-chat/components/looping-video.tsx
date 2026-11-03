@@ -5,7 +5,7 @@ export interface LoopingVideoProps {
    *  reports it can play one, then stalls on it. */
   src: string;
   /** The first frame, shown while it loads and in place of it with reduced motion. */
-  poster: string;
+  poster?: string;
   className?: string;
 }
 

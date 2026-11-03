@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import type { AgentAvatar } from "./chat-widget";
+import type { ShownAvatar } from "./chat-widget";
 import { LoopingVideo } from "./looping-video";
 
 // The floating bubble that opens/closes the chat panel. Closed, it shows a round chat
@@ -13,7 +13,7 @@ export interface LauncherProps {
   onToggle: () => void;
   /** A photo or video avatar stands in for the chat bubble while closed, with its live dot.
    *  Initials and a logo don't fill it, so the bubble stays. */
-  avatar?: AgentAvatar;
+  avatar?: ShownAvatar;
   /** The server can't be reached: the live dot turns red, like the panel's banner. */
   offline?: boolean;
 }

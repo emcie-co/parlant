@@ -231,7 +231,10 @@ order. Duplicate text appears only once. Set the limit to 0 to hide chips.
   it leads the transcript and scrolls away with it, and expanding the chat keeps it at its
   opened size. Use an H.264 MP4 with its index at the start (`ffmpeg -movflags +faststart`), so
   it streams; iPhone Safari stalls on WebM. `poster` is its first frame, shown while it loads and
-  with reduced motion. It plays only while on screen.
+  with reduced motion. It plays only while on screen. Leave out `src` (`avatar={{ type: "video" }}`)
+  to use the widget's own video of an agent, in `parlant-chat/assets/`, with its poster and a
+  launcher crop: the bundler copies those files from `new URL("…", import.meta.url)`, which Vite
+  and webpack 5 (so Next.js too) handle out of the box, and they're only fetched when used.
 - **Expand / minimize** — the header has an expand toggle (roughly doubles the panel width for
   longer reading) and a minimize control. Minimize returns to the launcher; the widget is never
   truly "closed" (there's no destructive close on a support chat).
@@ -825,7 +828,7 @@ which is exactly what the sample agent's `describe_attached_image` does before r
 | `reasoningMode` | `"transient" \| "collapsible"` | `"transient"` | Once the reply arrives: reasoning disappears, or folds into a "Thought for Xs" toggle. |
 | `errorMessage` | `string` | `"The agent ran into an error…"` | Inline notice shown at the end of the transcript when a turn fails (session `error` status). |
 | `title` | `string` | agent's name | Header title; defaults to the agent name from `GET /agents/{id}`. |
-| `avatar` | `AgentAvatar` | initials | The agent's picture: `{ type: "logo", src }` fits a logo inside the round avatar; `{ type: "photo", src, live? }` fills it with a portrait (larger once an input-mode widget opens) and replaces the chat bubble on the closed launcher; `{ type: "video", src, poster, live?, launcher? }` shows a looping video under the header instead (see [The panel](#the-panel)). `live` adds a green dot, red while the server can't be reached. Replaces the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator`, which still work when `avatar` isn't set. |
+| `avatar` | `AgentAvatar` | initials | The agent's picture: `{ type: "logo", src }` fits a logo inside the round avatar; `{ type: "photo", src, live? }` fills it with a portrait (larger once an input-mode widget opens) and replaces the chat bubble on the closed launcher; `{ type: "video", src?, poster?, live?, launcher? }` shows a looping video under the header instead, the widget's own when `src` is left out (see [The panel](#the-panel)). `live` adds a green dot, red while the server can't be reached. Replaces the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator`, which still work when `avatar` isn't set. |
 | `subtitle` | `ReactNode` | — | Muted line under the header title, such as who the agent speaks for. |
 | `preface` | `string` | — | Muted intro line shown above the conversation at session start. |
 | `disclaimer` | `ReactNode` | — | Small print under the input (accepts JSX, e.g. a privacy-policy link). A "Powered by Parlant" line always shows beneath it. |

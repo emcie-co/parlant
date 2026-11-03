@@ -145,14 +145,20 @@ export interface ChatWidgetProps {
  *    subtitle beside the name, keeps the size it opens at when the chat is expanded, and
  *    scrolls away with the conversation. `src` is an H.264 MP4 with its index at the start,
  *    so it streams (iPhone Safari stalls on WebM); `poster` is its first frame, shown while
- *    it loads and with reduced motion. The launcher shows it cropped by `launcher`.
+ *    it loads and with reduced motion. The launcher shows it cropped by `launcher`. Without
+ *    `src`, it plays the widget's own video of an agent (assets/), poster and crop included.
  *  `live` adds a dot on the photo's or the launcher's corner: green while the agent is live,
  *  red while the server can't be reached. */
 export type AgentAvatar =
   | { type: "initials" }
   | { type: "logo"; src: string }
   | { type: "photo"; src: string; live?: boolean }
-  | { type: "video"; src: string; poster: string; live?: boolean; launcher?: LauncherCrop };
+  | { type: "video"; src?: string; poster?: string; live?: boolean; launcher?: LauncherCrop };
+
+/** An avatar as the widget shows it: a video always has a `src`, its own or the default. */
+export type ShownAvatar =
+  | Exclude<AgentAvatar, { type: "video" }>
+  | (Extract<AgentAvatar, { type: "video" }> & { src: string });
 
 /** How the round launcher crops a video onto the face: `x` and `y` are where the face sits in
  *  the launcher before zooming (as percentages of its width and height, default "50%"), and
@@ -163,13 +169,32 @@ export interface LauncherCrop {
   y?: string;
 }
 
-/** `avatar`, or else the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator` it replaces. */
-function resolveAvatar(props: ChatWidgetProps): AgentAvatar | undefined {
-  if (props.avatar) return props.avatar;
+/** `avatar`, or else the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator` it replaces.
+ *  A video without a `src` gets the default one. */
+function resolveAvatar(props: ChatWidgetProps): ShownAvatar | undefined {
+  const avatar = props.avatar;
+  if (avatar?.type === "video") {
+    if (avatar.src) return { ...avatar, src: avatar.src };
+    const fallback = defaultVideo();
+    return { ...avatar, src: fallback.src, poster: fallback.poster, launcher: avatar.launcher ?? fallback.launcher };
+  }
+  if (avatar) return avatar;
   if (!props.avatarUrl) return undefined;
   return props.avatarStyle === "photo"
     ? { type: "photo", src: props.avatarUrl, live: props.liveIndicator }
     : { type: "logo", src: props.avatarUrl };
+}
+
+/** The widget's own video of an agent, for a video avatar without a `src`: an MP4 that streams,
+ *  its first frame, and a launcher crop onto her face. The bundler (Vite, webpack 5, Next.js)
+ *  copies the files from assets/ when it sees `new URL("…", import.meta.url)`, so they're
+ *  only fetched when a video avatar uses them. */
+function defaultVideo() {
+  return {
+    src: new URL("../assets/agent.mp4", import.meta.url).href,
+    poster: new URL("../assets/agent-poster.jpg", import.meta.url).href,
+    launcher: { zoom: 1.6, x: "48%", y: "40%" },
+  };
 }
 
 /** Built-in color themes; see `.parlant-theme-*` in styles.css. */
@@ -441,7 +466,9 @@ function ChatPanel({
   expanded,
   onToggleExpand,
   onConnectionIssue,
-}: ChatWidgetProps & {
+}: Omit<ChatWidgetProps, "avatar"> & {
+  /** The avatar as resolved by ChatWidget: deprecated props folded in, a video's default filled. */
+  avatar?: ShownAvatar;
   inputMode?: boolean;
   /** Input mode docked bottom-center instead of in the corner — wider when collapsed. */
   barMode?: boolean;
@@ -905,7 +932,7 @@ function isEditable(el: Element | null): boolean {
 }
 
 /** The intro video, spanning the card under the header. */
-function IntroVideo({ src, poster }: { src: string; poster: string }) {
+function IntroVideo({ src, poster }: { src: string; poster?: string }) {
   return (
     <div className="parlant-cw-video">
       <LoopingVideo src={src} poster={poster} />
@@ -914,7 +941,7 @@ function IntroVideo({ src, poster }: { src: string; poster: string }) {
 }
 
 /** The header avatar, with the live dot on a photo's corner when it's on. */
-function Avatar({ name, avatar, offline = false }: { name: string; avatar?: AgentAvatar; offline?: boolean }) {
+function Avatar({ name, avatar, offline = false }: { name: string; avatar?: ShownAvatar; offline?: boolean }) {
   if (avatar?.type !== "photo" || !avatar.live) return <AvatarImage name={name} avatar={avatar} />;
 
   return (
@@ -926,7 +953,7 @@ function Avatar({ name, avatar, offline = false }: { name: string; avatar?: Agen
 }
 
 /** A round avatar: the logo or photo, or else the uppercase first-two initials of the name. */
-function AvatarImage({ name, avatar }: { name: string; avatar?: AgentAvatar }) {
+function AvatarImage({ name, avatar }: { name: string; avatar?: ShownAvatar }) {
   if (avatar?.type === "logo" || avatar?.type === "photo") {
     return (
       <span className={`parlant-cw-avatar parlant-cw-avatar--image${avatar.type === "photo" ? " parlant-cw-avatar--photo" : ""}`}>

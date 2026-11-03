@@ -710,9 +710,12 @@
  * under the header. */
 .parlant-widget .parlant-mlist-content > .parlant-cw-video { margin: -0.375rem 0 0; }
 /* Expanding the chat doesn't enlarge the video: it keeps the width it has in the standard
- * 380px panel. An inline widget's size is the page's, and phones fill the screen. */
+ * 380px panel, centered. An inline widget's size is the page's, and phones fill the screen. */
 @media (min-width: 641px) {
-  .parlant-widget:not(.parlant-inline) .parlant-cw-video { max-width: calc(380px - 1.5rem - 2px); }
+  .parlant-widget:not(.parlant-inline) .parlant-cw-video {
+    max-width: calc(380px - 1.5rem - 2px);
+    margin-inline: auto;
+  }
 }
 .parlant-widget .parlant-cw-header-subtitle {
   overflow: hidden;

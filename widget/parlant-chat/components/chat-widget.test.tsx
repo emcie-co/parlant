@@ -1694,6 +1694,15 @@ describe("avatar", () => {
     expect(container.querySelector(".parlant-cw-header-text--inline")).not.toBeNull();
   });
 
+  it("puts the live dot in the video's corner, only when it's live", async () => {
+    server();
+    const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={video} />);
+    await waitFor(() => expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).not.toBeNull());
+
+    view.rerender(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={{ ...video, live: false }} />);
+    expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).toBeNull();
+  });
+
   it("moves the video into the transcript once the conversation starts, so it scrolls away", async () => {
     server();
     const { container } = render(

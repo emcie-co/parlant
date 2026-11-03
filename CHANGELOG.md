@@ -27,6 +27,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- MongoDB cursor pagination now preserves `$or` filters on later pages, so
+  filtered listings no longer include records outside the requested set.
 - With the Anthropic provider, indexing no longer fails on Claude Opus 4.7 and
   later or any Claude 5 model, including the default routes (Sonnet 5.5 and
   Haiku 5.5). Parlant sent a `temperature`, which those models reject with

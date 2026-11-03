@@ -52,6 +52,10 @@ Each entry says what changed and what it means for you, under `Added`,
 
 - MongoDB cursor pagination now preserves `$or` filters on later pages, so
   filtered listings no longer include records outside the requested set.
+- Canned responses now retain separate search vectors for their text and
+  every signal, so signals no longer collide in the relevance index.
+  Applies when responses are created or updated; existing indexes are not
+  rebuilt automatically.
 - On iPhone, focusing the chat widget's message box no longer zooms the page
   in, which pushed the open chat off the right edge of the screen. The box
   uses a 16px font on touch screens, the size below which iOS zooms.

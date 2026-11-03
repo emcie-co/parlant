@@ -251,6 +251,15 @@ describe("persistent suggestions", () => {
     expect(labels()).toEqual([]);
   });
 
+  it("marks only the persistent chips, so they can stand out", async () => {
+    server();
+    const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input"
+      openingSuggestions={["Track my order"]} persistentSuggestions={["Book a call"]} />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Book a call" })).not.toBeNull());
+    const marked = [...view.container.querySelectorAll(".parlant-cmp-suggestion--persistent")].map((e) => e.textContent);
+    expect(marked).toEqual(["Book a call"]);
+  });
+
   it("fills a vacated persistent slot with the next unchosen suggestion", async () => {
     rememberConversation("earlier-session");
     server([message(0, "customer", "Hi"), message(1, "ai_agent", "Hello")]);
@@ -1633,5 +1642,130 @@ describe("launcher photo", () => {
 
     const launcher = await screen.findByRole("button", { name: "Open chat" });
     expect(launcher.querySelector("img")).toBeNull();
+  });
+});
+
+describe("avatar", () => {
+  const video = {
+    type: "video",
+    src: "/shira.mp4",
+    poster: "/shira.jpg",
+    live: true,
+    launcher: { zoom: 1.6, x: "47%", y: "35%" },
+  } as const;
+
+  it("fits a logo in the header's avatar and keeps the launcher's chat bubble", async () => {
+    server();
+    const { container } = render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={{ type: "logo", src: "/logo.svg" }} />,
+    );
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    expect(launcher.querySelector("img")).toBeNull();
+    fireEvent.click(launcher);
+    await waitFor(() => expect(container.querySelector(".parlant-cw-avatar img")?.getAttribute("src")).toBe("/logo.svg"));
+    expect(container.querySelector(".parlant-cw-avatar--photo")).toBeNull();
+  });
+
+  it("shows a live photo in the header and on the launcher", async () => {
+    server();
+    const { container } = render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={{ type: "photo", src: "/dana.jpg", live: true }} />,
+    );
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    expect(launcher.querySelector("img")?.getAttribute("src")).toBe("/dana.jpg");
+    expect(launcher.querySelector(".parlant-cw-live")).not.toBeNull();
+    fireEvent.click(launcher);
+    await waitFor(() => expect(container.querySelector(".parlant-cw-avatar--photo img")?.getAttribute("src")).toBe("/dana.jpg"));
+  });
+
+  it("shows a video under the header in place of the avatar, with the subtitle beside the name", async () => {
+    server();
+    const { container } = render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" avatar={video} />,
+    );
+
+    await waitFor(() => expect(container.querySelector(".parlant-cw-video video")).not.toBeNull());
+    const el = container.querySelector(".parlant-cw-video video") as HTMLVideoElement;
+    expect(el.getAttribute("src")).toBe("/shira.mp4");
+    expect(el.getAttribute("poster")).toBe("/shira.jpg");
+    expect(container.querySelector(".parlant-cw-avatar")).toBeNull();
+    expect(container.querySelector(".parlant-cw-header-text--inline")).not.toBeNull();
+  });
+
+  it("puts the live dot in the video's corner, only when it's live", async () => {
+    server();
+    const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={video} />);
+    await waitFor(() => expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).not.toBeNull());
+
+    view.rerender(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={{ ...video, live: false }} />);
+    expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).toBeNull();
+  });
+
+  it("moves the video into the transcript once the conversation starts, so it scrolls away", async () => {
+    server();
+    const { container } = render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} avatar={video} />,
+    );
+
+    await waitFor(() => expect(container.querySelector(".parlant-cw-video")).not.toBeNull());
+    expect(container.querySelector(".parlant-mlist-content .parlant-cw-video")).toBeNull();
+
+    const input = container.querySelector("textarea")!;
+    fireEvent.change(input, { target: { value: "Hi" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(container.querySelector(".parlant-mlist-content > .parlant-cw-video")).not.toBeNull());
+    expect(container.querySelectorAll(".parlant-cw-video")).toHaveLength(1);
+  });
+
+  it("shows the video on the launcher, cropped onto the face, with its live dot", async () => {
+    server();
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={video} />);
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    expect(launcher.getAttribute("data-video")).toBe("true");
+    expect(launcher.querySelector("video")?.getAttribute("src")).toBe("/shira.mp4");
+    const crop = launcher.querySelector(".parlant-launcher-photo") as HTMLElement;
+    expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("1.6");
+    expect(crop.style.getPropertyValue("--parlant-launcher-x")).toBe("47%");
+    expect(crop.style.getPropertyValue("--parlant-launcher-y")).toBe("35%");
+    expect(launcher.querySelector(".parlant-cw-live")).not.toBeNull();
+  });
+
+  it("prefers avatar over the deprecated avatarUrl", async () => {
+    server();
+    render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatarUrl="/old.jpg" avatarStyle="photo"
+        avatar={{ type: "photo", src: "/new.jpg" }} />,
+    );
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    expect(launcher.querySelector("img")?.getAttribute("src")).toBe("/new.jpg");
+  });
+});
+
+describe("default video avatar", () => {
+  it("plays the widget's own video, with its poster and launcher crop, when a video names none", async () => {
+    server();
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={{ type: "video", live: true }} />);
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    const video = launcher.querySelector("video")!;
+    expect(video.getAttribute("src")).toMatch(/assets\/agent\.mp4$/);
+    expect(video.getAttribute("poster")).toMatch(/assets\/agent-poster\.jpg$/);
+    const crop = launcher.querySelector(".parlant-launcher-photo") as HTMLElement;
+    expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("1.6");
+    expect(launcher.querySelector(".parlant-cw-live")).not.toBeNull();
+  });
+
+  it("keeps a crop given for the default video", async () => {
+    server();
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" avatar={{ type: "video", launcher: { zoom: 2 } }} />);
+
+    const launcher = await screen.findByRole("button", { name: "Open chat" });
+    const crop = launcher.querySelector(".parlant-launcher-photo") as HTMLElement;
+    expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("2");
   });
 });

@@ -2,7 +2,9 @@
 // and reports when they've scrolled up (so the UI can show a "new messages" pill).
 //
 // Growth is tracked with a ResizeObserver on the content element, so it re-pins on
-// both React updates AND the streaming reveal's imperative DOM appends.
+// both React updates AND the streaming reveal's imperative DOM appends. The container
+// is observed too: when something takes its space, such as the reconnecting banner or a
+// chip coming back, the latest message would otherwise slip under the composer.
 
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
@@ -52,8 +54,8 @@ export function useStickToBottom(): StickToBottom {
     return () => el.removeEventListener("scroll", onScroll);
   }, [setPinned]);
 
-  // As the content grows, stay pinned to the bottom — but only if we already were
-  // (instant, to avoid per-token jank).
+  // As the content grows or the view shrinks, stay pinned to the bottom — but only if
+  // we already were (instant, to avoid per-token jank).
   useEffect(() => {
     const content = contentRef.current;
     const el = scrollRef.current;
@@ -62,6 +64,7 @@ export function useStickToBottom(): StickToBottom {
       if (pinnedRef.current) el.scrollTop = el.scrollHeight;
     });
     observer.observe(content);
+    observer.observe(el);
     return () => observer.disconnect();
   }, []);
 

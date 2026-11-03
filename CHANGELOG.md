@@ -55,6 +55,10 @@ Each entry says what changed and what it means for you, under `Added`,
 - On iPhone, focusing the chat widget's message box no longer zooms the page
   in, which pushed the open chat off the right edge of the screen. The box
   uses a 16px font on touch screens, the size below which iOS zooms.
+- The chat widget's latest message no longer slips under the suggestions and
+  message box when something takes the transcript's space, such as the
+  "Connection interrupted" banner appearing just after a send. The transcript
+  stayed pinned to the bottom only as messages grew, not as its view shrank.
 
 ## [4.0.1] - 2026-11-02
 

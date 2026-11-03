@@ -29,6 +29,7 @@ import importlib.util
 import inspect
 from itertools import chain
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs, unquote
 import sys
 import signal
 import watchfiles
@@ -2981,7 +2982,11 @@ class Server:
         session_store: The session store to use for managing sessions.
             ``"local"`` (the default) persists to a SQLite file under the
             Parlant home directory; ``"transient"`` keeps sessions in memory;
-            a MongoDB connection string routes to MongoDB; or pass a
+            a MongoDB connection string routes to MongoDB; ``"s3://bucket"``
+            uses S3 objects in a dedicated bucket, with the AWS credential
+            chain and optional ``region``/``endpoint`` query parameters.
+            S3 requires conditional writes and scans collections for general
+            queries; use MongoDB for indexed queries at scale. Or pass a
             ``SessionStore`` instance for full control.
         customer_store: The customer store to use for managing customers.
             Accepts the same options as ``session_store`` and also defaults
@@ -4666,6 +4671,56 @@ class Server:
 
                 return mongo_db
 
+            s3_databases: dict[str, DocumentDatabase] = {}
+
+            async def make_s3_db(url: str) -> DocumentDatabase:
+                if url in s3_databases:
+                    return s3_databases[url]
+                from parlant.adapters.db.s3 import S3DocumentDatabase
+
+                try:
+                    parsed = urlparse(url)
+                    bucket_name = parsed.hostname
+                    query = parse_qs(parsed.query, keep_blank_values=True)
+                    if (
+                        not bucket_name
+                        or parsed.path not in ("", "/")
+                        or parsed.fragment
+                        or parsed.port is not None
+                        or bool(parsed.username) != bool(parsed.password)
+                        or any(
+                            key not in ("region", "region_name", "endpoint", "endpoint_url")
+                            or len(values) != 1
+                            or not values[0]
+                            for key, values in query.items()
+                        )
+                        or ("region" in query and "region_name" in query)
+                        or ("endpoint" in query and "endpoint_url" in query)
+                    ):
+                        raise ValueError("Unsupported S3 URL components")
+                except ValueError:
+                    raise SDKError(
+                        "Invalid S3 store URL. Use s3://bucket with optional region and endpoint "
+                        "query parameters; paths, ports, fragments and duplicate parameters are unsupported. "
+                        "Use the AWS credential chain or provide both access key and secret key."
+                    ) from None
+
+                db = await self._exit_stack.enter_async_context(
+                    S3DocumentDatabase(
+                        logger=c()[Logger],
+                        bucket_name=bucket_name,
+                        aws_access_key_id=unquote(parsed.username) if parsed.username else None,
+                        aws_secret_access_key=unquote(parsed.password) if parsed.password else None,
+                        region_name=query.get("region", [None])[0]
+                        or query.get("region_name", [None])[0],
+                        endpoint_url=query.get("endpoint", [None])[0]
+                        or query.get("endpoint_url", [None])[0],
+                    )
+                )
+
+                s3_databases[url] = db
+                return db
+
             async def make_persistable_store(t: type[T], spec: str, name: str, **kwargs: Any) -> T:
                 store: T
 
@@ -4698,10 +4753,21 @@ class Server:
                     )
 
                     return store
+                elif spec.startswith("s3://"):
+                    store = await self._exit_stack.enter_async_context(
+                        t(
+                            database=await make_s3_db(spec),
+                            allow_migration=self._migrate,
+                            collections_prefix=name,
+                            **kwargs,
+                        )  # type: ignore
+                    )
+
+                    return store
                 else:
                     raise SDKError(
                         f"Invalid session store type: {self._session_store}. "
-                        "Expected 'transient', 'local', or a MongoDB connection string."
+                        "Expected 'transient', 'local', 's3://...', or a MongoDB connection string."
                     )
 
             if isinstance(self._session_store, SessionStore):

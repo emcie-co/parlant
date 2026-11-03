@@ -102,6 +102,7 @@ litellm = ["litellm>=1.60.0"]
 
 [dependency-groups]
 dev = [
+    "moto[s3,server]>=5.1,<6",
     "ipython>=8.26.0",
     "mypy>=1.18.1",
     "pep8-naming>=0.13.3",

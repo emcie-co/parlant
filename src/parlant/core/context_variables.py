@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from __future__ import annotations
+from croniter import croniter
 from abc import ABC, abstractmethod
 from itertools import chain
 from typing import NewType, Optional, Sequence, cast
@@ -371,6 +372,10 @@ class ContextVariableDocumentStore(ContextVariableStore):
             data=context_variable_value_document["data"],
         )
 
+    def _validate_freshness_rules(self, freshness_rules: Optional[str]) -> None:
+        if freshness_rules and not croniter.is_valid(freshness_rules):
+            raise ValueError("Invalid freshness_rules: provide a valid cron expression or no rule.")
+
     @override
     async def create_variable(
         self,
@@ -381,6 +386,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         freshness_rules: Optional[str] = None,
         groups: Optional[Sequence[GroupId]] = None,
     ) -> ContextVariable:
+        self._validate_freshness_rules(freshness_rules)
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
             context_variable_checksum = xxh3_checksum(
@@ -423,6 +429,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         params: ContextVariableUpdateParams,
     ) -> ContextVariable:
+        if "freshness_rules" in params:
+            self._validate_freshness_rules(params["freshness_rules"])
         async with self._lock.writer_lock:
             variable_document = await self._variable_collection.find_one(
                 filters={

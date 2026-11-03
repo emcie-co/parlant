@@ -67,6 +67,8 @@ Each entry says what changed and what it means for you, under `Added`,
   message box when something takes the transcript's space, such as the
   "Connection interrupted" banner appearing just after a send. The transcript
   stayed pinned to the bottom only as messages grew, not as its view shrank.
+- Invalid context-variable freshness schedules are rejected before saving,
+  so a failed schedule update leaves the variable's existing data intact.
 
 ### Security
 

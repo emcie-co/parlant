@@ -2,6 +2,8 @@
 // collapsible mode, reasoning), the status line, and a "new messages" pill when the
 // user has scrolled up.
 
+import type { ReactNode } from "react";
+
 import type {
   ChatMessage,
   ReasoningMode,
@@ -30,6 +32,8 @@ export interface MessageListProps {
   reasoningStreaming: boolean;
   reasoningByTrace: Map<string, ReasoningSummary>;
   reasoningMode: ReasoningMode;
+  /** Shown first in the transcript, scrolling away with it, such as the agent's video. */
+  lead?: ReactNode;
   /** Muted intro shown above the first message. */
   preface?: string;
   streamStyle: StreamStyle;
@@ -147,6 +151,7 @@ export function MessageList({
   reasoningStreaming,
   reasoningByTrace,
   reasoningMode,
+  lead,
   preface,
   streamStyle,
   streamSpeed,
@@ -185,6 +190,7 @@ export function MessageList({
     <div className="parlant-list">
       <div ref={scrollRef} className="parlant-hide-scrollbar parlant-mlist-scroll">
         <div ref={contentRef} className="parlant-mlist-content">
+          {lead}
           {preface && (
             <p className="parlant-mlist-preface">
               {preface}

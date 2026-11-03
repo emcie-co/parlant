@@ -17,6 +17,7 @@ import { usePersistentSuggestions } from "../hooks/use-persistent-suggestions";
 import { playAgentSound, playCustomerSound, type SoundTheme } from "../lib/sounds";
 import { Composer } from "./composer";
 import { Launcher, LiveDot } from "./launcher";
+import { LoopingVideo } from "./looping-video";
 import { LinkTaggerContext } from "./link-tagger";
 import { MessageList } from "./message-list";
 
@@ -67,16 +68,18 @@ export interface ChatWidgetProps {
   manualModeNotice?: ReactNode;
   /** Header title. Defaults to the agent's name. */
   title?: string;
-  /** Image shown in the header's avatar instead of the name's initials, such as your
-   *  logo mark (any image URL; a square image works best). */
-  avatarUrl?: string;
-  /** How `avatarUrl` fills the avatar: "mark" fits a logo inside it, "photo" fills a round
-   *  frame with it, such as a portrait. Defaults to "mark". */
-  avatarStyle?: "mark" | "photo";
+  /** The agent's picture: the name's initials (default), a logo, a photo or a looping
+   *  video. See `AgentAvatar`. */
+  avatar?: AgentAvatar;
   /** A muted line under the header title, such as who the agent speaks for. */
   subtitle?: ReactNode;
-  /** A green dot on the corner of a photo avatar (`avatarStyle="photo"`), showing the agent
-   *  is live. Has no effect on other avatars. */
+  /** @deprecated Use `avatar`: `{ type: "logo", src }`, or `{ type: "photo", src }`. Ignored
+   *  when `avatar` is set. */
+  avatarUrl?: string;
+  /** @deprecated Use `avatar`: "photo" is `{ type: "photo", src }`, "mark" is
+   *  `{ type: "logo", src }`. */
+  avatarStyle?: "mark" | "photo";
+  /** @deprecated Use `avatar`'s `live`: `{ type: "photo", src, live: true }`. */
   liveIndicator?: boolean;
   /** Muted intro shown above the conversation at the start of a session. */
   preface?: string;
@@ -134,6 +137,41 @@ export interface ChatWidgetProps {
   onLabel?: (label: string, context: { sessionId: string; labels: string[] }) => void;
 }
 
+/** The agent's picture, by `type`:
+ *  - "initials": the name's first two initials (the default).
+ *  - "logo": an image fitted inside the round avatar, such as your logo mark.
+ *  - "photo": a portrait filling the round avatar. The floating launcher shows it too.
+ *  - "video": a short muted loop in place of the avatar. It shows under the header, with the
+ *    subtitle beside the name, keeps the size it opens at when the chat is expanded, and
+ *    scrolls away with the conversation. `src` is an H.264 MP4 with its index at the start,
+ *    so it streams (iPhone Safari stalls on WebM); `poster` is its first frame, shown while
+ *    it loads and with reduced motion. The launcher shows it cropped by `launcher`.
+ *  `live` adds a dot on the photo's or the launcher's corner: green while the agent is live,
+ *  red while the server can't be reached. */
+export type AgentAvatar =
+  | { type: "initials" }
+  | { type: "logo"; src: string }
+  | { type: "photo"; src: string; live?: boolean }
+  | { type: "video"; src: string; poster: string; live?: boolean; launcher?: LauncherCrop };
+
+/** How the round launcher crops a video onto the face: `x` and `y` are where the face sits in
+ *  the launcher before zooming (as percentages of its width and height, default "50%"), and
+ *  `zoom` magnifies about it (default 1), moving the face to the middle. */
+export interface LauncherCrop {
+  zoom?: number;
+  x?: string;
+  y?: string;
+}
+
+/** `avatar`, or else the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator` it replaces. */
+function resolveAvatar(props: ChatWidgetProps): AgentAvatar | undefined {
+  if (props.avatar) return props.avatar;
+  if (!props.avatarUrl) return undefined;
+  return props.avatarStyle === "photo"
+    ? { type: "photo", src: props.avatarUrl, live: props.liveIndicator }
+    : { type: "logo", src: props.avatarUrl };
+}
+
 /** Built-in color themes; see `.parlant-theme-*` in styles.css. */
 export type ThemeName = "monochrome" | "parlant" | "ocean" | "amethyst" | "sand";
 
@@ -144,8 +182,7 @@ export function ChatWidget(props: ChatWidgetProps) {
   const rootStyle = props.fontFamily
     ? ({ "--parlant-font": props.fontFamily } as CSSProperties)
     : undefined;
-  // A photo avatar stands in for the launcher's chat bubble; a logo mark doesn't fill it.
-  const launcherPhoto = props.avatarStyle === "photo" ? props.avatarUrl : undefined;
+  const avatar = resolveAvatar(props);
   const [open, setOpen] = useState(mode === "inline");
   const [expanded, setExpanded] = useState(false);
   const [everOpened, setEverOpened] = useState(false);
@@ -266,7 +303,7 @@ export function ChatWidget(props: ChatWidgetProps) {
       <div className={cn("parlant-widget", themeClass)} style={rootStyle}>
         {/* Dismissed: the launcher bubble stands in for the card, and brings it back. The
             card stays mounted (hidden), so its session and draft survive. */}
-        {dismissed && <Launcher open={false} onToggle={() => setDismissed(false)} photoUrl={launcherPhoto} live={props.liveIndicator} offline={connectionIssue} />}
+        {dismissed && <Launcher open={false} onToggle={() => setDismissed(false)} avatar={avatar} offline={connectionIssue} />}
         <div
           ref={sidebarRef}
           hidden={dismissed}
@@ -274,6 +311,7 @@ export function ChatWidget(props: ChatWidgetProps) {
         >
           <ChatPanel
             {...props}
+            avatar={avatar}
             inputMode
             barMode={mode === "bar"}
             inputOpened={inputOpened}
@@ -292,7 +330,7 @@ export function ChatWidget(props: ChatWidgetProps) {
   if (mode === "inline") {
     return (
       <div className={cn("parlant-widget parlant-inline", themeClass)} style={rootStyle}>
-        <ChatPanel {...props} />
+        <ChatPanel {...props} avatar={avatar} />
       </div>
     );
   }
@@ -314,8 +352,7 @@ export function ChatWidget(props: ChatWidgetProps) {
       )}
       {!sidebarOpen && <Launcher
         open={open}
-        photoUrl={launcherPhoto}
-        live={props.liveIndicator}
+        avatar={avatar}
         offline={connectionIssue}
         onToggle={() => {
           setOpen((o) => !o);
@@ -350,6 +387,7 @@ export function ChatWidget(props: ChatWidgetProps) {
         >
           <ChatPanel
             {...props}
+            avatar={avatar}
             onClose={() => setOpen(false)}
             expanded={expanded}
             onToggleExpand={() => setExpanded((e) => !e)}
@@ -371,10 +409,8 @@ function ChatPanel({
   errorMessage = "The agent ran into an error and couldn't finish this reply. Please try again.",
   manualModeNotice = "A team member has joined and will reply here.",
   title,
-  avatarUrl,
-  avatarStyle = "mark",
+  avatar,
   subtitle,
-  liveIndicator = false,
   preface,
   disclaimer,
   showNewChat,
@@ -516,6 +552,8 @@ function ChatPanel({
   // suggestions and shows a reopen button; in the lazy model a stored session always has
   // messages, so its mere presence is that signal.
   const collapsed = Boolean(inputMode) && !inputOpened;
+  const transcriptShown = !collapsed && Boolean(sessionId);
+  const video = avatar?.type === "video" ? avatar : undefined;
   const hasActiveSession = Boolean(inputMode) && Boolean(transport.storedSessionId());
 
   // Lazy send: in input mode with no session yet, create it on the first send and flush the
@@ -618,9 +656,9 @@ function ChatPanel({
       {barMode && collapsed ? null : (
         <div className="parlant-cw-header">
           <div className="parlant-cw-header-id">
-            <Avatar name={name} imageUrl={avatarUrl} imageStyle={avatarStyle} live={liveIndicator} offline={connectionIssue} />
+            {!video && <Avatar name={name} avatar={avatar} offline={connectionIssue} />}
             {subtitle ? (
-              <span className="parlant-cw-header-text">
+              <span className={cn("parlant-cw-header-text", video && "parlant-cw-header-text--inline")}>
                 <span className="parlant-cw-header-name">{name}</span>
                 <span className="parlant-cw-header-subtitle">{subtitle}</span>
               </span>
@@ -701,6 +739,10 @@ function ChatPanel({
         </div>
       )}
 
+      {/* Before the transcript shows, the video sits under the header; once it shows, the
+          video leads the transcript, so it scrolls away with the conversation. */}
+      {video && !transcriptShown && <IntroVideo src={video.src} poster={video.poster} />}
+
       {statusBanner && (
         <div className="parlant-cw-banner">
           <span className="parlant-cw-banner-dot" />
@@ -726,7 +768,7 @@ function ChatPanel({
       )}
 
       {/* Input mode hides the transcript until the first message expands the panel. */}
-      {collapsed ? null : sessionId ? (
+      {transcriptShown ? (
         // key = session id so scroll state (incl. the "new messages" pill) resets on a new chat.
         <LinkTaggerContext.Provider key={sessionId} value={tagLink}>
           <MessageList
@@ -740,6 +782,7 @@ function ChatPanel({
             reasoningStreaming={reasoningStreaming}
             reasoningByTrace={reasoningByTrace}
             reasoningMode={reasoningMode}
+            lead={video && <IntroVideo src={video.src} poster={video.poster} />}
             preface={preface}
             streamStyle={streamStyle}
             streamSpeed={streamSpeed}
@@ -752,7 +795,7 @@ function ChatPanel({
             signIns={signIns}
           />
         </LinkTaggerContext.Provider>
-      ) : (
+      ) : collapsed ? null : (
         // Bootstrapping a session (initial load, or after "New chat" — which can take a moment).
         <div className="parlant-cw-bootstrap">
           <Spinner />
@@ -861,30 +904,33 @@ function isEditable(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
-/** A round avatar: the given image, or else the uppercase first-two initials of the name. */
+/** The intro video, spanning the card under the header. */
+function IntroVideo({ src, poster }: { src: string; poster: string }) {
+  return (
+    <div className="parlant-cw-video">
+      <LoopingVideo src={src} poster={poster} />
+    </div>
+  );
+}
+
 /** The header avatar, with the live dot on a photo's corner when it's on. */
-function Avatar({ live = false, offline = false, ...props }: AvatarImageProps & { live?: boolean; offline?: boolean }) {
-  if (!live || !props.imageUrl || props.imageStyle !== "photo") return <AvatarImage {...props} />;
+function Avatar({ name, avatar, offline = false }: { name: string; avatar?: AgentAvatar; offline?: boolean }) {
+  if (avatar?.type !== "photo" || !avatar.live) return <AvatarImage name={name} avatar={avatar} />;
 
   return (
     <span className="parlant-cw-avatar-frame">
-      <AvatarImage {...props} />
+      <AvatarImage name={name} avatar={avatar} />
       <LiveDot offline={offline} />
     </span>
   );
 }
 
-type AvatarImageProps = {
-  name: string;
-  imageUrl?: string;
-  imageStyle?: "mark" | "photo";
-};
-
-function AvatarImage({ name, imageUrl, imageStyle = "mark" }: AvatarImageProps) {
-  if (imageUrl) {
+/** A round avatar: the logo or photo, or else the uppercase first-two initials of the name. */
+function AvatarImage({ name, avatar }: { name: string; avatar?: AgentAvatar }) {
+  if (avatar?.type === "logo" || avatar?.type === "photo") {
     return (
-      <span className={`parlant-cw-avatar parlant-cw-avatar--image${imageStyle === "photo" ? " parlant-cw-avatar--photo" : ""}`}>
-        <img src={imageUrl} alt="" />
+      <span className={`parlant-cw-avatar parlant-cw-avatar--image${avatar.type === "photo" ? " parlant-cw-avatar--photo" : ""}`}>
+        <img src={avatar.src} alt="" />
       </span>
     );
   }

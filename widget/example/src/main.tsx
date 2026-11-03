@@ -7,7 +7,7 @@ import type { ReasoningMode, StreamSpeed, StreamStyle } from "../../parlant-chat
 import type { SoundTheme, ThemeName } from "../../parlant-chat";
 import { DEFAULT_SOUND_THEME, SOUND_THEMES, SOUND_THEME_NAMES, playAgentSound } from "../../parlant-chat";
 import { ParlantTransport } from "../../parlant-chat/lib/transport";
-import type { WidgetDemoConfig } from "./demo-config";
+import { demoAvatar, type WidgetDemoConfig } from "./demo-config";
 import { AuthenticatedExample } from "./authenticated";
 import { GuestExample } from "./guest";
 import { playgroundSteps } from "./steps";
@@ -828,7 +828,7 @@ function subFromJwt(token: string): string {
                   spellCheck={false}
                 />
               </Control>
-              <Control label="Avatar image" hint="avatarUrl — any image URL; empty shows the initials.">
+              <Control label="Avatar image" hint="avatar — any image URL; empty shows the initials.">
                 <input
                   className={inputCls}
                   value={avatarUrl}
@@ -838,13 +838,13 @@ function subFromJwt(token: string): string {
                   spellCheck={false}
                 />
               </Control>
-              <Control label="Avatar style" hint={`avatarStyle="${avatarStyle}" — fit a logo, or fill a round frame with a photo.`}>
+              <Control label="Avatar style" hint={`avatar type "${avatarStyle === "photo" ? "photo" : "logo"}" — fit a logo, or fill a round frame with a photo.`}>
                 <Segmented value={avatarStyle} onChange={setAvatarStyle} options={[
                   { value: "mark", label: "Logo" },
                   { value: "photo", label: "Photo" },
                 ]} />
               </Control>
-              <Control label="Live dot" hint="liveIndicator — a dot on the corner of a photo avatar.">
+              <Control label="Live dot" hint="avatar live — a dot on the corner of a photo avatar.">
                 <Segmented
                   value={liveIndicator ? "on" : "off"}
                   onChange={(v) => setLiveIndicator(v === "on")}
@@ -1240,10 +1240,10 @@ function buildWidgetSnippet(
     lines.push(`fontFamily="${q(c.fontFamily.trim())}"`);
   if (c.title.trim()) lines.push(`title="${q(c.title)}"`);
   if (c.subtitle.trim()) lines.push(`subtitle="${q(c.subtitle)}"`);
-  if (c.avatarUrl.trim()) {
-    lines.push(`avatarUrl="${q(c.avatarUrl.trim())}"`);
-    if (c.avatarStyle !== "mark") lines.push(`avatarStyle="${c.avatarStyle}"`);
-    if (c.avatarStyle === "photo" && c.liveIndicator) lines.push(`liveIndicator={true}`);
+  const avatar = demoAvatar(c);
+  if (avatar) {
+    const fields = Object.entries(avatar).map(([k, v]) => `${k}: ${typeof v === "string" ? `"${q(v)}"` : v}`);
+    lines.push(`avatar={{ ${fields.join(", ")} }}`);
   }
   if (c.streamStyle !== "blur") lines.push(`streamStyle="${c.streamStyle}"`);
   if (c.streamSpeed !== "normal") lines.push(`streamSpeed="${c.streamSpeed}"`);

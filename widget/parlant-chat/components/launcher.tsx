@@ -1,15 +1,19 @@
+import type { CSSProperties } from "react";
+
+import type { AgentAvatar } from "./chat-widget";
+import { LoopingVideo } from "./looping-video";
+
 // The floating bubble that opens/closes the chat panel. Closed, it shows a round chat
-// bubble, or the agent's photo when there is one; open, it becomes a down-chevron (no
+// bubble, or the agent's video or photo when there is one; open, it becomes a down-chevron (no
 // shaft). The two crossfade + scale into each other, keyed off the button's data-open
 // (see styles.css).
 
 export interface LauncherProps {
   open: boolean;
   onToggle: () => void;
-  /** A portrait to show in place of the chat bubble while closed. */
-  photoUrl?: string;
-  /** The green live dot on the photo's corner. */
-  live?: boolean;
+  /** A photo or video avatar stands in for the chat bubble while closed, with its live dot.
+   *  Initials and a logo don't fill it, so the bubble stays. */
+  avatar?: AgentAvatar;
   /** The server can't be reached: the live dot turns red, like the panel's banner. */
   offline?: boolean;
 }
@@ -25,18 +29,37 @@ export function LiveDot({ offline = false }: { offline?: boolean }) {
   );
 }
 
-export function Launcher({ open, onToggle, photoUrl, live = false, offline = false }: LauncherProps) {
+export function Launcher({ open, onToggle, avatar, offline = false }: LauncherProps) {
+  const video = avatar?.type === "video" ? avatar : undefined;
+  const photoUrl = avatar?.type === "photo" ? avatar.src : undefined;
+  const portrait = Boolean(video || photoUrl);
+  const live = (avatar?.type === "photo" || avatar?.type === "video") && Boolean(avatar.live);
+  // The crop, as custom properties the video's transform reads (see styles.css).
+  const crop = video?.launcher
+    ? ({
+        "--parlant-launcher-zoom": video.launcher.zoom,
+        "--parlant-launcher-x": video.launcher.x,
+        "--parlant-launcher-y": video.launcher.y,
+      } as CSSProperties)
+    : undefined;
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-label={open ? "Minimize chat" : "Open chat"}
       data-open={open ? "true" : "false"}
-      data-photo={photoUrl ? "true" : undefined}
+      data-photo={portrait ? "true" : undefined}
+      data-video={video ? "true" : undefined}
       className="parlant-launcher"
     >
-      {photoUrl && <img src={photoUrl} alt="" className="parlant-launcher-photo" />}
-      {photoUrl && live && <LiveDot offline={offline} />}
+      {video ? (
+        <span className="parlant-launcher-photo" style={crop}>
+          <LoopingVideo src={video.src} poster={video.poster} className="parlant-launcher-video" />
+        </span>
+      ) : (
+        photoUrl && <img src={photoUrl} alt="" className="parlant-launcher-photo" />
+      )}
+      {portrait && live && <LiveDot offline={offline} />}
       <svg
         viewBox="0 0 24 24"
         fill="none"

@@ -3,7 +3,7 @@
 // serverUrl/agentId/auth are handled separately (they define identity and remount).
 
 import type { ReasoningMode, StreamSpeed, StreamStyle } from "../../parlant-chat/lib/events";
-import type { SoundTheme, ThemeName } from "../../parlant-chat";
+import type { AgentAvatar, SoundTheme, ThemeName } from "../../parlant-chat";
 
 export interface WidgetDemoConfig {
   mode: "floating" | "inline" | "input" | "bar";
@@ -47,4 +47,11 @@ export interface WidgetDemoConfig {
   liveIndicator: boolean;
   /** Message input placeholder; empty falls back to the widget's default. */
   placeholder: string;
+}
+
+/** The widget's `avatar` for the playground's image, style and live-dot controls. */
+export function demoAvatar(c: Pick<WidgetDemoConfig, "avatarUrl" | "avatarStyle" | "liveIndicator">): AgentAvatar | undefined {
+  const src = c.avatarUrl.trim();
+  if (!src) return undefined;
+  return c.avatarStyle === "photo" ? { type: "photo", src, live: c.liveIndicator } : { type: "logo", src };
 }

@@ -6,7 +6,7 @@
 
 import { ChatWidget } from "../../parlant-chat/components/chat-widget";
 import { mockUpload } from "./mock-upload";
-import type { WidgetDemoConfig } from "./demo-config";
+import { type WidgetDemoConfig, demoAvatar } from "./demo-config";
 
 export function AuthenticatedExample({
   serverUrl,
@@ -55,9 +55,7 @@ export function AuthenticatedExample({
       openingSuggestions={openingSuggestions}
       title={title || undefined}
       subtitle={subtitle || undefined}
-      avatarUrl={avatarUrl.trim() || undefined}
-      avatarStyle={avatarStyle}
-      liveIndicator={liveIndicator}
+      avatar={demoAvatar({ avatarUrl, avatarStyle, liveIndicator })}
       placeholder={placeholder || undefined}
       auth={{ type: "customer", identityKey, getToken: async () => token }}
       onUpload={mockUpload}

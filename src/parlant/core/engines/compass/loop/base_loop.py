@@ -1453,17 +1453,26 @@ class BaseLoop(Loop):
                         ):
                             await self._run_step_protected(job, state)
                     except _SemanticFailure:
+                        self._raise_if_superseded(state)
                         semantic_failure_count += 1
                         await self._reset_message_after_restart(job.context, state)
                         continue
                     except Exception as exc:
+                        if not isinstance(exc.__cause__, (_SemanticFailure, _GiveUp)):
+                            raise
+
+                        # The step shield defers a cancellation to the step's end and
+                        # only raises it on a normal exit. A rejected step exits by
+                        # exception instead, so check for the supersede here before
+                        # restarting or giving up on behalf of a turn that is already
+                        # replaced; otherwise it runs to completion and replies to
+                        # the old message.
+                        self._raise_if_superseded(state)
+
                         # A hook may reject a review with an immediate give-up; the
                         # latch wraps it, so unwrap it here to reach the give-up path.
                         if isinstance(exc.__cause__, _GiveUp):
                             raise exc.__cause__
-
-                        if not isinstance(exc.__cause__, _SemanticFailure):
-                            raise
 
                         semantic_failure_count += 1
                         await self._reset_message_after_restart(job.context, state)
@@ -1645,6 +1654,12 @@ class BaseLoop(Loop):
             )
 
         return verdict.allowed
+
+    def _raise_if_superseded(self, state: _LoopState) -> None:
+        """A newer customer message cancelled this turn while the step shield
+        deferred the cancellation: abandon instead of carrying on."""
+        if state.cancellation_pending():
+            raise asyncio.CancelledError()
 
     def _max_semantic_failures(self, job: LoopJob) -> int:
         """The number of times a step can be restarted due to a reviewer-provided

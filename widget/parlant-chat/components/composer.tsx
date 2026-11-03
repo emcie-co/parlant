@@ -19,6 +19,8 @@ export interface ComposerProps {
   /** Conversation starters shown as chips above the input; clicking one sends it. The
    *  caller decides when they apply — see `openingSuggestions` and `persistentSuggestions` on ChatWidgetProps. */
   suggestions?: string[];
+  /** The suggestions among `suggestions` that persist, drawn in the primary color. */
+  persistentSuggestions?: string[];
   /** Called only when a suggestion chip is selected, before sending its text. */
   onSuggestionSelect?: (text: string) => void;
   /** Show the "Powered by Parlant" attribution (default true). */
@@ -45,6 +47,7 @@ export function Composer({
   accept,
   disclaimer,
   suggestions,
+  persistentSuggestions,
   onSuggestionSelect,
   showPoweredBy = true,
   placeholder = "Type a message…",
@@ -58,12 +61,23 @@ export function Composer({
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Set when a send on a touch screen dismissed the keyboard, so the panel opening for the
+  // reply doesn't focus the input and bring it back. Cleared once the visitor taps the input.
+  const keyboardDismissed = useRef(false);
 
   // Focus the input as soon as it's usable — i.e. when the panel opens and the
   // session is ready. `preventScroll` keeps an inline widget from yanking the page.
   useEffect(() => {
-    if (!disabled && autoFocus) inputRef.current?.focus({ preventScroll: true });
+    if (!disabled && autoFocus && !keyboardDismissed.current) inputRef.current?.focus({ preventScroll: true });
   }, [disabled, autoFocus]);
+
+  // On touch screens, a sent message (typed or a suggestion) closes the keyboard so the
+  // visitor sees the conversation instead of half a screen of keys.
+  const dismissKeyboard = () => {
+    if (!window.matchMedia?.("(pointer: coarse)").matches) return;
+    keyboardDismissed.current = true;
+    inputRef.current?.blur();
+  };
 
   // Grow the textarea with its content (up to its max-height, then it scrolls).
   // Also recompute when the layout flips (bar collapsed <-> open, or the connection
@@ -147,6 +161,7 @@ export function Composer({
     onSend(text.trim(), attachments.length ? attachments : undefined);
     setText("");
     setAttachments([]);
+    dismissKeyboard();
   };
 
   const handleFiles = async (files: FileList | null) => {
@@ -173,8 +188,8 @@ export function Composer({
               // Keep the input focused through the click so the chips (shown on
               // focus in bar mode) don't vanish before the send fires.
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onSuggestionSelect?.(s); onSend(s); }}
-              className="parlant-cmp-suggestion"
+              onClick={() => { onSuggestionSelect?.(s); onSend(s); dismissKeyboard(); }}
+              className={cn("parlant-cmp-suggestion", persistentSuggestions?.includes(s) && "parlant-cmp-suggestion--persistent")}
               dir="auto"
             >
               <svg
@@ -244,7 +259,7 @@ export function Composer({
           dir="auto"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onFocus={() => setFocused(true)}
+          onFocus={() => { keyboardDismissed.current = false; setFocused(true); }}
           onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

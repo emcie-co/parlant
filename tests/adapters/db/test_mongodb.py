@@ -17,13 +17,19 @@ from typing import Any, AsyncIterator, Optional, TypedDict, cast
 from pymongo import AsyncMongoClient
 from typing_extensions import Self
 from parlant.core.container import Container
-from pytest import fixture, raises
+from pytest import fixture, mark, raises
 
 from parlant.core.common import Version
 from parlant.adapters.db.mongo_db import MongoDocumentCollection, MongoDocumentDatabase
 from parlant.core.common import IdGenerator
 from parlant.core.customers import CustomerDocumentStore
-from parlant.core.persistence.common import Cursor, MigrationRequired, ObjectId, SortDirection
+from parlant.core.persistence.common import (
+    Cursor,
+    MigrationRequired,
+    ObjectId,
+    SortDirection,
+    Where,
+)
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentCollection,
@@ -60,6 +66,58 @@ class MongoTestDocument(TypedDict, total=False):
     creation_utc: str
     version: Version.String
     name: str
+
+
+@mark.parametrize("sort_direction", [SortDirection.ASC, SortDirection.DESC])
+@mark.parametrize("same_timestamp", [False, True])
+async def test_that_cursor_pagination_preserves_or_filters(
+    logger: Logger,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+    sort_direction: SortDirection,
+    same_timestamp: bool,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+    filters: Where = {"$or": [{"name": {"$eq": "allowed"}}, {"name": {"$eq": "other"}}]}
+
+    async with MongoDocumentDatabase(test_mongo_client, test_database_name, logger) as database:
+        collection = await database.create_collection("test_collection", MongoTestDocument)
+        for index, (identifier, name) in enumerate(
+            [
+                ("a", "allowed"),
+                ("b", "excluded"),
+                ("c", "other"),
+                ("d", "excluded"),
+                ("e", "allowed"),
+            ]
+        ):
+            await collection.insert_one(
+                MongoTestDocument(
+                    id=ObjectId(identifier),
+                    creation_utc=f"2026-01-0{1 if same_timestamp else index + 1}T00:00:00Z",
+                    version=Version.String("1.0.0"),
+                    name=name,
+                )
+            )
+
+        identifiers = []
+        cursor = None
+        for _ in range(3):
+            result = await collection.find(
+                filters, limit=1, cursor=cursor, sort_direction=sort_direction
+            )
+            assert result.total_count == 3
+            assert len(result.items) == 1
+            assert result.items[0]["name"] in ("allowed", "other")
+            identifiers.append(result.items[0]["id"])
+            cursor = result.next_cursor
+            assert result.has_more == (len(identifiers) < 3)
+
+        assert cursor is None
+        assert identifiers == (
+            ["a", "c", "e"] if sort_direction == SortDirection.ASC else ["e", "c", "a"]
+        )
+        assert filters == {"$or": [{"name": {"$eq": "allowed"}}, {"name": {"$eq": "other"}}]}
 
 
 class DummyStore:

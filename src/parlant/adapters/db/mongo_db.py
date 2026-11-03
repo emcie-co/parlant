@@ -216,7 +216,7 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
                         ]
                     },
                 ]
-            query["$or"] = cursor_conditions
+            query = {"$and": [base_query, {"$or": cursor_conditions}]}
 
         # Sort by creation_utc with id as tiebreaker according to sort_direction
         sort_order = -1 if sort_direction == SortDirection.DESC else 1

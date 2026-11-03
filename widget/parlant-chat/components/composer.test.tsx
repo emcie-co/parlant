@@ -115,3 +115,61 @@ describe("composer text direction", () => {
     expect(container.querySelector(".parlant-cmp-suggestion")?.getAttribute("dir")).toBe("auto");
   });
 });
+
+describe("composer keyboard on touch screens", () => {
+  const input = (c: HTMLElement) => c.querySelector(".parlant-cmp-input") as HTMLTextAreaElement;
+  const pointer = (coarse: boolean) => {
+    window.matchMedia = ((query: string) => ({
+      matches: coarse && query === "(pointer: coarse)",
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+  };
+  const original = window.matchMedia;
+  afterEach(() => { window.matchMedia = original; });
+
+  it("closes the keyboard when a typed message is sent", () => {
+    pointer(true);
+    const { container } = render(<Composer onSend={noop} onStop={noop} busy={false} />);
+    input(container).focus();
+    fireEvent.change(input(container), { target: { value: "hi" } });
+    fireEvent.click(screen.getByLabelText("Send"));
+
+    expect(document.activeElement).not.toBe(input(container));
+  });
+
+  it("closes the keyboard when a suggestion is sent", () => {
+    pointer(true);
+    const { container } = render(
+      <Composer onSend={noop} onStop={noop} busy={false} suggestions={["Pricing?"]} />,
+    );
+    input(container).focus();
+    fireEvent.click(screen.getByText("Pricing?"));
+
+    expect(document.activeElement).not.toBe(input(container));
+  });
+
+  it("doesn't bring the keyboard back when the panel opens for the reply", () => {
+    pointer(true);
+    const { container, rerender } = render(
+      <Composer onSend={noop} onStop={noop} busy={false} autoFocus={false} />,
+    );
+    input(container).focus();
+    fireEvent.change(input(container), { target: { value: "hi" } });
+    fireEvent.click(screen.getByLabelText("Send"));
+    rerender(<Composer onSend={noop} onStop={noop} busy={false} autoFocus />);
+
+    expect(document.activeElement).not.toBe(input(container));
+  });
+
+  it("keeps the input focused after sending with a mouse", () => {
+    pointer(false);
+    const { container } = render(<Composer onSend={noop} onStop={noop} busy={false} />);
+    input(container).focus();
+    fireEvent.change(input(container), { target: { value: "hi" } });
+    fireEvent.click(screen.getByLabelText("Send"));
+
+    expect(document.activeElement).toBe(input(container));
+  });
+});

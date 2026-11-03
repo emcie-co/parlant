@@ -15,6 +15,11 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- Session and customer stores can persist to Amazon S3 using `s3://bucket`
+  URLs, with optional region and endpoint parameters. Empty collections
+  survive restarts, conditional writes protect concurrent updates, and
+  failed migration writes preserve the original data. General queries scan
+  collections rather than using secondary indexes.
 - The chat widget (`parlant widget init`) takes the agent's picture in one
   `avatar` prop: `{ type: "logo", src }`, `{ type: "photo", src, live? }` or
   `{ type: "video", src?, poster?, live?, launcher? }`. A video avatar plays a

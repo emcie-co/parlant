@@ -157,7 +157,17 @@ async def test_that_agent_models_round_trip_with_recursive_secret_redaction(
     dispatcher: TunnelRequestDispatcher,
     container: Container,
 ) -> None:
-    created = (await call(dispatcher, "agents.create", {"name": "Configured Agent"}))["agent"]
+    created = (
+        await call(
+            dispatcher,
+            "agents.create",
+            {
+                "name": "Configured Agent",
+                "instructions": "Handles support requests.",
+                "message_output_mode": "block",
+            },
+        )
+    )["agent"]
     await container[ModelConfigurationService].configure(
         ModelScope.agent(created["id"]),
         {
@@ -214,6 +224,10 @@ async def test_that_agent_models_round_trip_with_recursive_secret_redaction(
     )["agent"]
 
     assert retrieved["models"] == expected_models
+    assert listed["id"] == created["id"]
+    assert listed["name"] == "Configured Agent"
+    assert listed["instructions"] == "Handles support requests."
+    assert listed["message_output_mode"] == "block"
     assert listed["models"] == expected_models
     assert updated["models"] == expected_models
     assert "production/openai/api-key" not in repr(retrieved)

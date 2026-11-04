@@ -69,6 +69,20 @@ export interface ChatMessage {
   /** Arrived live (after initial hydration) — animate its reveal even if it lands whole.
    *  History loaded on resume is not fresh, so it appears at once. */
   fresh?: boolean;
+  /** Who asked, when not the person typing: "customer_agent" is the AI agent in their browser (WebMCP). */
+  askedBy?: string;
+}
+
+/** The marker a message carries when the customer's own AI agent asked it (WebMCP). */
+export const ASKED_BY_CUSTOMER_AGENT = "customer_agent";
+export const ASKED_BY_METADATA = { parlant_widget: { asked_by: ASKED_BY_CUSTOMER_AGENT } };
+
+/** Who asked a message, from its metadata; undefined for the person typing. */
+export function askedBy(metadata: Record<string, unknown> | undefined): string | undefined {
+  const widget = metadata?.parlant_widget;
+  if (!widget || typeof widget !== "object") return undefined;
+  const value = (widget as { asked_by?: unknown }).asked_by;
+  return typeof value === "string" ? value : undefined;
 }
 
 export type SessionStatus = "idle" | "processing" | "typing" | "ready" | "error";

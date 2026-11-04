@@ -15,6 +15,20 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- The chat widget lets the AI agent in a visitor's browser talk to your agent
+  over WebMCP (`document.modelContext`; in Chrome behind a flag today). On
+  every page it's on, the widget registers an `ask_agent` tool described with
+  the agent's name. A call starts the widget's conversation if there is none
+  yet, as one an agent holds for the customer (`customer_represented_by_an_agent`),
+  sends the question through the chat, so it shows there with the reply, opens
+  the chat, and answers the browser agent once the turn has ended. Follow-up
+  calls continue the same conversation. The message carries
+  `metadata.parlant_widget.asked_by = "customer_agent"`, so the chat and your
+  tools can tell the visitor's agent from the visitor. Nothing happens in a
+  browser without WebMCP; `webmcp={false}` turns it off. `ParlantTransport`'s
+  `sendMessage` takes an optional metadata argument and `ensureSession` an
+  option for the flag.
+
 - Session and customer stores can persist to Amazon S3 using `s3://bucket`
   URLs, with optional region and endpoint parameters. Empty collections
   survive restarts, conditional writes protect concurrent updates, and

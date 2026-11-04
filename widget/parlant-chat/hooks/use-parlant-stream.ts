@@ -9,6 +9,7 @@ import {
   type ChatMessage,
   type ParlantEvent,
   type ReasoningSummary,
+  askedBy,
   isInternalReasoning,
   type SessionMode,
   type SessionStatus,
@@ -84,7 +85,11 @@ export interface UseParlantStream {
    *  `customer.signed_in` event would clear it moments later anyway). */
   clearSignInRequest: () => void;
   error: Error | null;
-  send: (text: string, attachments?: AttachmentRef[]) => Promise<void>;
+  send: (
+    text: string,
+    attachments?: AttachmentRef[],
+    options?: { metadata?: Record<string, unknown> },
+  ) => Promise<void>;
   stop: () => Promise<void>;
   /** Record that a live message has been fully revealed, so it renders at once from now on. */
   markRevealed: (messageId: string) => void;
@@ -233,6 +238,7 @@ function applyEvent(store: Store, event: ParlantEvent, showReasoning: boolean): 
         attachments: (event.data?.attachments as AttachmentRef[]) ?? [],
         traceId: event.trace_id,
         createdAt: event.creation_utc,
+        ...(askedBy(event.metadata) ? { askedBy: askedBy(event.metadata) } : {}),
         // Local send echoes are live even if they arrive in the initial history read.
         // Other events are fresh after hydration or while the agent is still writing.
         // Sticky once set, so a live message that lands whole
@@ -652,7 +658,11 @@ export function useParlantStream(
   }, [transport, sessionId, showReasoning, commit, offerSignInAgain]);
 
   const send = useCallback(
-    async (text: string, attachments?: AttachmentRef[]) => {
+    async (
+      text: string,
+      attachments?: AttachmentRef[],
+      options?: { metadata?: Record<string, unknown> },
+    ) => {
       const trimmed = text.trim();
       // Allow an attachment-only message (empty text), which the composer permits.
       if (!sessionId || (!trimmed && !attachments?.length)) return;
@@ -672,18 +682,19 @@ export function useParlantStream(
           traceId: "",
           createdAt: new Date().toISOString(),
           pending: true,
+          ...(askedBy(options?.metadata) ? { askedBy: askedBy(options?.metadata) } : {}),
         });
         store.pendingQueue.push(pendingId);
       });
 
       try {
         try {
-          await transport.sendMessage(sessionId, trimmed, attachments);
+          await transport.sendMessage(sessionId, trimmed, attachments, options?.metadata);
         } catch (e) {
           if (!(e instanceof SignInExpiredError)) throw e;
           // Keep the message pending; send it once the customer has signed in again.
           await offerSignInAgain();
-          await transport.sendMessage(sessionId, trimmed, attachments);
+          await transport.sendMessage(sessionId, trimmed, attachments, options?.metadata);
         }
         // A session that's already manual answers a customer message with silence (the engine
         // short-circuits before emitting anything), so re-read the mode to surface the notice.

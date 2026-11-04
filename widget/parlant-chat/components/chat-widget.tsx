@@ -2,7 +2,7 @@
 // inline surface that fills its container. Composed from the hooks and primitives —
 // copy this file and rearrange it however you like.
 
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MutableRefObject, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import "../styles.css";
 import type { AttachmentRef, ReasoningMode, StreamSpeed, StreamStyle } from "../lib/events";
@@ -10,6 +10,7 @@ import { GuestIdentityExpiredError, type ParlantAuth } from "../lib/transport";
 import { cn } from "../lib/cn";
 import { appendUtm, type UtmLinks, type UtmParams } from "../lib/links";
 import { useParlantSession } from "../hooks/use-parlant-session";
+import { useWebMCPConversation, useWebMCPTool, type AskAgent } from "../hooks/use-webmcp-tool";
 import { useParlantStream } from "../hooks/use-parlant-stream";
 import { useServerHealth } from "../hooks/use-server-health";
 import { useSidebarSpace } from "../hooks/use-sidebar-space";
@@ -135,6 +136,10 @@ export interface ChatWidgetProps {
    *  removals. The widget checks after each turn ends, so the call comes then, not mid-reply.
    *  Use it to record a conversion, e.g. set a cookie once a session is labeled "lead". */
   onLabel?: (label: string, context: { sessionId: string; labels: string[] }) => void;
+  /** Let the AI agent in the visitor's browser ask this agent through WebMCP (on by default):
+   *  the widget registers an `ask_agent` tool, and that agent's questions and the replies show
+   *  in the chat, which opens when one lands. Nothing happens in a browser without WebMCP. */
+  webmcp?: boolean;
 }
 
 /** The agent's picture, by `type`:
@@ -218,6 +223,29 @@ export function ChatWidget(props: ChatWidgetProps) {
   const [dismissed, setDismissed] = useState(false);
   // Reported by the panel, so the launcher's live dot turns red with the panel's banner.
   const [connectionIssue, setConnectionIssue] = useState(false);
+  // WebMCP: the tool is registered here, from the first render, because the panel
+  // mounts lazily; the panel publishes how to ask once it is up, and reports the agent's name.
+  const askAgent = useRef<AskAgent | null>(null);
+  const [agentName, setAgentName] = useState<string | null>(null);
+  // Set as a call opens the chat, so a panel that mounts for it creates its session as the
+  // agent's; whoever starts the conversation sets the flag.
+  const agentIsOpening = useRef(false);
+  useWebMCPTool({
+    enabled: props.webmcp ?? true,
+    agentName: props.title ?? agentName,
+    ask: askAgent,
+    onCall: () => {
+      agentIsOpening.current = true;
+      setDismissed(false);
+      if (mode === "floating") {
+        setOpen(true);
+        setEverOpened(true);
+      } else if (mode !== "inline") {
+        setInputOpened(true);
+      }
+    },
+  });
+  const webmcpPanelProps = { askAgent, agentIsOpening, onAgentName: setAgentName };
   const sidebar = props.openMode === "sidebar" && mode !== "inline";
   const sidebarOpen = sidebar && (mode === "floating" ? open : inputOpened);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -342,6 +370,7 @@ export function ChatWidget(props: ChatWidgetProps) {
             inputOpened={inputOpened}
             onOpen={() => setInputOpened(true)}
             onMinimize={() => { setInputOpened(false); setExpanded(false); }}
+            {...webmcpPanelProps}
             onDismiss={mode === "input" ? () => setDismissed(true) : undefined}
             onConnectionIssue={setConnectionIssue}
             expanded={expanded}
@@ -355,7 +384,7 @@ export function ChatWidget(props: ChatWidgetProps) {
   if (mode === "inline") {
     return (
       <div className={cn("parlant-widget parlant-inline", themeClass)} style={rootStyle}>
-        <ChatPanel {...props} avatar={avatar} />
+        <ChatPanel {...props} avatar={avatar} {...webmcpPanelProps} />
       </div>
     );
   }
@@ -384,7 +413,7 @@ export function ChatWidget(props: ChatWidgetProps) {
           setEverOpened(true);
         }}
       />}
-      {everOpened && (
+      {(everOpened || open) && (
         // Mounted once opened and kept mounted (hidden) thereafter, so scroll + session
         // survive close→reopen. The width tween moves the left edge; the scale animates
         // open/minimize from the corner.
@@ -414,6 +443,7 @@ export function ChatWidget(props: ChatWidgetProps) {
             {...props}
             avatar={avatar}
             onClose={() => setOpen(false)}
+            {...webmcpPanelProps}
             expanded={expanded}
             onToggleExpand={() => setExpanded((e) => !e)}
             onConnectionIssue={setConnectionIssue}
@@ -466,7 +496,16 @@ function ChatPanel({
   expanded,
   onToggleExpand,
   onConnectionIssue,
+  askAgent,
+  agentIsOpening,
+  onAgentName,
 }: Omit<ChatWidgetProps, "avatar"> & {
+  /** Where the widget's WebMCP tool finds how to ask through this panel's conversation. */
+  askAgent?: MutableRefObject<AskAgent | null>;
+  /** True while a WebMCP call is what's mounting this panel: its session is the agent's. */
+  agentIsOpening?: MutableRefObject<boolean>;
+  /** The agent's name as the panel resolved it, for the tool's description. */
+  onAgentName?: (name: string) => void;
   /** The avatar as resolved by ChatWidget: deprecated props folded in, a video's default filled. */
   avatar?: ShownAvatar;
   inputMode?: boolean;
@@ -483,6 +522,12 @@ function ChatPanel({
   /** Called when the connectivity banner appears or clears. */
   onConnectionIssue?: (issue: boolean) => void;
 }) {
+  // Read once, as the panel mounts: a later open by the person starts an ordinary session.
+  const [startAs] = useState(() => {
+    const byAgent = agentIsOpening?.current ?? false;
+    if (agentIsOpening) agentIsOpening.current = false;
+    return byAgent ? { representedByAnAgent: true } : undefined;
+  });
   const {
     transport,
     sessionId,
@@ -499,6 +544,7 @@ function ChatPanel({
     auth,
     autoStart: !inputMode,
     fresh: Boolean(initialMessage),
+    startAs,
   });
   const online = useServerHealth(transport);
   const persistent = usePersistentSuggestions(serverUrl, agentId, sessionId);
@@ -568,6 +614,27 @@ function ChatPanel({
   }, [transport]);
 
   const name = title ?? agent?.name ?? "Assistant";
+  // The visitor's own AI agent asks through this same conversation (WebMCP).
+  const ask = useWebMCPConversation({
+    sessionId,
+    start: () => {
+      clearNotice();
+      return start({ representedByAnAgent: true });
+    },
+    send,
+    messages,
+    phase,
+  });
+  useEffect(() => {
+    if (!askAgent) return;
+    askAgent.current = ask;
+    return () => {
+      askAgent.current = null;
+    };
+  }, [askAgent, ask]);
+  useEffect(() => {
+    if (agent?.name) onAgentName?.(agent.name);
+  }, [agent?.name, onAgentName]);
   // Manual mode: a human operator handles the session and the engine stays silent, so no reply
   // is coming — drop the "thinking" line and the busy/stop state so the widget doesn't spin.
   const manual = sessionMode === "manual";

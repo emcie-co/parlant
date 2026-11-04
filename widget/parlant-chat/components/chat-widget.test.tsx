@@ -9,6 +9,7 @@ import {
   storedGuestSession,
 } from "../testing/fake-parlant-server";
 import { ChatWidget } from "./chat-widget";
+import type { ParlantEvent } from "../lib/events";
 import * as sounds from "../lib/sounds";
 import { registerWidget } from "./tool-widget";
 
@@ -1767,5 +1768,202 @@ describe("default video avatar", () => {
     const launcher = await screen.findByRole("button", { name: "Open chat" });
     const crop = launcher.querySelector(".parlant-launcher-photo") as HTMLElement;
     expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("2");
+  });
+});
+
+// --- WebMCP: the AI agent in the visitor's browser ---------------------------------------
+
+type BrowserAgentTool = {
+  name: string;
+  description: string;
+  inputSchema: { required?: string[] };
+  execute: (
+    input: unknown,
+    options?: { signal?: AbortSignal },
+  ) => Promise<{ content: { type: string; text: string }[] }>;
+};
+
+/** The browser's WebMCP broker: what a page registers, and a way to call it as the agent would. */
+function browserAgent() {
+  const tools = new Map<string, BrowserAgentTool>();
+  Object.defineProperty(document, "modelContext", {
+    configurable: true,
+    value: {
+      registerTool: (tool: BrowserAgentTool) => {
+        if (tools.has(tool.name)) throw new Error(`A tool named ${tool.name} is registered`);
+        tools.set(tool.name, tool);
+      },
+      unregisterTool: (name: string) => {
+        tools.delete(name);
+      },
+    },
+  });
+  return tools;
+}
+
+/** A fake Parlant server whose agent answers every customer message, over the live stream. */
+function talkingServer(reply: (question: string) => string) {
+  const created: Record<string, unknown>[] = [];
+  const sent: { sessionId: string; body: Record<string, unknown> }[] = [];
+  const events = new Map<string, ParlantEvent[]>();
+  const streams = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>();
+  const encoder = new TextEncoder();
+  let sessions = 0;
+  const push = (sessionId: string, event: Omit<ParlantEvent, "offset" | "id" | "creation_utc" | "trace_id">) => {
+    const list = events.get(sessionId)!;
+    const full: ParlantEvent = {
+      ...event,
+      id: `e-${sessionId}-${list.length}`,
+      offset: list.length,
+      creation_utc: new Date().toISOString(),
+      trace_id: "t",
+    };
+    list.push(full);
+    for (const controller of streams.get(sessionId) ?? []) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(full)}\n\n`));
+    }
+  };
+  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/healthz") return json({ status: "healthy" });
+    if (url.pathname === "/agents/agent") return json({ id: "agent", name: "Parlant" });
+    if (method === "POST" && url.pathname === "/sessions") {
+      const id = `session-${++sessions}`;
+      created.push(JSON.parse(String(init?.body)));
+      events.set(id, []);
+      return json({ id }, 201);
+    }
+    const eventsPath = /^\/sessions\/([^/]+)\/events$/.exec(url.pathname);
+    if (eventsPath && method === "POST") {
+      const sessionId = eventsPath[1];
+      const body = JSON.parse(String(init?.body));
+      sent.push({ sessionId, body });
+      push(sessionId, { source: "customer", kind: "message", data: { message: body.message }, metadata: body.metadata });
+      setTimeout(() => {
+        push(sessionId, { source: "ai_agent", kind: "message", data: { message: reply(body.message) } });
+        push(sessionId, { source: "ai_agent", kind: "status", data: { status: "ready" } });
+      }, 20);
+      return json({ offset: events.get(sessionId)!.length - 1 }, 201);
+    }
+    if (eventsPath) {
+      const sessionId = eventsPath[1];
+      const minOffset = Number(url.searchParams.get("min_offset") ?? 0);
+      const backlog = (events.get(sessionId) ?? []).filter((e) => e.offset >= minOffset);
+      if (url.searchParams.get("sse") !== "true") return json(backlog);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const event of backlog) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            if (!streams.has(sessionId)) streams.set(sessionId, new Set());
+            streams.get(sessionId)!.add(controller);
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }
+    const session = /^\/sessions\/([^/]+)$/.exec(url.pathname);
+    if (session) return json({ id: session[1], mode: "auto" });
+    return json({}, 404);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { created, sent };
+}
+
+describe("WebMCP", () => {
+  afterEach(() => {
+    delete (document as { modelContext?: unknown }).modelContext;
+  });
+
+  it("registers ask_agent for the browser's agent, described with the agent's name once known, and removes it on unmount", async () => {
+    const tools = browserAgent();
+    talkingServer(() => "ok");
+
+    const view = render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="inline" customerSound={false} agentSound={false} />,
+    );
+
+    await waitFor(() => expect(tools.get("ask_agent")?.description).toContain("Ask Parlant, this site's own AI agent"));
+    expect(tools.get("ask_agent")?.inputSchema.required).toEqual(["question"]);
+
+    view.unmount();
+
+    expect(tools.has("ask_agent")).toBe(false);
+  });
+
+  it("registers nothing in a browser without WebMCP, nor when the prop is off", async () => {
+    talkingServer(() => "ok");
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" customerSound={false} agentSound={false} />);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    cleanup();
+
+    const tools = browserAgent();
+    render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" webmcp={false} customerSound={false} agentSound={false} />,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(tools.size).toBe(0);
+  });
+
+  it("starts the conversation as one an agent represents, shows the question in the chat, opens it, and answers after the turn", async () => {
+    const tools = browserAgent();
+    const { created, sent } = talkingServer((question) =>
+      question.includes("warranty") ? "Yes, every chair has a 5-year warranty." : "Sure.",
+    );
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} />);
+    await waitFor(() => expect(tools.has("ask_agent")).toBe(true));
+    expect(created).toHaveLength(0); // input mode is lazy: no session until something is sent
+
+    const answer = await tools.get("ask_agent")!.execute({ question: "Do chairs have a warranty?" });
+
+    expect(answer).toEqual({ content: [{ type: "text", text: "Yes, every chair has a 5-year warranty." }] });
+    expect(created).toEqual([{ agent_id: "agent", customer_represented_by_an_agent: true }]);
+    expect(sent[0]?.body).toMatchObject({
+      kind: "message",
+      source: "customer",
+      message: "Do chairs have a warranty?",
+      metadata: { parlant_widget: { asked_by: "customer_agent" } },
+    });
+    expect(await screen.findByText("Do chairs have a warranty?")).toBeTruthy();
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("Yes, every chair has a 5-year warranty."),
+    );
+    expect(document.querySelector(".parlant-input--open")).not.toBeNull();
+    expect(document.querySelector('[data-asked-by="customer_agent"]')?.textContent).toContain(
+      "Do chairs have a warranty?",
+    );
+  });
+
+  it("continues the same conversation on a follow-up call", async () => {
+    const tools = browserAgent();
+    const { created, sent } = talkingServer(() => "Noted.");
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} />);
+    await waitFor(() => expect(tools.has("ask_agent")).toBe(true));
+
+    await tools.get("ask_agent")!.execute({ question: "I'm Dana from Oslo." });
+    await tools.get("ask_agent")!.execute({ question: "Where am I from?" });
+
+    expect(created).toHaveLength(1);
+    expect(sent.map((s) => s.sessionId)).toEqual(["session-1", "session-1"]);
+  });
+
+  it("registers the tool before the floating panel ever opens, and opens it when the agent's question lands", async () => {
+    const tools = browserAgent();
+    const { created } = talkingServer(() => "Hello.");
+    render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="floating" customerSound={false} agentSound={false} />);
+    await waitFor(() => expect(tools.has("ask_agent")).toBe(true));
+    expect(tools.get("ask_agent")?.description).toContain("Ask this site's own AI agent");
+    expect(document.querySelector(".parlant-panel")).toBeNull();
+    expect(created).toHaveLength(0); // no session for a visitor who never opened the chat
+
+    const answer = await tools.get("ask_agent")!.execute({ question: "Hi" });
+
+    expect(answer.content[0]?.text).toBe("Hello.");
+    expect(created).toEqual([{ agent_id: "agent", customer_represented_by_an_agent: true }]);
+
+    await waitFor(() =>
+      expect(document.querySelector(".parlant-panel")?.getAttribute("aria-hidden")).toBe("false"),
+    );
   });
 });

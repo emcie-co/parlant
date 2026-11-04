@@ -29,7 +29,7 @@ import httpx
 import pytest
 
 from parlant.adapters.nlp.gemini_service import GeminiReactGenerator
-from parlant.adapters.nlp.gemini_interactions import THOUGHTS
+from parlant.adapters.nlp.gemini_interactions import CALL, THOUGHTS
 from parlant.core.loggers import LogLevel, Logger, StdoutLogger
 from parlant.core.nlp.react import (
     FinishReason,
@@ -181,9 +181,8 @@ def text_events(text: str, index: int = 0) -> list[dict[str, Any]]:
 
 
 def tool_events() -> list[dict[str, Any]]:
-    # Shape checked against a real Argon stream captured on 2026-10-21.
-    # Signatures here are explicit synthetic protocol fixtures; live tests below
-    # verify that actual provider signatures can be replayed successfully.
+    # Interactions signs thought steps, not standard function calls. Keep this
+    # local protocol fixture aligned with the live replay cases below.
     events: list[dict[str, Any]] = [
         {"event_type": "step.start", "index": 0, "step": {"type": "thought"}},
         {
@@ -204,7 +203,6 @@ def tool_events() -> list[dict[str, Any]]:
                         "id": f"call_{index}",
                         "name": "get_weather",
                         "arguments": {},
-                        "signature": "c2lnbmF0dXJl",
                     },
                 },
                 {
@@ -596,6 +594,9 @@ async def test_that_serialized_tool_turns_replay_native_steps_without_reexecutin
     replayed = generator.deserialize_tool_messages(store, model=MODEL)
     assert replayed is not None
     assert generator.deserialize_tool_messages(store, model="gemini-3.8-flash") is None
+    assert [call.provider_data[THOUGHTS] for call in replayed[0].tool_calls] == [
+        call.provider_data[THOUGHTS] for call in first.tool_calls
+    ]
     if reverse_results:
         # Persistence's calls/results port is index-aligned by contract. Reorder
         # only the provider-bound history, where call IDs identify each result.
@@ -615,9 +616,77 @@ async def test_that_serialized_tool_turns_replay_native_steps_without_reexecutin
     assert {s["id"]: s["arguments"]["city"] for s in function_calls} == {
         s["call_id"]: json.loads(s["result"][0]["text"])["city"] for s in function_results
     }
-    encoded = json.dumps(body)
-    assert "dGhvdWdodA==" in encoded
-    assert "c2lnbmF0dXJl" in encoded
+    thoughts = [step for step in body["input"] if step["type"] == "thought"]
+    assert thoughts == [
+        thought for call in first.tool_calls for thought in call.provider_data[THOUGHTS]
+    ]
+    assert thoughts == [{"type": "thought", "signature": "dGhvdWdodA=="}]
+    assert all("signature" not in call for call in function_calls)
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "wrong_provider",
+        "wrong_model",
+        "missing_call_id",
+        "wrong_call_name",
+        "wrong_call_arguments",
+        "missing_call_artifact",
+        "wrong_artifact_count",
+        "invalid_thoughts",
+        "invalid_thought",
+    ],
+)
+async def test_that_invalid_saved_tool_turns_are_not_replayed(
+    logger: Logger, provider: tuple[Provider, str], invalid: str
+) -> None:
+    state, _ = provider
+    state.replies.append(Reply(events=tool_events()))
+    generator = generator_for(logger, provider)
+    first = await generator.step(history(), [WEATHER])
+    store = ToolTurnStore()
+    generator.serialize_tool_messages(
+        [
+            first.message,
+            Message(
+                role=Role.TOOL,
+                parts=[
+                    ToolResultPart(
+                        call_id=call.id,
+                        name=call.name,
+                        content={"temperature_c": 18, "city": call.args["city"]},
+                    )
+                    for call in first.tool_calls
+                ],
+            ),
+        ],
+        store,
+    )
+
+    if invalid == "wrong_provider":
+        store.data["provider"] = "anthropic"
+    elif invalid == "wrong_model":
+        store.data["model"] = "gemini-3.8-flash"
+    elif invalid == "wrong_artifact_count":
+        store.data["interactions"].pop()
+    else:
+        artifact = store.data["interactions"][0]
+        if invalid == "missing_call_id":
+            artifact[CALL].pop("id")
+        elif invalid == "wrong_call_name":
+            artifact[CALL]["name"] = "another_tool"
+        elif invalid == "wrong_call_arguments":
+            artifact[CALL]["arguments"] = {"city": "Berlin"}
+        elif invalid == "missing_call_artifact":
+            artifact.pop(CALL)
+        elif invalid == "invalid_thoughts":
+            artifact[THOUGHTS] = {}
+        else:
+            artifact[THOUGHTS] = [{"type": "function_call"}]
+
+    assert generator.deserialize_tool_messages(store, model=MODEL) is None
+    assert len(state.requests) == 1
 
 
 async def test_that_usage_counts_cached_and_reasoning_tokens_once(

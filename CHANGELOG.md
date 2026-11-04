@@ -58,6 +58,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- Gemini Argon can replay saved tool calls with their original signed thought
+  blocks instead of unnecessarily falling back to result-only history.
 - Filtering sessions by labels now returns complete pages and working
   continuation cursors, with consistent total counts in either sort order.
 - MongoDB cursor pagination now preserves `$or` filters on later pages, so

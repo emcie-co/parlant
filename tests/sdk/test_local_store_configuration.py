@@ -34,6 +34,7 @@ from parlant.bin.server import PARLANT_HOME_DIR
 from tests.test_utilities import get_random_port
 
 
+_LOCAL_AGENT_ID = "local-store-agent"
 _LOCAL_STORE_FILES = [
     PARLANT_HOME_DIR / "sessions.db",
     PARLANT_HOME_DIR / "customers.db",
@@ -55,12 +56,17 @@ async def clean_local_store_files() -> AsyncIterator[None]:
         file.unlink(missing_ok=True)
 
 
-async def _run_server_until_cancelled(server: "p.Server") -> None:
+async def _run_server_until_cancelled(server: "p.Server", *, register_agent: bool = False) -> None:
     # Entering the server starts it; exiting RUNS it until externally
     # stopped, so live tests hold it in a task and cancel when done
     # (mirroring the SDKTest harness).
     async with server:
-        pass
+        if register_agent:
+            await server.create_agent(
+                id=_LOCAL_AGENT_ID,
+                name="Local Store Agent",
+                instructions="Test local store persistence.",
+            )
 
 
 async def _wait_for_healthz(port: int, timeout_seconds: float = 60.0) -> None:
@@ -95,13 +101,16 @@ async def test_that_a_local_session_store_persists_sessions_in_a_sqlite_file_acr
     session_id: str
 
     server = _local_server(port, session_store="local", customer_store="transient")
-    server_task = asyncio.create_task(_run_server_until_cancelled(server))
+    server_task = asyncio.create_task(_run_server_until_cancelled(server, register_agent=True))
     try:
         await _wait_for_healthz(port)
 
         async with httpx.AsyncClient(base_url=f"http://localhost:{port}") as client:
-            agent = (await client.post("/agents", json={"name": "Local Store Agent"})).json()
-            response = await client.post("/sessions", json={"agent_id": agent["id"]})
+            response = await client.post(
+                "/sessions",
+                params={"allow_greeting": False},
+                json={"agent_id": _LOCAL_AGENT_ID},
+            )
             assert response.status_code == 201
             session_id = response.json()["id"]
 
@@ -114,13 +123,15 @@ async def test_that_a_local_session_store_persists_sessions_in_a_sqlite_file_acr
 
     port = get_random_port()
     server = _local_server(port, session_store="local", customer_store="transient")
-    server_task = asyncio.create_task(_run_server_until_cancelled(server))
+    server_task = asyncio.create_task(_run_server_until_cancelled(server, register_agent=True))
     try:
         await _wait_for_healthz(port)
 
         async with httpx.AsyncClient(base_url=f"http://localhost:{port}") as client:
             response = await client.get(f"/sessions/{session_id}")
             assert response.status_code == 200
+            assert response.json()["id"] == session_id
+            assert response.json()["agent_id"] == _LOCAL_AGENT_ID
     finally:
         server_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -170,14 +181,17 @@ async def test_that_session_and_customer_stores_default_to_local() -> None:
     port = get_random_port()
 
     server = _local_server(port)
-    server_task = asyncio.create_task(_run_server_until_cancelled(server))
+    server_task = asyncio.create_task(_run_server_until_cancelled(server, register_agent=True))
     try:
         await _wait_for_healthz(port)
 
         async with httpx.AsyncClient(base_url=f"http://localhost:{port}") as client:
-            agent = (await client.post("/agents", json={"name": "Default Store Agent"})).json()
             assert (
-                await client.post("/sessions", json={"agent_id": agent["id"]})
+                await client.post(
+                    "/sessions",
+                    params={"allow_greeting": False},
+                    json={"agent_id": _LOCAL_AGENT_ID},
+                )
             ).status_code == 201
             assert (
                 await client.post("/customers", json={"name": "Default Store Customer"})

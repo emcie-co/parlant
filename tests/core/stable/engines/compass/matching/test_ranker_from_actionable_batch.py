@@ -15,11 +15,14 @@
 from parlant.core.container import Container
 from pytest import fixture
 
+from parlant.core.engines.compass.context import ResponseState
 from parlant.core.engines.compass.matching.rule_ranker import RuleRanker
 from parlant.core.sessions import EventSource
 
 from tests.core.stable.engines.compass.matching.utils import (
     base_test_that_rules_are_ranked_correctly,
+    create_engine_context,
+    create_rule_by_name,
 )
 
 
@@ -422,7 +425,7 @@ async def test_that_rule_is_still_matched_when_conversation_still_on_the_same_to
 
 
 # Taken from tests/core/stable/engines/alpha/test_rule_actionable_batch.py::test_that_rule_is_still_matched_when_conversation_still_on_sub_topic_that_made_condition_hold
-async def test_that_rule_is_still_matched_when_conversation_still_on_sub_topic_that_made_condition_hold(
+async def test_that_order_details_rule_is_not_reapplied_after_customer_provides_details(
     ranker: RuleRanker,
 ) -> None:
     conversation: list[tuple[EventSource, str]] = [
@@ -434,6 +437,33 @@ async def test_that_rule_is_still_matched_when_conversation_still_on_sub_topic_t
         (EventSource.CUSTOMER, "Yeah, it's not just cold — the box was crushed too."),
         (EventSource.AI_AGENT, "That's really unacceptable. Let me make this right."),
         (EventSource.CUSTOMER, "And this isn’t the first time, honestly."),
+    ]
+    context = create_engine_context(conversation=conversation)
+    context.state = ResponseState(agent_effort=context.agent.effort)
+    rule = create_rule_by_name(RULES_DICT, "problem_with_order")
+
+    result = await ranker.evaluate(context, [rule])
+
+    # The complaint remains open, but the apology and request for details were
+    # completed. Assert this directly: the shared helper's negatives are opt-in.
+    assert len(result.evaluations) == 1
+    evaluation = result.evaluations[0]
+    assert evaluation.rule.id == rule.id
+    assert evaluation.is_relevant is False, (
+        f"Expected the answered details request not to repeat, got: {evaluation.reasoning}"
+    )
+
+
+async def test_that_order_details_rule_stays_relevant_while_customer_details_are_pending(
+    ranker: RuleRanker,
+) -> None:
+    conversation: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hi, I just received my order, and the pizza is cold."),
+        (
+            EventSource.AI_AGENT,
+            "I'm so sorry to hear that. Could you tell me more about the issue?",
+        ),
+        (EventSource.CUSTOMER, "Which details do you need from me?"),
     ]
     await base_test_that_rules_are_ranked_correctly(
         ranker,

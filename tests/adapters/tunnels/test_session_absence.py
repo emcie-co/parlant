@@ -1,19 +1,26 @@
 """Source absence is established by a parent read, never exception wording."""
 
+import asyncio
+from contextlib import suppress
 import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import websockets.asyncio.server
 
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.core.agents import AgentId
 from parlant.core.app_modules.sessions import SessionModule
+from parlant.core.application import Application
 from parlant.core.common import ItemNotFoundError, UniqueId
+from parlant.core.container import Container
 from parlant.core.customers import CustomerId
+from parlant.core.health import HealthReporter
+from parlant.core.loggers import Logger
 from parlant.core.sessions import SessionDocumentStore
 from parlant.core.tunnel_handlers.sessions import SessionTunnelHandlers
-from parlant.core.tunnels import TunnelRequest
+from parlant.core.tunnels import TunnelRequest, TunnelRequestDispatcher
 from tests.adapters.tunnels.test_dispatcher import make_dispatcher
 
 
@@ -189,48 +196,60 @@ async def test_session_removed_during_event_lookup_is_confirmed_by_parent_read()
 
 
 async def test_source_socket_sends_confirmed_absence_without_stringifying(
-    monkeypatch: pytest.MonkeyPatch,
+    container: Container,
 ) -> None:
     from parlant.adapters.modules.parlant_dashboard import ParlantDashboardTunnelService
-    from parlant.core.tracer import LocalTracer
 
-    async with SessionDocumentStore(TransientDocumentDatabase()) as store:
-        dispatcher = make_dispatcher(session_module=session_module(store))
-        socket = MagicMock()
-        socket.__aiter__.return_value = [
-            json.dumps(
-                {
-                    "request_id": "req-wire",
-                    "method": "sessions.read",
-                    "params": {"session_id": "absent"},
-                }
+    dispatcher = TunnelRequestDispatcher(
+        application=container[Application],
+        health_reporter=container[HealthReporter],
+        logger=container[Logger],
+    )
+    response: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+
+    async def platform(socket: websockets.asyncio.server.ServerConnection) -> None:
+        try:
+            await socket.send(
+                json.dumps(
+                    {
+                        "request_id": "req-wire",
+                        "method": "sessions.read",
+                        "params": {"session_id": "absent"},
+                    }
+                )
             )
-        ]
-        socket.send = AsyncMock()
-        connection = MagicMock()
-        connection.__aenter__.return_value = socket
-        monkeypatch.setattr(
-            "parlant.adapters.modules.parlant_dashboard.tunnel.websockets.connect",
-            MagicMock(return_value=connection),
-        )
+            received = json.loads(await asyncio.wait_for(socket.recv(), timeout=2))
+            if not response.done():
+                response.set_result(received)
+        except Exception as error:
+            if not response.done():
+                response.set_exception(error)
+
+    async with websockets.asyncio.server.serve(
+        platform, "127.0.0.1", 0, close_timeout=0.1
+    ) as server:
         tunnel = ParlantDashboardTunnelService(
-            "ws://unused",
+            f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}",
             "test-token",
             dispatcher,
-            tracer=LocalTracer(),
-            logger=MagicMock(),
+            logger=container[Logger],
         )
         tunnel._running = True
-        await tunnel._connect_and_listen()
-        socket.send.assert_awaited_once()
-        assert json.loads(socket.send.await_args.args[0]) == {
-            "request_id": "req-wire",
-            "error": {
-                "code": "session_not_found",
-                "message": "Session not found",
-                "session_id": "absent",
-            },
-        }
+        task = asyncio.create_task(tunnel._connect_and_listen())
+        try:
+            assert await asyncio.wait_for(response, timeout=5) == {
+                "request_id": "req-wire",
+                "error": {
+                    "code": "session_not_found",
+                    "message": "Session not found",
+                    "session_id": "absent",
+                },
+            }
+        finally:
+            await tunnel.stop()
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 async def test_bulk_delete_deduplicates_sessions_from_multiple_stores() -> None:

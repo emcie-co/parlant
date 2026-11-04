@@ -421,15 +421,30 @@ class Test_that_an_sdk_server_returns_and_reports_an_inline_utter_failure(_Diagn
         assert report_uri == f"/debug/reports/{trace_id}"
 
         _response, members = await self._download_completed_report(ctx, report_uri)
+        manifest = json.loads(members["manifest.json"])
         trace = json.loads(members["trace.json"])
         logs = members["logs.jsonl"].decode()
 
         assert UTTER_SENTINEL in members["traceback.txt"].decode()
         assert "SDK utter reached the deterministic failure" in logs
+        assert manifest["trace_id"] == trace_id
+        assert manifest["session_id"] == session.id
+        assert manifest["outcome"] == "error"
+        assert manifest["complete"] is True
+        assert trace["trace_id"] == trace_id
+
+        # A standalone utter owns a fresh trace, independent of its HTTP request.
+        roots = [span for span in trace["spans"] if span["parent_id"] is None]
+        assert len(roots) == 1
+        root = roots[0]
+        assert root["name"] == "sessions.utter"
+        assert root["attributes"]["session_id"] == session.id
+        engine_span = next(
+            span for span in trace["spans"] if span["name"] == "compass.engine.utter"
+        )
+        assert engine_span["parent_id"] == root["id"]
         span_names = [span["name"] for span in trace["spans"]]
-        assert "sessions.utter" in span_names
-        assert "compass.engine.utter" in span_names
-        assert "http.request" in span_names
+        assert "http.request" not in span_names
 
 
 class Test_that_disabling_diagnostic_reports_omits_reports_and_metadata(_DiagnosticReportSDKTest):

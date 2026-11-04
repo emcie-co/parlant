@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import time
 from typing import Any, cast
 from parlant.core.customers import CustomerStore
 from parlant.core.services.tools.plugins import PluginServer, tool as plugin_tool
@@ -21,7 +22,7 @@ from parlant.core.sessions import SessionStore
 from parlant.core.tools import ToolContext, ToolId, ToolResult
 import parlant.sdk as p
 
-from tests.sdk.utils import Context, SDKTest, get_message
+from tests.sdk.utils import ClientEvent, Context, SDKTest, get_message
 from tests.test_utilities import get_random_port, nlp_test
 
 
@@ -123,6 +124,57 @@ class Test_that_tool_rules_are_followed_by_agent(SDKTest):
         assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
 
 
+async def _assert_pepsi_offer_in_completed_turn(ctx: Context, agent: p.Agent) -> None:
+    session = await ctx.client.sessions.create(agent_id=agent.id, allow_greeting=False)
+    customer_event = await ctx.client.sessions.create_event(
+        session_id=session.id,
+        kind="message",
+        source="customer",
+        message="Please check my account, my account ID is 12345",
+    )
+    trace_id = customer_event.trace_id
+    assert isinstance(trace_id, str) and trace_id
+
+    # A completed bubble may still be an intermediate reply before another
+    # tool call. Check the final reply only once this exact turn is ready.
+    deadline = time.monotonic() + 60
+    events: list[ClientEvent] = []
+    evidence: list[dict[str, Any]] = []
+    ready = False
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            events = await asyncio.wait_for(
+                ctx.client.sessions.list_events(
+                    session_id=session.id, trace_id=trace_id, wait_for_data=0
+                ),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError:
+            break
+        evidence = [
+            {"kind": event.kind, "offset": event.offset, "data": event.data} for event in events
+        ]
+        statuses = [event.data.get("status") for event in events if event.kind == "status"]
+        assert not any(status in ("error", "cancelled") for status in statuses), (
+            f"Turn {trace_id} failed: {evidence!r}"
+        )
+        if "ready" in statuses:
+            ready = True
+            break
+        await asyncio.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
+    assert ready, f"Turn {trace_id} did not complete within 60s: {evidence!r}"
+    messages = [event for event in events if event.kind == "message" and event.source == "ai_agent"]
+    assert messages, f"Turn {trace_id} completed without a reply: {evidence!r}"
+    assert all(not ctx._is_streaming_in_progress(message) for message in messages), (
+        f"Turn {trace_id} completed with an unfinished reply: {evidence!r}"
+    )
+    response = get_message(messages[-1])
+    assert "pepsi" in response.lower(), (
+        f"Expected 'pepsi' in the final reply, got {response!r}; turn {trace_id}: {evidence!r}"
+    )
+
+
 class Test_that_tool_returned_rules_reach_the_reply_at_low_effort(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
@@ -147,12 +199,7 @@ class Test_that_tool_returned_rules_reach_the_reply_at_low_effort(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message(
-            customer_message="Please check my account, my account ID is 12345",
-            recipient=self.agent,
-        )
-
-        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+        await _assert_pepsi_offer_in_completed_turn(ctx, self.agent)
 
 
 class Test_that_tool_returned_rules_reach_the_reply_at_minimum_effort(SDKTest):
@@ -179,12 +226,7 @@ class Test_that_tool_returned_rules_reach_the_reply_at_minimum_effort(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message(
-            customer_message="Please check my account, my account ID is 12345",
-            recipient=self.agent,
-        )
-
-        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+        await _assert_pepsi_offer_in_completed_turn(ctx, self.agent)
 
 
 class Test_that_tool_rule_priority_filters_lower_priority_rules(SDKTest):

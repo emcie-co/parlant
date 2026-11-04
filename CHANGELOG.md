@@ -11,7 +11,7 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
-## [4.0.2] - Unreleased
+## [4.0.2] - 2026-11-05
 
 ### Added
 
@@ -28,12 +28,15 @@ Each entry says what changed and what it means for you, under `Added`,
   browser without WebMCP; `webmcp={false}` turns it off. `ParlantTransport`'s
   `sendMessage` takes an optional metadata argument and `ensureSession` an
   option for the flag.
-
-- Session and customer stores can persist to Amazon S3 using `s3://bucket`
-  URLs, with optional region and endpoint parameters. Empty collections
-  survive restarts, conditional writes protect concurrent updates, and
-  failed migration writes preserve the original data. General queries scan
-  collections rather than using secondary indexes.
+- `Server(session_store=..., customer_store=...)` accepts an `s3://bucket`
+  URL to keep sessions and customers in Amazon S3. Give Parlant a bucket of
+  its own. Credentials come from the AWS credential chain; add `?region=` or,
+  for S3-compatible storage, `?endpoint=`. The storage must support
+  conditional writes, which keep concurrent servers from overwriting each
+  other's updates. Empty collections survive restarts, and a failed migration
+  write leaves the original data in place. Any query other than a lookup by ID,
+  such as listing sessions, reads every object in the collection, so use
+  MongoDB if you need indexed queries at scale.
 - The chat widget (`parlant widget init`) takes the agent's picture in one
   `avatar` prop: `{ type: "logo", src }`, `{ type: "photo", src, live? }` or
   `{ type: "video", src?, poster?, live?, launcher? }`. A video avatar plays a

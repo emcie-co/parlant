@@ -132,8 +132,20 @@ def create_project(
                 "name": created.get("name"),
                 "projectKind": created.get("projectKind"),
                 "setupStatus": setup.get("status") if isinstance(setup, dict) else None,
+                "nextSteps": connection_steps(str(created.get("id"))),
             }
         )
+
+
+def connection_steps(project_id: str) -> list[str]:
+    """What finishes a local or self-hosted project: until `confirm`, the dashboard
+    shows it as "Finish setup"."""
+    return [
+        f"parlant dashboard --project {project_id} project connect PROJECT_FOLDER",
+        "Start the project's server (./run.sh in a scaffolded project, run.cmd on Windows).",
+        f"parlant dashboard --project {project_id} project check",
+        f"parlant dashboard --project {project_id} project confirm",
+    ]
 
 
 def create(
@@ -589,11 +601,14 @@ def _print_settings(setup: dict[str, Any]) -> None:
 
 def _print_next_steps(project_id: str, setup: dict[str, Any]) -> None:
     page = f"the project's setup page in the dashboard ({SETUP_PAGE})"
+    deploy = f"parlant dashboard --project {project_id} deploy"
     if setup["check"]["status"] != "done" or not setup["settings"]["runCommand"]:
         click.echo(f"Next: finish the setup on {page}, then deploy.")
+        click.echo(f"To deploy from here: {deploy}")
     else:
-        click.echo(f"Next: review the settings on {page}.")
-    click.echo(f"To deploy from here: parlant dashboard --project {project_id} deploy")
+        # The first live deploy completes the project's setup.
+        click.echo(f"Next: deploy it with `{deploy}`; its first live deploy completes the setup.")
+        click.echo(f"The settings can also be reviewed on {page}.")
 
 
 def _reason(entry: dict[str, Any]) -> str:

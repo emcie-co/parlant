@@ -17,7 +17,7 @@
 A local project runs its own server, which reaches the dashboard through its
 project token. `connect` puts the token in the project's `.env`, `check` asks
 whether the dashboard sees the server, and `confirm` completes the project's
-setup once it does."""
+setup once it does, importing any sessions the server already holds."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from typing import Any, Mapping
 from parlant.bin.dashboard.pricing import echo_pricing_notice
 
 import click
+import httpx
 
 from parlant.bin.dashboard.auth import authenticate
 from parlant.bin.dashboard.client import project_path, request, require_ok
@@ -34,11 +35,14 @@ from parlant.bin.dashboard.commands._shared import require_mapping, require_proj
 from parlant.bin.dashboard.commands.projects import project
 from parlant.bin.dashboard.env_file import set_env_values
 from parlant.bin.dashboard.errors import DashboardError
-from parlant.bin.dashboard.output import emit_json, json_mode, json_option
+from parlant.bin.dashboard.output import emit_json, json_mode, json_option, say
 from parlant.bin.dashboard.runtime import DashboardRuntime
 from parlant.bin.help import examples
 
 TOKEN_ENV_VAR = "PARLANT_DASHBOARD_PROJECT_TOKEN"
+
+# Coding agents often stop a command after about two minutes; stop waiting well before.
+SYNC_WAIT_SECONDS = 90.0
 
 
 @project.command(
@@ -114,20 +118,29 @@ def project_check(ctx: click.Context) -> None:
 @json_option
 @click.pass_context
 def project_confirm(ctx: click.Context) -> None:
-    """Complete this project's setup once the dashboard sees its server."""
+    """Complete this project's setup once the dashboard sees its server.
+
+    If the server already holds sessions, such as from chatting with the agent
+    to try it, they are imported into the dashboard first, as its Sync does.
+    A long import may outlast one run: run this again to keep waiting for it."""
     runtime = runtime_for(ctx)
     project_id = require_project(runtime)
-    status = require_mapping(
-        require_ok(
-            request(
-                runtime,
-                "POST",
-                project_path(project_id, "setup", "complete"),
-                access_token=authenticate(runtime),
-            )
-        ),
-        "setup completion",
-    )
+    access_token = authenticate(runtime)
+    response = _complete_setup(runtime, project_id, access_token)
+    imported: int | None = None
+
+    # Backend refuses to complete setup until the server's sessions are imported.
+    # Another conflict, such as a project being deleted, is refused again on the
+    # retry and reported as it is.
+    if response.status_code == 409:
+        sync_status = _sync_status(runtime, project_id, access_token)
+        if _is_imported(sync_status):
+            imported = _import_progress(sync_status)[0]
+        else:
+            imported = _import_sessions(runtime, project_id, access_token, sync_status)
+        response = _complete_setup(runtime, project_id, access_token)
+
+    status = require_mapping(require_ok(response), "setup completion")
 
     # The dashboard answers either way, and completes only a connected project.
     if _setup_status(status) != "completed":
@@ -138,10 +151,109 @@ def project_confirm(ctx: click.Context) -> None:
         )
 
     if json_mode():
-        emit_json({"projectId": project_id, "setupComplete": True})
+        emit_json(
+            {
+                "projectId": project_id,
+                "setupComplete": True,
+                **({"importedSessions": imported} if imported is not None else {}),
+            }
+        )
         return
     click.echo("Setup complete.")
     echo_pricing_notice(status)
+
+
+def _complete_setup(
+    runtime: DashboardRuntime, project_id: str, access_token: str
+) -> httpx.Response:
+    return request(
+        runtime,
+        "POST",
+        project_path(project_id, "setup", "complete"),
+        access_token=access_token,
+    )
+
+
+def _import_sessions(
+    runtime: DashboardRuntime,
+    project_id: str,
+    access_token: str,
+    sync_status: Mapping[str, Any],
+) -> int:
+    """Import the server's sessions, as the dashboard's Sync does, and wait for it.
+
+    An import already running is waited for, not started again. Returns how many
+    sessions were imported; raises when it fails or outlasts this run."""
+    if sync_status.get("status") != "importing":
+        require_ok(
+            request(
+                runtime,
+                "POST",
+                project_path(project_id, "sessions", "sync"),
+                access_token=access_token,
+            )
+        )
+
+    waited = 0.0
+    while True:
+        sync_status = _sync_status(runtime, project_id, access_token)
+        state = sync_status.get("status")
+        imported, total = _import_progress(sync_status)
+        if _is_imported(sync_status):
+            return imported
+        if state in ("failed", "offline"):
+            reason = sync_status.get("lastError") or "The dashboard could not read the server."
+            raise DashboardError(
+                f"Importing the server's sessions failed: {reason} Make sure the server is "
+                "running, then run `parlant dashboard project confirm` again.",
+                code="SYNC_FAILED",
+            )
+        if waited >= SYNC_WAIT_SECONDS:
+            raise DashboardError(
+                f"Still importing the server's sessions ({imported} of {total}). "
+                "Run `parlant dashboard project confirm` again to keep waiting; "
+                "it continues the same import.",
+                code="SYNC_IN_PROGRESS",
+            )
+        say(f"Importing the server's sessions: {imported} of {total}...")
+        interval = sync_status.get("pollIntervalSeconds")
+        pause = min(max(float(interval), 1.0), 10.0) if isinstance(interval, (int, float)) else 5.0
+        runtime.sleep(pause)
+        waited += pause
+
+
+def _sync_status(
+    runtime: DashboardRuntime, project_id: str, access_token: str
+) -> Mapping[str, Any]:
+    return require_mapping(
+        require_ok(
+            request(
+                runtime,
+                "GET",
+                project_path(project_id, "sessions", "sync-status"),
+                access_token=access_token,
+            )
+        ),
+        "session import status",
+    )
+
+
+def _is_imported(sync_status: Mapping[str, Any]) -> bool:
+    """Backend completes setup once the import has synced or moved on to live sessions."""
+    return sync_status.get("status") == "synced" or sync_status.get("phase") == "live"
+
+
+def _import_progress(sync_status: Mapping[str, Any]) -> tuple[int, int]:
+    progress = sync_status.get("progress")
+    progress = progress if isinstance(progress, Mapping) else {}
+    imported = progress.get("importedSessions")
+    total = progress.get("totalSessions")
+    if not isinstance(total, int):
+        total = sync_status.get("availableSessions")
+    return (
+        imported if isinstance(imported, int) else 0,
+        total if isinstance(total, int) else 0,
+    )
 
 
 def connect(runtime: DashboardRuntime, project_id: str, folder: Path) -> dict[str, str]:

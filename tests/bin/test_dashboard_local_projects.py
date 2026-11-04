@@ -67,7 +67,12 @@ class FakeDashboard:
     `{"grants": [...]}`, one sign-in per workspace in the order they were
     ticked. A single workspace is answered the way Backend did before. A local project starts with setup
     pending. Its server counts as connected once `connect_server()` is called,
-    and setup completes only while it is."""
+    and setup completes only while it is.
+
+    A server that already holds sessions (`server_sessions`) must be imported
+    first, as Backend requires: setup completion is refused with a 409 until a
+    sync started through `POST sessions/sync` has finished. The import finishes
+    after `import_polls` reads of its status, or fails with `import_failure`."""
 
     WORKSPACES = {"Emcie": "owner", "Other": "builder"}
 
@@ -93,6 +98,12 @@ class FakeDashboard:
         self.refresh_tokens: dict[str, tuple[str, str]] = {}
         self.access_tokens: dict[str, tuple[str, str]] = {}
         self.revoked: list[str] = []
+        self.server_sessions: dict[str, int] = {}
+        self.import_polls = 0
+        self.import_failure: str | None = None
+        # project id -> status reads left before the import finishes.
+        self.importing: dict[str, int] = {}
+        self.imported: set[str] = set()
 
     def issue(self, workspace: str) -> str:
         """A sign-in made before this test, as a refresh token for `workspace`."""
@@ -218,9 +229,56 @@ class FakeDashboard:
         if method == "POST" and rest == ["setup", "complete"]:
             # Backend answers 200 either way, and completes only a connected project.
             if project["id"] in self.connected:
+                if self.server_sessions.get(project["id"]) and project["id"] not in self.imported:
+                    return httpx.Response(
+                        409,
+                        json={
+                            "statusCode": 409,
+                            "error": "Conflict",
+                            "message": "Sync your project before opening it.",
+                        },
+                    )
                 project["setup"] = {"status": "completed", "completedAt": "2026-10-17T10:00:00Z"}
             return httpx.Response(200, json=self._connection(project))
+        if method == "POST" and rest == ["sessions", "sync"]:
+            self.importing[project["id"]] = self.import_polls
+            return httpx.Response(
+                200, json={"triggered": True, "status": self._sync_status(project["id"])}
+            )
+        if method == "GET" and rest == ["sessions", "sync-status"]:
+            if project["id"] in self.importing:
+                if self.importing[project["id"]] == 0 and self.import_failure is None:
+                    del self.importing[project["id"]]
+                    self.imported.add(project["id"])
+                else:
+                    self.importing[project["id"]] = max(self.importing[project["id"]] - 1, 0)
+            return httpx.Response(200, json=self._sync_status(project["id"]))
         raise AssertionError(f"Unexpected {method} {path}")
+
+    def _sync_status(self, project_id: str) -> dict[str, Any]:
+        """The Ingestor's view of the import, as `GET sessions/sync-status` answers it."""
+        total = self.server_sessions.get(project_id, 0)
+        status, phase, imported = "pending", None, 0
+        if project_id in self.imported:
+            status, phase, imported = "synced", "live", total
+        elif project_id in self.importing:
+            failed = self.import_failure is not None and self.importing[project_id] == 0
+            status, phase = ("failed", "historical") if failed else ("importing", "historical")
+            imported = total // 2
+        return {
+            "status": status,
+            "phase": phase,
+            "progress": {
+                "totalSessions": total,
+                "processedSessions": imported,
+                "importedSessions": imported,
+                "failedSessions": 0,
+                "batchSize": 50,
+            },
+            "availableSessions": total,
+            "lastError": self.import_failure if status == "failed" else None,
+            "pollIntervalSeconds": 5,
+        }
 
     def _tokens(self, refresh_token: str) -> httpx.Response:
         """Rotate: the presented refresh token is spent and a new pair issued."""
@@ -625,6 +683,12 @@ def test_that_project_create_with_json_prints_only_the_created_project(tmp_path:
         "name": "Support Bot",
         "projectKind": "local",
         "setupStatus": "pending",
+        "nextSteps": [
+            f"parlant dashboard --project {request_id} project connect PROJECT_FOLDER",
+            "Start the project's server (./run.sh in a scaffolded project, run.cmd on Windows).",
+            f"parlant dashboard --project {request_id} project check",
+            f"parlant dashboard --project {request_id} project confirm",
+        ],
     }
     assert len(dashboard.sent("POST", "/projects")) == 1
 
@@ -754,6 +818,8 @@ def test_that_project_confirm_completes_the_pending_setup(tmp_path: Path) -> Non
     assert result.exit_code == 0, result.output
     assert only_json(result) == {"projectId": project_id, "setupComplete": True}
     assert dashboard.projects[project_id]["setup"]["status"] == "completed"
+    # A server without sessions has nothing to import.
+    assert not dashboard.sent("POST", f"/projects/{project_id}/sessions/sync")
 
 
 def test_that_project_confirm_fails_when_the_dashboard_has_not_seen_the_server(
@@ -762,11 +828,90 @@ def test_that_project_confirm_fails_when_the_dashboard_has_not_seen_the_server(
     dashboard = FakeDashboard()
     rt = signed_in(dashboard, tmp_path)
     project_id = local_project(dashboard)
+    dashboard.server_sessions[project_id] = 3
 
     result = invoke(rt, ["dashboard", "--project", project_id, "project", "confirm", "--json"])
 
     assert result.exit_code != 0
     assert only_json(result)["error"]["code"] == "NOT_CONNECTED"
+    assert dashboard.projects[project_id]["setup"]["status"] == "pending"
+    assert not dashboard.sent("POST", f"/projects/{project_id}/sessions/sync")
+
+
+def test_that_project_confirm_syncs_existing_sessions_and_then_completes_the_setup(
+    tmp_path: Path,
+) -> None:
+    # A coding agent usually chats with the agent before confirming, so its
+    # server already holds sessions. Confirming imports them, as the
+    # dashboard's Sync would, instead of leaving setup to the dashboard.
+    dashboard = FakeDashboard()
+    dashboard.import_polls = 2
+    rt = signed_in(dashboard, tmp_path)
+    project_id = local_project(dashboard)
+    dashboard.connect_server(project_id)
+    dashboard.server_sessions[project_id] = 4
+
+    result = invoke(rt, ["dashboard", "--project", project_id, "project", "confirm", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert only_json(result) == {
+        "projectId": project_id,
+        "setupComplete": True,
+        "importedSessions": 4,
+    }
+    assert dashboard.projects[project_id]["setup"]["status"] == "completed"
+    assert len(dashboard.sent("POST", f"/projects/{project_id}/sessions/sync")) == 1
+    # Progress goes to stderr, so stdout stays one JSON document.
+    assert "Importing" in result.stderr
+
+
+def test_that_project_confirm_reports_sync_in_progress_and_a_rerun_completes_the_setup(
+    tmp_path: Path,
+) -> None:
+    # Coding agents often stop a command after about two minutes, so confirm
+    # stops waiting before that and says to run it again.
+    dashboard = FakeDashboard()
+    dashboard.import_polls = 1_000
+    rt = signed_in(dashboard, tmp_path)
+    project_id = local_project(dashboard)
+    dashboard.connect_server(project_id)
+    dashboard.server_sessions[project_id] = 400
+
+    first = invoke(rt, ["dashboard", "--project", project_id, "project", "confirm", "--json"])
+
+    assert first.exit_code != 0
+    error = only_json(first)["error"]
+    assert error["code"] == "SYNC_IN_PROGRESS"
+    assert "200 of 400" in error["message"]
+    assert "project confirm" in error["message"]
+    assert dashboard.projects[project_id]["setup"]["status"] == "pending"
+
+    dashboard.importing[project_id] = 0
+    second = invoke(rt, ["dashboard", "--project", project_id, "project", "confirm", "--json"])
+
+    assert second.exit_code == 0, second.output
+    assert only_json(second)["setupComplete"] is True
+    # The rerun waited for the running import instead of starting another.
+    assert len(dashboard.sent("POST", f"/projects/{project_id}/sessions/sync")) == 1
+
+
+def test_that_project_confirm_fails_with_the_import_error_when_the_sync_fails(
+    tmp_path: Path,
+) -> None:
+    dashboard = FakeDashboard()
+    dashboard.import_failure = "The server stopped answering session reads."
+    rt = signed_in(dashboard, tmp_path)
+    project_id = local_project(dashboard)
+    dashboard.connect_server(project_id)
+    dashboard.server_sessions[project_id] = 4
+
+    result = invoke(rt, ["dashboard", "--project", project_id, "project", "confirm", "--json"])
+
+    assert result.exit_code != 0
+    error = only_json(result)["error"]
+    assert error["code"] == "SYNC_FAILED"
+    assert "The server stopped answering session reads." in error["message"]
+    assert "project confirm" in error["message"]
     assert dashboard.projects[project_id]["setup"]["status"] == "pending"
 
 
@@ -792,6 +937,30 @@ def test_that_init_with_dashboard_creates_the_project_before_writing_any_file(
     assert f"parlant dashboard --project {project['id']} project confirm" in result.output
     # Confirming waits for the server; init never completes setup on its own.
     assert project["setup"]["status"] == "pending"
+
+
+def test_that_init_with_dashboard_json_lists_the_next_steps_ending_in_confirm(
+    tmp_path: Path,
+) -> None:
+    # A coding agent reads only the JSON; the human panel is not printed there.
+    target = tmp_path / "support-bot"
+    dashboard = FakeDashboard()
+    rt = signed_in(dashboard, tmp_path)
+
+    result = invoke(rt, ["init", str(target), *INIT_WITH_DASHBOARD, "--json"])
+
+    assert result.exit_code == 0, result.output
+    [project] = dashboard.projects.values()
+    report = only_json(result)
+    assert report["projectId"] == project["id"]
+    assert report["nextSteps"] == [
+        f"cd {target}",
+        "uv sync",
+        "Set OPENROUTER_API_KEY in .env.",
+        "./run.sh (run.cmd on Windows) starts the server; it connects to the dashboard on its own.",
+        f"parlant dashboard --project {project['id']} project check",
+        f"parlant dashboard --project {project['id']} project confirm",
+    ]
 
 
 def test_that_init_with_dashboard_creates_the_project_in_the_given_workspace(

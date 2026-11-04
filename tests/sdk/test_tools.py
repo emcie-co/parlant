@@ -14,7 +14,6 @@
 
 import asyncio
 from typing import Any, cast
-from parlant.core.async_utils import default_done_callback
 from parlant.core.customers import CustomerStore
 from parlant.core.services.tools.plugins import PluginServer, tool as plugin_tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -319,7 +318,8 @@ class Test_that_a_tool_can_update_session_metadata(SDKTest):
 
 class Test_that_agent_utter_follows_rules(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.booked_event = asyncio.Event()
+        self.release_booking = asyncio.Event()
+        self.booking_tasks: list[asyncio.Task[str]] = []
 
         self.agent = await server.create_agent(
             id="tools-agent-7",
@@ -332,18 +332,15 @@ class Test_that_agent_utter_follows_rules(SDKTest):
 
         @p.tool
         async def start_flight_booking(context: ToolContext) -> ToolResult:
-            async def book_flight() -> None:
-                await asyncio.sleep(3)  # Simulate booking delay
-
-                self.booked_event.set()
-
-                await p.Agent.current.utter(
+            async def book_flight() -> str:
+                await self.release_booking.wait()
+                return await p.Agent.current.utter(
                     rules=[
                         {"content": "tell the customer the booking is confirmed"},
                     ],
                 )
 
-            asyncio.create_task(book_flight()).add_done_callback(default_done_callback())
+            self.booking_tasks.append(asyncio.create_task(book_flight()))
 
             return ToolResult(
                 data={"status": "booking in progress"},
@@ -358,22 +355,37 @@ class Test_that_agent_utter_follows_rules(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message_event(
-            customer_message="Please book my flight to Paris",
-            recipient=self.agent,
-        )
+        try:
+            response = await ctx.send_and_receive_message_event(
+                customer_message="Please book my flight to Paris",
+                recipient=self.agent,
+            )
+            initial_message = get_message(response)
+            assert await nlp_test(
+                initial_message, "it says the booking will be confirmed shortly"
+            ), f"Expected an in-progress booking reply, got: {initial_message!r}"
+            assert self.booking_tasks, "Expected the booking tool to start a background task"
 
-        assert await nlp_test(
-            get_message(response), "it says the booking will be confirmed shortly"
-        )
-
-        await asyncio.wait_for(self.booked_event.wait(), timeout=10)
-
-        events = await ctx.receive_message_events(min_offset=response.offset + 1)
-        assert len(events) >= 1, "Expected at least one new agent message after booking"
-
-        last_message = get_message(events[-1])
-        assert await nlp_test(last_message, "it says the booking is confirmed")
+            # Complete the booking only after the initial reply has been checked.
+            self.release_booking.set()
+            messages = await asyncio.wait_for(asyncio.gather(*self.booking_tasks), timeout=60)
+            events = await ctx.receive_message_events(
+                min_offset=response.offset + 1, wait_for_data=0
+            )
+            for message in messages:
+                matching = [event for event in events if get_message(event) == message]
+                assert matching, (
+                    f"Expected persisted follow-up {message!r}, "
+                    f"got: {[get_message(event) for event in events]!r}"
+                )
+                assert all(event.trace_id != response.trace_id for event in matching)
+                assert await nlp_test(message, "it says the booking is confirmed"), (
+                    f"Expected a booking confirmation, got: {message!r}"
+                )
+        finally:
+            for task in self.booking_tasks:
+                task.cancel()
+            await asyncio.gather(*self.booking_tasks, return_exceptions=True)
 
 
 class Test_that_compass_agent_utter_follows_turn_directives(SDKTest):

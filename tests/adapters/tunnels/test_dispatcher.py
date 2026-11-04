@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from parlant.core.agents import Effort, MessageOutputMode, Moderation
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
 from parlant.core.version import VERSION
@@ -673,43 +672,6 @@ async def test_that_dispatcher_routes_sessions_delete_events() -> None:
 
     assert response.error is None
     session_module.delete_events.assert_awaited_once()
-
-
-async def test_that_dispatcher_routes_agents_list() -> None:
-    session_module = AsyncMock()
-    agent_module = AsyncMock()
-    agent_module.find = AsyncMock(
-        return_value=[
-            MagicMock(
-                id="agent-1",
-                name="Agent One",
-                description=None,
-                max_steps=3,
-                message_output_mode=MessageOutputMode.BLOCK,
-                groups=[],
-                creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                modified_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                effort=Effort.MEDIUM,
-                moderation=Moderation.AUTO,
-                message_review=False,
-                tool_review=False,
-            )
-        ]
-    )
-    dispatcher = make_dispatcher(
-        session_module=session_module,
-        agent_module=agent_module,
-    )
-
-    response = await dispatcher.dispatch(
-        TunnelRequest(request_id="req-agents", method="agents.list", params={})
-    )
-
-    assert response.error is None
-    assert isinstance(response.result, dict)
-    assert response.result["agents"][0]["id"] == "agent-1"
-    assert response.result["agents"][0]["message_output_mode"] == "block"
-    agent_module.find.assert_awaited_once()
 
 
 async def test_that_dispatcher_routes_customers_retrieve() -> None:

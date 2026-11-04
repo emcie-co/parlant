@@ -367,7 +367,7 @@ async def container(
             assert model == "bare"
             generator_type = RoutedGeminiSchematicGenerator[schema]  # type: ignore[valid-type]
             return generator_type(
-                model_name="gemini-3.6-flash",
+                model_name="gemini-3.8-flash",
                 logger=container[Logger],
                 tracer=container[Tracer],
                 meter=container[Meter],

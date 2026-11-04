@@ -223,12 +223,12 @@ export function ChatWidget(props: ChatWidgetProps) {
   const [dismissed, setDismissed] = useState(false);
   // Reported by the panel, so the launcher's live dot turns red with the panel's banner.
   const [connectionIssue, setConnectionIssue] = useState(false);
-  // WebMCP (MCN-407): the tool is registered here, from the first render, because the panel
+  // WebMCP: the tool is registered here, from the first render, because the panel
   // mounts lazily; the panel publishes how to ask once it is up, and reports the agent's name.
   const askAgent = useRef<AskAgent | null>(null);
   const [agentName, setAgentName] = useState<string | null>(null);
   // Set as a call opens the chat, so a panel that mounts for it creates its session as the
-  // agent's; whoever starts the conversation sets the flag (Yam, 2026-11-04).
+  // agent's; whoever starts the conversation sets the flag.
   const agentIsOpening = useRef(false);
   useWebMCPTool({
     enabled: props.webmcp ?? true,
@@ -614,7 +614,7 @@ function ChatPanel({
   }, [transport]);
 
   const name = title ?? agent?.name ?? "Assistant";
-  // The visitor's own AI agent asks through this same conversation (WebMCP, MCN-407).
+  // The visitor's own AI agent asks through this same conversation (WebMCP).
   const ask = useWebMCPConversation({
     sessionId,
     start: () => {

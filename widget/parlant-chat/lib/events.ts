@@ -73,7 +73,7 @@ export interface ChatMessage {
   askedBy?: string;
 }
 
-/** The marker a message carries when the customer's own AI agent asked it (WebMCP, MCN-407). */
+/** The marker a message carries when the customer's own AI agent asked it (WebMCP). */
 export const ASKED_BY_CUSTOMER_AGENT = "customer_agent";
 export const ASKED_BY_METADATA = { parlant_widget: { asked_by: ASKED_BY_CUSTOMER_AGENT } };
 

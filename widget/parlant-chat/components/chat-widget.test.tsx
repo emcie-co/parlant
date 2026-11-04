@@ -1771,7 +1771,7 @@ describe("default video avatar", () => {
   });
 });
 
-// --- WebMCP: the AI agent in the visitor's browser (MCN-407) -----------------------------
+// --- WebMCP: the AI agent in the visitor's browser ---------------------------------------
 
 type BrowserAgentTool = {
   name: string;

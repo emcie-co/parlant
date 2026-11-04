@@ -605,7 +605,7 @@ describe("allowing more and staying signed in", () => {
   });
 });
 
-describe("ParlantTransport for the browser's agent (MCN-407)", () => {
+describe("ParlantTransport for the browser's agent", () => {
   it("creates a session an agent represents when asked", async () => {
     const server = fakeParlantServer();
     const transport = new ParlantTransport({

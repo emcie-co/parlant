@@ -13,7 +13,7 @@ import { useEffect, useRef, type MutableRefObject } from "react";
 import { ASKED_BY_METADATA, type AttachmentRef, type ChatMessage } from "../lib/events";
 import type { Phase } from "./use-parlant-stream";
 
-/** The tool's name on every site (Yam, 2026-11-04). A page that already has one gets `ask_agent_2`, and so on. */
+/** The tool's name on every site. A page that already has one gets `ask_agent_2`, and so on. */
 export const WEBMCP_TOOL_NAME = "ask_agent";
 
 /** Why an AI agent should ask here rather than read the site; the same words as the agent card's. */

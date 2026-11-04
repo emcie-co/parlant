@@ -348,6 +348,8 @@ def restore(calls: Sequence[ToolCallPart], blob: Mapping[str, Any], model: str) 
             return False
         native = artifact.get(CALL)
         thoughts = artifact.get(THOUGHTS)
+        # Interactions signs thought steps, not standard function calls. Keep
+        # their saved artifacts intact when restoring the call below.
         if (
             not isinstance(native, dict)
             or native.get("type") != "function_call"
@@ -355,8 +357,6 @@ def restore(calls: Sequence[ToolCallPart], blob: Mapping[str, Any], model: str) 
             or not native["id"]
             or native.get("name") != call.name
             or native.get("arguments") != dict(call.args)
-            or not isinstance(native.get("signature"), str)
-            or not native["signature"]
             or not isinstance(thoughts, list)
             or any(not isinstance(t, dict) or t.get("type") != "thought" for t in thoughts)
         ):

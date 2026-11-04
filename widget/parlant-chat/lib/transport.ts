@@ -122,6 +122,12 @@ export class SessionClaimError extends Error {
   }
 }
 
+export interface EnsureSessionOptions {
+  /** Create the session as one an AI agent holds for the customer (`customer_represented_by_an_agent`),
+   *  as when the agent in the visitor's browser asks first (WebMCP). A stored session is reused as is. */
+  representedByAnAgent?: boolean;
+}
+
 export class ParlantTransport {
   private readonly base: string;
   private readonly agentId: string;
@@ -252,7 +258,7 @@ export class ParlantTransport {
    *
    *  Runs under a lock shared by every widget and tab on this server, so a new visitor who
    *  opens several at once gets one guest identity, and one conversation per agent. */
-  async ensureSession(): Promise<string> {
+  async ensureSession(options: EnsureSessionOptions = {}): Promise<string> {
     return await this.locks.request(`parlant:session:${this.base}`, async () => {
       const cached = this.storedSessionId();
       if (cached) return cached;
@@ -261,7 +267,10 @@ export class ParlantTransport {
         this.request(`${this.base}/sessions?allow_greeting=false`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ agent_id: this.agentId }),
+          body: JSON.stringify({
+            agent_id: this.agentId,
+            ...(options.representedByAnAgent ? { customer_represented_by_an_agent: true } : {}),
+          }),
         });
 
       let res: Response;
@@ -453,9 +462,11 @@ export class ParlantTransport {
     sessionId: string,
     message: string,
     attachments?: AttachmentRef[],
+    metadata?: Record<string, unknown>,
   ): Promise<{ offset: number }> {
     const body: Record<string, unknown> = { kind: "message", source: "customer", message };
     if (attachments?.length) body.attachments = attachments;
+    if (metadata) body.metadata = metadata;
 
     const res = await this.request(`${this.base}/sessions/${sessionId}/events`, {
       method: "POST",

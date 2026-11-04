@@ -604,3 +604,50 @@ describe("allowing more and staying signed in", () => {
     expect(authorization(fetchMock.mock.calls[3])).toBe("Bearer fresh-token");
   });
 });
+
+describe("ParlantTransport for the browser's agent (MCN-407)", () => {
+  it("creates a session an agent represents when asked", async () => {
+    const server = fakeParlantServer();
+    const transport = new ParlantTransport({
+      serverUrl: SERVER,
+      agentId: "agent",
+      storage: new MemoryStorage(),
+    });
+
+    await transport.ensureSession({ representedByAnAgent: true });
+
+    const create = server.fetch.mock.calls.find(
+      (call) => (call[1] as RequestInit | undefined)?.method === "POST" && String(call[0]).endsWith("/sessions?allow_greeting=false"),
+    );
+    expect(JSON.parse(String((create?.[1] as RequestInit).body))).toEqual({
+      agent_id: "agent",
+      customer_represented_by_an_agent: true,
+    });
+  });
+
+  it("sends a message's metadata when given, and none otherwise", async () => {
+    const server = fakeParlantServer();
+    const transport = new ParlantTransport({
+      serverUrl: SERVER,
+      agentId: "agent",
+      storage: new MemoryStorage(),
+    });
+    const sessionId = await transport.ensureSession();
+
+    await transport.sendMessage(sessionId, "hello");
+    await transport.sendMessage(sessionId, "asked for me", undefined, {
+      parlant_widget: { asked_by: "customer_agent" },
+    });
+
+    const bodies = server.fetch.mock.calls
+      .filter((call) => String(call[0]).endsWith(`/sessions/${sessionId}/events`))
+      .map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+    expect(bodies[0]).toEqual({ kind: "message", source: "customer", message: "hello" });
+    expect(bodies[1]).toEqual({
+      kind: "message",
+      source: "customer",
+      message: "asked for me",
+      metadata: { parlant_widget: { asked_by: "customer_agent" } },
+    });
+  });
+});

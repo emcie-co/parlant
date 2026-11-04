@@ -58,7 +58,10 @@ export function MessageBubble({
     (reasoning?.steps.length ?? 0) > 0;
 
   return (
-    <div className={cn("parlant-msg", isCustomer ? "parlant-msg--customer" : "parlant-msg--agent")}>
+    <div
+      className={cn("parlant-msg", isCustomer ? "parlant-msg--customer" : "parlant-msg--agent")}
+      data-asked-by={message.askedBy}
+    >
       {/* Collapsible reasoning: a "Thought for Xs" toggle above the reply it produced. */}
       {showReasoning && reasoning && <ReasoningDisclosure summary={reasoning} />}
 

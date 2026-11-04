@@ -168,6 +168,13 @@ cli.add_command(docs)
 # What whoever deploys the site, often a coding agent, must do so personal AI agents
 # can reach the agent. The pointers are the ones that got plain assistants to the
 # card.
+WEBMCP_NOTE = """\
+The widget also lets the AI agent in a visitor's browser talk to your agent
+(WebMCP; in Chrome behind a flag today). On every page the widget is on, it
+registers an ask_agent tool, and that agent's questions and your agent's
+replies show up in the chat, which opens when one lands. Nothing to add; pass
+webmcp={false} to turn it off."""
+
 AGENT_CARD_STEPS = """\
 Next: let people's AI agents talk to your agent.
 
@@ -262,6 +269,8 @@ def widget_init(destination: Optional[Path], force: bool) -> None:
     click.echo(f'    import {{ ChatWidget }} from "./{target.name}";')
     click.echo("")
     click.echo('    <ChatWidget serverUrl="http://localhost:8800" agentId="your-agent-id" />')
+    click.echo("")
+    click.echo(WEBMCP_NOTE)
     click.echo("")
     click.echo(AGENT_CARD_STEPS)
 

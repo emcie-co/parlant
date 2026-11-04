@@ -26,7 +26,7 @@ import parlant.sdk as p
 
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
 from parlant.core.health import ENGINE_TURN_KIND, HealthReporter
-from tests.sdk.utils import Context, SDKTest
+from tests.sdk.utils import Context, SDKTest, get_message
 
 
 def test_that_server_defaults_to_openrouter() -> None:
@@ -445,26 +445,39 @@ class Test_that_healthz_lists_recent_diagnostic_report_links(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive_message(
+        response = await ctx.send_and_receive_message_event(
             customer_message="Hello there",
             recipient=self.agent,
         )
-        assert len(response) > 0
+        assert get_message(response)
+        trace_id = response.trace_id
+        assert isinstance(trace_id, str) and trace_id
 
+        # The reply is visible before background finalization closes its trace.
+        # Wait for this turn's report, rather than accepting an unrelated report.
+        deadline = time.monotonic() + 10
+        reports = []
         async with httpx.AsyncClient() as client:
-            health_response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
-            assert health_response.status_code == 200
+            while (remaining := deadline - time.monotonic()) > 0:
+                health_response = await client.get(
+                    f"{ctx.base_url}/healthz", timeout=min(2.0, remaining)
+                )
+                assert health_response.status_code == 200
 
-            data = health_response.json()
-            reports = data.get("diagnostic_reports")
-            assert isinstance(reports, list), (
-                f"Expected diagnostic_reports in /healthz after a turn, got {data.keys()}"
-            )
-            assert len(reports) >= 1
-            entry = reports[0]
-            assert entry["report_uri"].startswith("/debug/reports/")
-            assert entry["trace_id"]
-            assert entry["outcome"] in ("success", "error")
+                data = health_response.json()
+                reports = data.get("diagnostic_reports")
+                assert isinstance(reports, list), (
+                    f"Expected diagnostic_reports in /healthz after a turn, got {data.keys()}"
+                )
+                if entry := next((item for item in reports if item["trace_id"] == trace_id), None):
+                    assert entry["report_uri"] == f"/debug/reports/{trace_id}"
+                    assert entry["outcome"] in ("success", "error")
+                    return
+                await asyncio.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
+        pytest.fail(
+            f"No diagnostic report for trace {trace_id} within 10s; last reports: {reports}"
+        )
 
 
 class Test_that_health_thresholds_bound_in_configure_container_change_the_healthz_status(SDKTest):

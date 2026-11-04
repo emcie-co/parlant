@@ -753,7 +753,7 @@ def register_litellm_models(
 
     def schematic_model_resolver(route: str, qualifiers: Mapping[str, str]) -> str:
         if route.startswith("review"):
-            return "gemini/gemini-3.6-flash"
+            return "gemini/gemini-3.8-flash"
         elif route.startswith("matching.distill"):
             return "gemini/gemini-3.5-flash-lite"
         else:  # default

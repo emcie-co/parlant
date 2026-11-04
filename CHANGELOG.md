@@ -38,6 +38,9 @@ Each entry says what changed and what it means for you, under `Added`,
 - On phones and tablets, the chat widget closes the on-screen keyboard once a
   message is sent, whether typed or picked from the suggestions, so the reply
   isn't hidden behind it.
+- With the LiteLLM provider, review routes now default to
+  `gemini/gemini-3.8-flash` instead of `gemini/gemini-3.6-flash`, the same
+  model the Gemini provider already uses for them.
 - The `lead-gen` scaffold's agent no longer guesses when a visitor asks about
   the business, its products or their project and its product knowledge has no
   answer. It says it's a great question but hard to answer properly in the

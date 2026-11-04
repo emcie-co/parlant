@@ -50,6 +50,21 @@ Each entry says what changed and what it means for you, under `Added`,
   before. To make that possible, `record_lead` now accepts a lead with just a
   goal and a contact: `buying_for` and `role` are optional, and an unknown one
   scores nothing.
+- `parlant dashboard project confirm` finishes a local or self-hosted project
+  even when its server already holds sessions, such as from trying the agent.
+  It imports them into the dashboard first, as the dashboard's Sync does, and
+  then completes the setup, so the project no longer stays at "Finish setup".
+  An import that takes longer than about 90 seconds stops with
+  `SYNC_IN_PROGRESS`; run `confirm` again to keep waiting for the same import.
+  A failed import stops with `SYNC_FAILED` and its reason.
+- `parlant init --dashboard --json` and `parlant dashboard project create --json`
+  for a local or self-hosted project now list `nextSteps`, ending with
+  `project confirm`. The scaffolded `AGENTS.md` tells coding agents to confirm
+  the project once its server is connected.
+- After creating a managed project whose setup check found how to run it,
+  `parlant dashboard project create` now points to
+  `parlant dashboard --project ID deploy`: the first live deploy completes the
+  setup. The dashboard's setup page is optional for reviewing the settings.
 
 ### Deprecated
 

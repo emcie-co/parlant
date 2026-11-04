@@ -500,7 +500,17 @@ def init(
             {
                 "dir": str(target),
                 "files": [str(path.relative_to(target)) for path in files],
-                **({"projectId": project_id, "envFile": env_file} if project_id else {}),
+                **(
+                    {
+                        "projectId": project_id,
+                        "envFile": env_file,
+                        "nextSteps": _dashboard_next_steps(
+                            target, manager, project_name, project_id
+                        ),
+                    }
+                    if project_id
+                    else {}
+                ),
             }
         )
         return
@@ -539,6 +549,24 @@ def _print_agents_note(console: Console) -> None:
     console.print()
     console.print("For agents: please first read AGENTS.md in the created project.")
     console.print()
+
+
+def _dashboard_next_steps(
+    target: Path,
+    manager: PackageManager,
+    project_name: str,
+    project_id: str,
+) -> list[str]:
+    """The `--json` counterpart of the Next panel. Until `project confirm`, the
+    dashboard shows the project as "Finish setup"."""
+    return [
+        *([] if target == Path(".") else [f"cd {target}"]),
+        install_command(manager, project_name),
+        "Set OPENROUTER_API_KEY in .env.",
+        "./run.sh (run.cmd on Windows) starts the server; it connects to the dashboard on its own.",
+        f"parlant dashboard --project {project_id} project check",
+        f"parlant dashboard --project {project_id} project confirm",
+    ]
 
 
 def _print_dashboard_next_steps(

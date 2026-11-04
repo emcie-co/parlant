@@ -301,6 +301,23 @@ def test_managed_creation_creates_first_then_saves_settings_through_setup(
     assert f"parlant dashboard --project {project_id} deploy" in result.output
 
 
+def test_that_creating_a_managed_project_points_to_deploying_from_the_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A checked project is finished by its first live deploy, which the CLI
+    # can start; sending a coding agent to the dashboard strands the setup.
+    authorize_creation(monkeypatch)
+    backend = FakeBackend()
+
+    result = CliRunner().invoke(cli, CREATE_ARGS + ["--yes"], obj=runtime(backend))
+
+    assert result.exit_code == 0, result.output
+    project_id = json.loads(backend.sent("POST", "/projects")[0].content)["id"]
+    [next_line] = [line for line in result.output.splitlines() if line.startswith("Next:")]
+    assert f"parlant dashboard --project {project_id} deploy" in next_line
+    assert "setup page" not in next_line
+
+
 def test_check_result_shows_detected_run_command_and_warnings_without_saving(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

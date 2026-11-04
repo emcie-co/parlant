@@ -5014,6 +5014,16 @@ parlant dashboard project check   # does the dashboard see the running server?
 parlant dashboard agent list      # which agents does it serve?
 ```
 
+A new dashboard project shows as "Finish setup" until it is confirmed. Once
+`project check` reports the server connected, finish it yourself:
+
+```sh
+parlant dashboard project confirm
+```
+
+It also imports any sessions the server already holds, such as from trying the
+agent. If it says the import is still running, run it again.
+
 `parlant dashboard --help` lists the rest, such as reading sessions and traces.
 
 ## Why guessing the code can go wrong here

@@ -830,6 +830,23 @@ def test_that_the_scaffolded_project_ships_a_ruff_config_its_code_already_meets(
         assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+def test_that_the_agents_file_says_to_confirm_the_project_once_its_server_is_running(
+    runner: CliRunner,
+) -> None:
+    # Until confirmed, the dashboard shows the project as "Finish setup".
+    with runner.isolated_filesystem():
+        result = runner.invoke(cli, ["init", "bot", "--package-manager", "uv", "--no-git"])
+
+        assert result.exit_code == 0, result.output
+
+        agents = Path("bot/AGENTS.md").read_text()
+
+        heading = "## Before you start"
+        section = agents[agents.index(heading) : agents.index("\n## ", agents.index(heading) + 1)]
+        assert "parlant dashboard project confirm" in section
+        assert "sessions" in section
+
+
 @pytest.mark.parametrize("scaffold", SCAFFOLDS)
 def test_that_the_agents_file_asks_for_alternative_outcomes_before_changing_behavior(
     runner: CliRunner,

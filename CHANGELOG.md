@@ -11,6 +11,17 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
+## [Unreleased]
+
+### Changed
+
+- `parlant dashboard` commands now tell the Parlant dashboard which command
+  sent each request. Every request carries `User-Agent: parlant-cli/<version>`,
+  the command's name in `X-Parlant-CLI-Command` (for example
+  `parlant dashboard session list`, never its arguments or option values),
+  and an `X-Parlant-CLI-Invocation` id shared by every request from one run.
+  The dashboard uses them to show your CLI activity as the commands you ran.
+
 ## [4.0.2] - 2026-11-05
 
 ### Added

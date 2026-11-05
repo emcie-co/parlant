@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import uuid
+from importlib import metadata
 from typing import Any, Iterator, Mapping
 
+import click
 import httpx
 from httpx_sse import connect_sse
 
@@ -75,6 +77,38 @@ CLIENT_ID = "parlant-cli"
 QUOTA_RESPONSE_MAX_BYTES = 64 * 1024
 
 
+def _cli_version() -> str:
+    try:
+        return metadata.version("parlant")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _running_command() -> str | None:
+    """The command being run, as typed but without its arguments: `parlant dashboard logs`.
+
+    Click's command path holds only command names, never option or argument
+    values, which can carry ids and search text the platform must not keep.
+    """
+    context = click.get_current_context(silent=True)
+    if context is None:
+        return None
+    names = context.command_path.split()[1:]
+    return " ".join(["parlant", *names])
+
+
+def _identity_headers(runtime: DashboardRuntime) -> dict[str, str]:
+    """What the platform's activity log needs to show this request as part of one CLI run."""
+    headers = {
+        "user-agent": f"parlant-cli/{_cli_version()}",
+        "x-parlant-cli-invocation": runtime.invocation_id,
+    }
+    command = _running_command()
+    if command is not None:
+        headers["x-parlant-cli-command"] = command
+    return headers
+
+
 def stream(
     runtime: DashboardRuntime,
     path: str,
@@ -83,7 +117,11 @@ def stream(
     query: Mapping[str, Any] | None = None,
 ) -> Iterator[tuple[str, str]]:
     """Yield server-sent events and raise on stream errors."""
-    headers = {"x-request-id": str(uuid.uuid4()), "authorization": f"Bearer {access_token}"}
+    headers = {
+        **_identity_headers(runtime),
+        "x-request-id": str(uuid.uuid4()),
+        "authorization": f"Bearer {access_token}",
+    }
 
     try:
         with connect_sse(
@@ -122,6 +160,7 @@ def request(
 ) -> httpx.Response:
     """Send an HTTP request and translate transport errors. Status handling is left to callers."""
     headers: dict[str, str] = {
+        **_identity_headers(runtime),
         "x-request-id": str(uuid.uuid4()),
     }
 

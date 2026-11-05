@@ -11,7 +11,7 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
-## [Unreleased]
+## [4.0.3] - 2026-11-05
 
 ### Changed
 

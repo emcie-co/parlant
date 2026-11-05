@@ -672,11 +672,62 @@ class Test_that_a_tool_can_read_the_current_effort_level(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive_message(
-            customer_message="How do I reset my password?",
-            recipient=self.agent,
+        session = await ctx.client.sessions.create(agent_id=self.agent.id, allow_greeting=False)
+        customer_event = await ctx.client.sessions.create_event(
+            session_id=session.id,
+            kind="message",
+            source="customer",
+            message="How do I reset my password?",
         )
-        assert self.seen_effort is p.Effort.HIGH
+        trace_id = customer_event.trace_id
+        assert isinstance(trace_id, str) and trace_id
+
+        # The property is read inside the tool. Its persisted result proves the
+        # call finished; this test need not wait for another model-generated reply.
+        deadline = time.monotonic() + 60
+        next_offset = customer_event.offset + 1
+        events: list[ClientEvent] = []
+        evidence: list[dict[str, Any]] = []
+        calls: list[dict[str, Any]] = []
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                batch = await asyncio.wait_for(
+                    ctx.client.sessions.list_events(
+                        session_id=session.id,
+                        trace_id=trace_id,
+                        min_offset=next_offset,
+                        wait_for_data=5,
+                    ),
+                    timeout=remaining,
+                )
+            except asyncio.TimeoutError:
+                break
+            events.extend(batch)
+            if batch:
+                next_offset = max(event.offset for event in batch) + 1
+            evidence = [
+                {"kind": event.kind, "offset": event.offset, "data": event.data} for event in events
+            ]
+            assert not any(
+                event.data.get("status") in ("error", "cancelled")
+                for event in events
+                if event.kind == "status"
+            ), f"Turn {trace_id} failed: {evidence!r}"
+            calls = [
+                call
+                for event in events
+                if event.kind == "tool"
+                for call in event.data["tool_calls"]
+                if ToolId.from_string(call["tool_id"]).tool_name == "search_knowledge_base"
+            ]
+            if calls:
+                break
+
+        assert calls, f"No completed knowledge-base tool call in turn {trace_id}: {evidence!r}"
+        assert calls[0]["result"]["data"] == {"results": ["how to reset a password"]}, evidence
+        assert self.seen_effort is p.Effort.HIGH, (
+            f"Expected HIGH inside the tool, got {self.seen_effort!r}; turn {trace_id}: {evidence!r}"
+        )
 
 
 class Test_that_a_guest_reads_a_tools_narration_under_the_production_authorization_policy(SDKTest):

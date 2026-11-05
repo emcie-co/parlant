@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import httpx
@@ -45,6 +46,8 @@ class DashboardRuntime:
     sleep: Callable[[float], None]
     project: str | None = None
     workspace: str | None = None
+    invocation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    """Names this CLI run on every request, so the platform shows it as one action."""
 
 
 def resolve_host() -> str:

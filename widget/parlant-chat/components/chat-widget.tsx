@@ -2,7 +2,7 @@
 // inline surface that fills its container. Composed from the hooks and primitives —
 // copy this file and rearrange it however you like.
 
-import { type CSSProperties, type MutableRefObject, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MutableRefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "../styles.css";
 import type { AttachmentRef, ReasoningMode, StreamSpeed, StreamStyle } from "../lib/events";
@@ -122,6 +122,13 @@ export interface ChatWidgetProps {
    *  conversation isn't resumed). Use it when the page has already asked the visitor something,
    *  e.g. a form that opens the chat. Sent once per mount: pass it only on the visit it's for. */
   initialMessage?: string;
+  /** The `data` of a custom event the widget adds to the conversation (source "customer_ui"),
+   *  to tell the agent about the page, e.g. `{ type: "page_view", page: "/pricing" }`. It's
+   *  added once the conversation exists, before the first message of a new one, and again
+   *  when it changes or the conversation does. It doesn't start a reply: the agent reads it in
+   *  the history on the visitor's next message. The server must let guests (and customers) add
+   *  custom events to their own sessions, as Parlant's default policy does. */
+  customEvent?: Record<string, unknown>;
   /** UTM parameters added to every http(s) link the agent writes (Markdown links and bare
    *  URLs), without the `utm_` prefix: `{ source: "site-chat", medium: "chat-widget" }`.
    *  A `utm_*` key the link already has is kept. Attachments and the "Powered by Parlant" link
@@ -454,6 +461,9 @@ export function ChatWidget(props: ChatWidgetProps) {
   );
 }
 
+/** The custom event last sent into each conversation in this tab, and its request. */
+const sentCustomEvents = new Map<string, { key: string; done: Promise<void> }>();
+
 function ChatPanel({
   serverUrl,
   agentId,
@@ -478,6 +488,7 @@ function ChatPanel({
   soundTheme,
   placeholder,
   initialMessage,
+  customEvent,
   utm,
   utmLinks = "all",
   onLabel,
@@ -614,12 +625,31 @@ function ChatPanel({
   }, [transport]);
 
   const name = title ?? agent?.name ?? "Assistant";
+  // The custom event goes into each conversation once, and again when it changes. Remembered
+  // per tab, so a remount (another page with the same event, a resize) doesn't repeat it.
+  const customEventKey = customEvent ? JSON.stringify(customEvent) : null;
+  const sendCustomEvent = useCallback(
+    (id: string): Promise<void> => {
+      if (!customEventKey) return Promise.resolve();
+      const sent = sentCustomEvents.get(id);
+      if (sent?.key === customEventKey) return sent.done;
+      const done = transport
+        .sendCustomEvent(id, JSON.parse(customEventKey))
+        .catch((e) => console.warn("[parlant] failed to send the custom event", e));
+      sentCustomEvents.set(id, { key: customEventKey, done });
+      return done;
+    },
+    [transport, customEventKey],
+  );
+
   // The visitor's own AI agent asks through this same conversation (WebMCP).
   const ask = useWebMCPConversation({
     sessionId,
-    start: () => {
+    start: async () => {
       clearNotice();
-      return start({ representedByAnAgent: true });
+      const id = await start({ representedByAnAgent: true });
+      await sendCustomEvent(id);
+      return id;
     },
     send,
     messages,
@@ -692,7 +722,8 @@ function ChatPanel({
     onOpen?.(); // input mode expands on send
     clearNotice(); // a message in the new session dismisses the "session expired" notice
     if (sessionId) {
-      send(text, attachments);
+      // Already sent unless the conversation is only just starting; then it goes first.
+      void sendCustomEvent(sessionId).then(() => send(text, attachments));
     } else {
       pendingSendRef.current = { text, attachments };
       void start();
@@ -706,13 +737,16 @@ function ChatPanel({
       void start();
     }
   }, []);
+  // A first message waits for the custom event, so the agent reads the page before it.
   useEffect(() => {
-    if (sessionId && pendingSendRef.current) {
-      const queued = pendingSendRef.current;
+    if (!sessionId) return;
+    const queued = pendingSendRef.current;
+    void sendCustomEvent(sessionId).then(() => {
+      if (!queued || pendingSendRef.current !== queued) return;
       pendingSendRef.current = null;
       send(queued.text, queued.attachments);
-    }
-  }, [sessionId, send]);
+    });
+  }, [sessionId, send, sendCustomEvent]);
 
   // Blip once per newly-arrived message — only for *fresh* (live) ones, so loading a
   // history/backlog stays silent. Each id is remembered so a message never re-sounds.

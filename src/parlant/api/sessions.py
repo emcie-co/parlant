@@ -1810,6 +1810,17 @@ def create_router(
                 request=request,
                 session=await app.sessions.read(session_id=session_id),
             )
+            # A guest's or customer's own page reports what happens in its UI (say, which
+            # page they're on); events from other sources stay with the backend.
+            principal = await authorization_policy.resolve_principal(request)
+            if (
+                isinstance(principal, GuestPrincipal | CustomerPrincipal)
+                and params.source != EventSourceDTO.CUSTOMER_UI
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail='A customer\'s own custom events must use source "customer_ui"',
+                )
             return await _add_custom_event(session_id, params)
 
         elif params.kind == EventKindDTO.STATUS:

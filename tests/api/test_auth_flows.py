@@ -393,6 +393,45 @@ async def test_that_a_guest_can_post_a_message_into_its_own_session_but_not_a_fo
     assert foreign_response.status_code == status.HTTP_403_FORBIDDEN
 
 
+async def test_that_a_guest_can_post_a_ui_custom_event_into_its_own_session_but_not_a_foreign_one(
+    secure_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    session_a, token_a = await create_guest_session(secure_client, agent_id)
+    _session_b, token_b = await create_guest_session(secure_client, agent_id)
+    page_view = {
+        "kind": "custom",
+        "source": "customer_ui",
+        "data": {"type": "page_view", "page": "/pricing"},
+    }
+
+    own_response = await secure_client.post(
+        f"/sessions/{session_a}/events", json=page_view, headers=bearer(token_a)
+    )
+    assert own_response.status_code == status.HTTP_201_CREATED
+    assert own_response.json()["data"] == page_view["data"]
+
+    foreign_response = await secure_client.post(
+        f"/sessions/{session_a}/events", json=page_view, headers=bearer(token_b)
+    )
+    assert foreign_response.status_code == status.HTTP_403_FORBIDDEN
+
+
+async def test_that_a_guest_cannot_post_a_custom_event_as_another_source(
+    secure_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    session_id, token = await create_guest_session(secure_client, agent_id)
+
+    response = await secure_client.post(
+        f"/sessions/{session_id}/events",
+        json={"kind": "custom", "source": "ai_agent", "data": {"type": "page_view"}},
+        headers=bearer(token),
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
 ###############################################################################
 # Customer flows
 ###############################################################################

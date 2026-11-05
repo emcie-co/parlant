@@ -359,6 +359,7 @@ class DefaultPermissionGate(PermissionGate):
             Operation.CREATE_CUSTOMER_EVENT,
             Operation.CREATE_CUSTOMER_EVENT_WITH_ATTACHMENTS,
             Operation.CREATE_STATUS_EVENT,
+            Operation.CREATE_CUSTOM_EVENT,
         }
     )
 
@@ -375,6 +376,7 @@ class DefaultPermissionGate(PermissionGate):
             Operation.CREATE_CUSTOMER_EVENT,
             Operation.CREATE_CUSTOMER_EVENT_WITH_ATTACHMENTS,
             Operation.CREATE_STATUS_EVENT,
+            Operation.CREATE_CUSTOM_EVENT,
         }
     )
 
@@ -462,6 +464,7 @@ class CompositeAuthorizationPolicy(AuthorizationPolicy):
                 Operation.LIST_EVENTS: RateLimitItemPerMinute(240),
                 Operation.CREATE_CUSTOMER_EVENT: RateLimitItemPerMinute(30),
                 Operation.CREATE_STATUS_EVENT: RateLimitItemPerMinute(60),
+                Operation.CREATE_CUSTOM_EVENT: RateLimitItemPerMinute(30),
             },
             trusted_proxies=trusted_proxies,
         )

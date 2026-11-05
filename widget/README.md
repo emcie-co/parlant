@@ -846,6 +846,7 @@ which is exactly what the sample agent's `describe_attached_image` does before r
 | `maxVisibleSuggestions` | `number` | `3` | Maximum visible chips, taking opening suggestions before unchosen persistent ones. |
 | `openingSuggestions` | `string[]` | — | Conversation starters shown as chips; clicking one sends it. They appear only before the conversation begins: while the card is collapsed in `input`/`bar`, and while the open transcript is empty in `floating`/`inline`. |
 | `initialMessage` | `string` | — | Sent as the customer's first message, in a new conversation started for it. See [Opening with a message](#opening-with-a-message). |
+| `customEvent` | `Record<string, unknown>` | — | The `data` of a custom event added to the conversation, such as the page the visitor is on. See [Telling the agent about the page](#telling-the-agent-about-the-page). |
 | `customerSound` | `boolean` | `true` | Play a short blip when the customer's message is sent. |
 | `agentSound` | `boolean` | `true` | Play a short blip when an agent reply arrives. |
 | `soundTheme` | `SoundTheme` | `"velvet"` | Which pair of sounds to play — 13 built in, see [Sound themes](#sound-themes). |
@@ -972,6 +973,28 @@ opens the panel.
 
 It's sent once per mount, so pass it only on the visit it's for. On a later visit, render
 without it and the conversation resumes as usual.
+
+### Telling the agent about the page
+
+Pass `customEvent` to add a custom event to the conversation from the visitor's side
+(`kind: "custom"`, `source: "customer_ui"`), for example which page they're on:
+
+```tsx
+<ChatWidget
+  serverUrl="https://your-server"
+  agentId="sales"
+  customEvent={{ type: "page_view", page: "/pricing" }}
+/>
+```
+
+The widget adds it as soon as there's a conversation: on a resumed one when the widget loads,
+and on a new one before its first message, so the agent reads the page before the question.
+It's added again when the value changes or a new conversation starts, and not repeated when a
+widget on another page of the same tab passes the same value. It doesn't start a reply: the
+agent reads it in the history on the visitor's next message.
+
+Guests and signed-in customers may add custom events to their own sessions with the source
+`customer_ui`. If the event fails to send, the widget logs a warning and carries on.
 
 ## Not included (by design)
 

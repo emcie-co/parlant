@@ -478,6 +478,18 @@ export class ParlantTransport {
     return await res.json();
   }
 
+  /** Add a custom event from the customer's UI (source "customer_ui"). It lands in the
+   *  session's history for the agent to read; it doesn't start a reply. */
+  async sendCustomEvent(sessionId: string, data: Record<string, unknown>): Promise<void> {
+    const res = await this.request(`${this.base}/sessions/${sessionId}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "custom", source: "customer_ui", data }),
+    });
+    if (res.status === 403) throw new SessionForbiddenError();
+    if (!res.ok) throw new Error(`Failed to send custom event: ${res.status}`);
+  }
+
   /** Best-effort request to cancel this session's in-flight processing (the "Stop" button). */
   async cancel(sessionId: string): Promise<void> {
     await this.request(`${this.base}/sessions/${sessionId}/events`, {

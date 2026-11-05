@@ -137,6 +137,60 @@ describe("initial message", () => {
   });
 });
 
+describe("custom event", () => {
+  it("sends the custom event into a new conversation before its first message", async () => {
+    const { sent } = server();
+
+    render(
+      <ChatWidget
+        serverUrl={SERVER}
+        agentId="agent"
+        mode="inline"
+        customerSound={false}
+        agentSound={false}
+        customEvent={{ type: "page_view", page: "/pricing" }}
+        initialMessage="How much is Plus?"
+      />,
+    );
+
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent.map((s) => s.body)).toEqual([
+      { kind: "custom", source: "customer_ui", data: { type: "page_view", page: "/pricing" } },
+      { kind: "message", source: "customer", message: "How much is Plus?" },
+    ]);
+  });
+
+  it("sends it into a resumed conversation without a message, and again when it changes", async () => {
+    rememberConversation("resumed-session");
+    const { sent } = server();
+    const widget = (page: string) => (
+      <ChatWidget
+        serverUrl={SERVER}
+        agentId="agent"
+        mode="input"
+        customerSound={false}
+        agentSound={false}
+        customEvent={{ type: "page_view", page }}
+      />
+    );
+
+    const { rerender, unmount } = render(widget("/"));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    rerender(widget("/pricing"));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent.map((s) => [s.sessionId, s.body.data])).toEqual([
+      ["resumed-session", { type: "page_view", page: "/" }],
+      ["resumed-session", { type: "page_view", page: "/pricing" }],
+    ]);
+
+    // Mounting again on the same page doesn't repeat it.
+    unmount();
+    render(widget("/pricing"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent).toHaveLength(2);
+  });
+});
+
 describe("suggestions", () => {
   const chips = (c: HTMLElement) => c.querySelector(".parlant-suggestions");
 

@@ -137,6 +137,122 @@ describe("initial message", () => {
   });
 });
 
+describe("telling the agent about the page", () => {
+  const tellPage = (path: string, notifyAgent: (path: string, data?: Record<string, unknown>) => void) =>
+    notifyAgent(path, { title: path === "/pricing" ? "Pricing" : "Home" });
+
+  afterEach(() => history.replaceState(null, "", "/"));
+
+  it("adds the page to a new conversation before its first message", async () => {
+    history.replaceState(null, "", "/pricing");
+    const { sent } = server();
+
+    render(
+      <ChatWidget
+        serverUrl={SERVER}
+        agentId="agent"
+        mode="inline"
+        customerSound={false}
+        agentSound={false}
+        onPathChanged={tellPage}
+        initialMessage="How much is Plus?"
+      />,
+    );
+
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent.map((s) => s.body)).toEqual([
+      {
+        kind: "custom",
+        source: "customer_ui",
+        data: { title: "Pricing", type: "page_view", path: "/pricing" },
+      },
+      { kind: "message", source: "customer", message: "How much is Plus?" },
+    ]);
+  });
+
+  it("waits for the first message in input mode, then adds the page before it", async () => {
+    const { sent } = server();
+    const { container } = render(
+      <ChatWidget
+        serverUrl={SERVER}
+        agentId="agent"
+        mode="input"
+        customerSound={false}
+        agentSound={false}
+        onPathChanged={tellPage}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent).toHaveLength(0);
+
+    const input = container.querySelector("textarea")!;
+    fireEvent.change(input, { target: { value: "Hi" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent.map((s) => s.body.kind)).toEqual(["custom", "message"]);
+    expect(sent[0].body.data).toEqual({ title: "Home", type: "page_view", path: "/" });
+  });
+
+  it("adds it to a resumed conversation, and again when the path changes", async () => {
+    rememberConversation("resumed-session");
+    const { sent } = server();
+    const widget = (
+      <ChatWidget
+        serverUrl={SERVER}
+        agentId="agent"
+        mode="input"
+        customerSound={false}
+        agentSound={false}
+        onPathChanged={tellPage}
+      />
+    );
+
+    const { unmount } = render(widget);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    history.pushState(null, "", "/pricing");
+    await waitFor(() => expect(sent).toHaveLength(2));
+    // Only the path counts.
+    history.pushState(null, "", "/pricing?plan=plus#faq");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent.map((s) => [s.sessionId, s.body.data])).toEqual([
+      ["resumed-session", { title: "Home", type: "page_view", path: "/" }],
+      ["resumed-session", { title: "Pricing", type: "page_view", path: "/pricing" }],
+    ]);
+
+    // The widget on another load of the same page doesn't repeat it.
+    unmount();
+    render(widget);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent).toHaveLength(2);
+  });
+
+  it("tells the agent nothing about a page the site skips, or without onPathChanged", async () => {
+    rememberConversation("resumed-session");
+    const { sent } = server();
+
+    render(
+      <ChatWidget
+        serverUrl={SERVER}
+        agentId="agent"
+        mode="input"
+        customerSound={false}
+        agentSound={false}
+        onPathChanged={(path, notifyAgent) => {
+          if (path === "/pricing") notifyAgent(path);
+        }}
+      />,
+    );
+    render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent).toHaveLength(0);
+  });
+});
+
 describe("suggestions", () => {
   const chips = (c: HTMLElement) => c.querySelector(".parlant-suggestions");
 

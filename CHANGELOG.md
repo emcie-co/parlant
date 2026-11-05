@@ -25,8 +25,20 @@ Each entry says what changed and what it means for you, under `Added`,
   agent's POPPY ADDRESS, and `parlant widget init` points at the new command.
   `parlant dashboard agent card` still prints the A2A card alone for older
   instructions.
+- The chat widget's `onPathChanged(path, notifyAgent)` tells the agent which page
+  the visitor is on. It's called when the widget loads and when the path changes
+  without a reload; `notifyAgent(path, data?)` adds a custom event
+  (`{ type: "page_view", path, ...data }`, source `customer_ui`) that doesn't start
+  a reply. A new conversation gets it before anything else, so the agent can tell
+  a question asked on your pricing page from one asked on your home page.
 
 ### Changed
+
+- Guests and signed-in customers may add custom events to their own sessions,
+  with source `customer_ui`, up to 4 KB of data and 30 a minute. Until now only
+  the backend could, so a site had to relay page views through its own server
+  with the admin key. Other sources still need the admin key; a custom permission
+  gate that doesn't grant `CREATE_CUSTOM_EVENT` keeps refusing them.
 
 - A chat widget with a video avatar now moves the video into a circle beside
   the agent's name once the conversation scrolls, and the space it leaves

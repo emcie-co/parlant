@@ -41,11 +41,17 @@ export function useParlantSession(
     fresh?: boolean;
     /** How a session created on mount is made, e.g. as one the visitor's AI agent holds (WebMCP). */
     startAs?: EnsureSessionOptions;
+    /** A custom event added to a session this hook creates, before anything else (see
+     *  `EnsureSessionOptions.firstEvent`), e.g. the page the visitor is on. */
+    firstEvent?: Record<string, unknown>;
   },
 ): UseParlantSession {
   const autoStart = options.autoStart ?? true;
   const startAs = useRef(options.startAs);
   startAs.current = options.startAs;
+  const firstEvent = useRef(options.firstEvent);
+  firstEvent.current = options.firstEvent;
+  const readFirstEvent = useCallback(() => firstEvent.current, []);
   // Forget the stored session once per mount, not on every re-bootstrap: a transport
   // rebuilt later (e.g. a new auth identity) resumes as usual.
   const freshPending = useRef(options.fresh ?? false);
@@ -120,7 +126,7 @@ export function useParlantSession(
     const attempt = () => {
       if (stale()) return;
       current
-        .ensureSession(startAs.current)
+        .ensureSession({ ...startAs.current, firstEvent: readFirstEvent })
         .then((id) => {
           if (stale()) return;
           identityRef.current = current.identityId();
@@ -139,7 +145,7 @@ export function useParlantSession(
         });
     };
     attempt();
-  }, []);
+  }, [readFirstEvent]);
 
   useEffect(() => {
     const generation = ++bootstrapGeneration.current;
@@ -195,13 +201,13 @@ export function useParlantSession(
   // Create the session on demand (no-op if one already exists / is stored).
   const start = useCallback(async (options?: EnsureSessionOptions): Promise<string> => {
     const generation = ++bootstrapGeneration.current;
-    const id = await transport.ensureSession(options);
+    const id = await transport.ensureSession({ firstEvent: readFirstEvent, ...options });
     if (transportRef.current === transport && bootstrapGeneration.current === generation) {
       identityRef.current = transport.identityId();
       setSessionId(id);
     }
     return id;
-  }, [transport]);
+  }, [transport, readFirstEvent]);
 
   const startFresh = (recoveryNotice: string | null) => {
     const generation = ++bootstrapGeneration.current;

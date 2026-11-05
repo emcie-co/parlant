@@ -447,6 +447,7 @@ Two rules keep custom policies maintainable:
 | Read session / list events / read event | — | own only | own only | ✓ |
 | Read event reasoning / tool result data | — | — | — | ✓ |
 | Post customer message / status event | — | own only | own only | ✓ |
+| Post custom event | — | own only, source `customer_ui`, ≤ 4 KB | own only, source `customer_ui`, ≤ 4 KB | ✓ |
 | List sessions | — | — | own only | ✓ |
 | Everything else (customer management, groups, session administration, diagnostics) | — | — | — | ✓ |
 

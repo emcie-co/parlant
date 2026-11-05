@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import json
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -94,6 +95,9 @@ from parlant.core import metadata as metadata_utils
 from parlant.core.pricing import costs_per_provider
 
 API_GROUP = "sessions"
+
+# What a guest or customer may put in a custom event from its own UI: a page view, not a payload.
+_CUSTOMER_UI_EVENT_MAX_LENGTH = 4096
 
 
 class EventKindDTO(Enum):
@@ -1822,6 +1826,23 @@ def create_router(
                 request=request,
                 session=await app.sessions.read(session_id=session_id),
             )
+            # A guest's or customer's own page reports what happens in its UI (say, which
+            # page they're on); events from other sources stay with the backend.
+            principal = await authorization_policy.resolve_principal(request)
+            if isinstance(principal, GuestPrincipal | CustomerPrincipal):
+                if params.source != EventSourceDTO.CUSTOMER_UI:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail='A customer\'s own custom events must use source "customer_ui"',
+                    )
+                if len(json.dumps(params.data)) > _CUSTOMER_UI_EVENT_MAX_LENGTH:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        detail=(
+                            "A customer's own custom event data may be at most "
+                            f"{_CUSTOMER_UI_EVENT_MAX_LENGTH} characters of JSON"
+                        ),
+                    )
             return await _add_custom_event(session_id, params)
 
         elif params.kind == EventKindDTO.STATUS:

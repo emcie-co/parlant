@@ -850,6 +850,7 @@ which is exactly what the sample agent's `describe_attached_image` does before r
 | `maxVisibleSuggestions` | `number` | `3` | Maximum visible chips, taking opening suggestions before unchosen persistent ones. |
 | `openingSuggestions` | `string[]` | — | Conversation starters shown as chips; clicking one sends it. They appear only before the conversation begins: while the card is collapsed in `input`/`bar`, and while the open transcript is empty in `floating`/`inline`. |
 | `initialMessage` | `string` | — | Sent as the customer's first message, in a new conversation started for it. See [Opening with a message](#opening-with-a-message). |
+| `onPathChanged` | `(path, notifyAgent) => void` | — | Called with the page's path when the widget loads and when it changes; call `notifyAgent(path, data?)` to tell the agent which page the visitor is on. See [Telling the agent about the page](#telling-the-agent-about-the-page). |
 | `customerSound` | `boolean` | `true` | Play a short blip when the customer's message is sent. |
 | `agentSound` | `boolean` | `true` | Play a short blip when an agent reply arrives. |
 | `soundTheme` | `SoundTheme` | `"velvet"` | Which pair of sounds to play — 13 built in, see [Sound themes](#sound-themes). |
@@ -976,6 +977,43 @@ opens the panel.
 
 It's sent once per mount, so pass it only on the visit it's for. On a later visit, render
 without it and the conversation resumes as usual.
+
+### Telling the agent about the page
+
+Pass `onPathChanged` to tell the agent which page the visitor is on. The widget calls it with
+the page's path when it loads, and again whenever the path changes without a reload: the site's
+own links in a single-page app, and back and forward. A change to only the `?query` or `#hash`
+doesn't count. Call `notifyAgent` for the pages the agent should know about, with anything else
+worth knowing:
+
+```tsx
+<ChatWidget
+  serverUrl="https://your-server"
+  agentId="sales"
+  onPathChanged={(path, notifyAgent) => {
+    if (path.startsWith("/pricing")) notifyAgent(path, { title: "Pricing" });
+    else notifyAgent(path);
+  }}
+/>
+```
+
+Each call adds a custom event to the conversation (`kind: "custom"`, `source: "customer_ui"`)
+whose data is `{ type: "page_view", path, ...data }`. It doesn't start a reply: the agent reads
+it in the history on the visitor's next message.
+
+- A new conversation gets the page before anything else, so the agent reads it before the first
+  question.
+- A resumed conversation gets it when the widget loads, if it isn't the page the agent last heard
+  about. A remount, or the same page loaded again, doesn't repeat it.
+- With the visitor in two tabs, the agent knows the page last reported. A tab that comes back to
+  the foreground reports its own page again.
+- A message sent while the page is on its way waits for it. If it fails to send, the widget logs
+  a warning and carries on.
+
+The server must let guests (and customers) add custom events to their own sessions, which
+Parlant's default policy does for source `customer_ui`, up to 4 KB of data and 30 a minute.
+Treat the event as the visitor's browser speaking, like their messages: good for context, not for
+deciding what they may do.
 
 ## Not included (by design)
 

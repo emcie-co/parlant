@@ -126,6 +126,10 @@ export interface EnsureSessionOptions {
   /** Create the session as one an AI agent holds for the customer (`customer_represented_by_an_agent`),
    *  as when the agent in the visitor's browser asks first (WebMCP). A stored session is reused as is. */
   representedByAnAgent?: boolean;
+  /** The `data` of a custom event (source "customer_ui") added to a session created now, before
+   *  anything else can be, e.g. the page the visitor is on. Read once the session exists, so it
+   *  has the latest. A stored session is reused as is. */
+  firstEvent?: () => Record<string, unknown> | undefined;
 }
 
 export class ParlantTransport {
@@ -284,6 +288,14 @@ export class ParlantTransport {
       }
       if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
       const session = await res.json();
+      // Still under the lock, so it lands before any tab can send into the new session.
+      const firstEvent = options.firstEvent?.();
+      if (firstEvent) {
+        await this.sendCustomEvent(session.id, firstEvent).then(
+          () => this.rememberCustomEvent(session.id, firstEvent),
+          (e) => console.warn("[parlant] failed to send the first custom event", e),
+        );
+      }
       this.saveSession(session.id);
       return session.id;
     });
@@ -476,6 +488,33 @@ export class ParlantTransport {
     if (res.status === 403) throw new SessionForbiddenError();
     if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
     return await res.json();
+  }
+
+  /** Add a custom event from the customer's UI (source "customer_ui"). It lands in the
+   *  session's history for the agent to read; it doesn't start a reply. */
+  async sendCustomEvent(sessionId: string, data: Record<string, unknown>): Promise<void> {
+    const res = await this.request(`${this.base}/sessions/${sessionId}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "custom", source: "customer_ui", data }),
+    });
+    if (res.status === 403) throw new SessionForbiddenError();
+    if (!res.ok) throw new Error(`Failed to send custom event: ${res.status}`);
+  }
+
+  /** Whether `data` is the custom event last added to this session from this browser (by any
+   *  tab), so a widget on another page with the same news doesn't repeat it. */
+  sentCustomEvent(sessionId: string, data: Record<string, unknown>): boolean {
+    const last = this.storage?.getItem(this.customEventKey());
+    return last === JSON.stringify([sessionId, data]);
+  }
+
+  rememberCustomEvent(sessionId: string, data: Record<string, unknown>): void {
+    this.storage?.setItem(this.customEventKey(), JSON.stringify([sessionId, data]));
+  }
+
+  private customEventKey(): string {
+    return `parlant:v1:custom-event:${this.storagePart(this.base)}:${this.storagePart(this.agentId)}`;
   }
 
   /** Best-effort request to cancel this session's in-flight processing (the "Stop" button). */

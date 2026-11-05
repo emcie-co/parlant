@@ -2,7 +2,7 @@
 // inline surface that fills its container. Composed from the hooks and primitives —
 // copy this file and rearrange it however you like.
 
-import { type CSSProperties, type MutableRefObject, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MutableRefObject, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import "../styles.css";
 import type { AttachmentRef, ReasoningMode, StreamSpeed, StreamStyle } from "../lib/events";
@@ -10,6 +10,7 @@ import { GuestIdentityExpiredError, type ParlantAuth } from "../lib/transport";
 import { cn } from "../lib/cn";
 import { appendUtm, type UtmLinks, type UtmParams } from "../lib/links";
 import { useParlantSession } from "../hooks/use-parlant-session";
+import { usePathChanges } from "../hooks/use-path-changes";
 import { useWebMCPConversation, useWebMCPTool, type AskAgent } from "../hooks/use-webmcp-tool";
 import { useParlantStream } from "../hooks/use-parlant-stream";
 import { useServerHealth } from "../hooks/use-server-health";
@@ -122,6 +123,13 @@ export interface ChatWidgetProps {
    *  conversation isn't resumed). Use it when the page has already asked the visitor something,
    *  e.g. a form that opens the chat. Sent once per mount: pass it only on the visit it's for. */
   initialMessage?: string;
+  /** Called with the page's path when the widget loads and whenever the path changes without a
+   *  reload (the site's own links, back and forward; not a ?query or #hash change). Call
+   *  `notifyAgent` to tell the agent the visitor is on this page: it adds a custom event (source
+   *  "customer_ui", data `{ type: "page_view", path, ...data }`) that doesn't start a reply; the
+   *  agent reads it in the history on the visitor's next message. A new conversation gets it
+   *  before anything else. See "Telling the agent about the page" in the README. */
+  onPathChanged?: (path: string, notifyAgent: NotifyAgent) => void;
   /** UTM parameters added to every http(s) link the agent writes (Markdown links and bare
    *  URLs), without the `utm_` prefix: `{ source: "site-chat", medium: "chat-widget" }`.
    *  A `utm_*` key the link already has is kept. Attachments and the "Powered by Parlant" link
@@ -203,6 +211,12 @@ function defaultVideo() {
   };
 }
 
+/** Tells the agent the visitor is on `path`, with anything else worth knowing about the page. */
+export type NotifyAgent = (path: string, data?: Record<string, unknown>) => void;
+
+/** The `data` of a page-view custom event. */
+type PageView = Record<string, unknown> & { type: "page_view"; path: string };
+
 /** Built-in color themes; see `.parlant-theme-*` in styles.css. */
 export type ThemeName = "monochrome" | "parlant" | "ocean" | "amethyst" | "sand";
 
@@ -246,7 +260,17 @@ export function ChatWidget(props: ChatWidgetProps) {
       }
     },
   });
-  const webmcpPanelProps = { askAgent, agentIsOpening, onAgentName: setAgentName };
+  // The page the site last told the agent about; the panel adds it to the conversation.
+  const [pageView, setPageView] = useState<PageView | null>(null);
+  const onPathChanged = props.onPathChanged;
+  usePathChanges(
+    onPathChanged &&
+      ((path) =>
+        onPathChanged(path, (page, data) =>
+          setPageView({ ...data, type: "page_view", path: page }),
+        )),
+  );
+  const panelProps = { askAgent, agentIsOpening, onAgentName: setAgentName, pageView };
   const sidebar = props.openMode === "sidebar" && mode !== "inline";
   const sidebarOpen = sidebar && (mode === "floating" ? open : inputOpened);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -371,7 +395,7 @@ export function ChatWidget(props: ChatWidgetProps) {
             inputOpened={inputOpened}
             onOpen={() => setInputOpened(true)}
             onMinimize={() => { setInputOpened(false); setExpanded(false); }}
-            {...webmcpPanelProps}
+            {...panelProps}
             onDismiss={mode === "input" ? () => setDismissed(true) : undefined}
             onConnectionIssue={setConnectionIssue}
             expanded={expanded}
@@ -385,7 +409,7 @@ export function ChatWidget(props: ChatWidgetProps) {
   if (mode === "inline") {
     return (
       <div className={cn("parlant-widget parlant-inline", themeClass)} style={rootStyle}>
-        <ChatPanel {...props} avatar={avatar} {...webmcpPanelProps} />
+        <ChatPanel {...props} avatar={avatar} {...panelProps} />
       </div>
     );
   }
@@ -444,7 +468,7 @@ export function ChatWidget(props: ChatWidgetProps) {
             {...props}
             avatar={avatar}
             onClose={() => setOpen(false)}
-            {...webmcpPanelProps}
+            {...panelProps}
             expanded={expanded}
             onToggleExpand={() => setExpanded((e) => !e)}
             onConnectionIssue={setConnectionIssue}
@@ -500,7 +524,10 @@ function ChatPanel({
   askAgent,
   agentIsOpening,
   onAgentName,
+  pageView,
 }: Omit<ChatWidgetProps, "avatar"> & {
+  /** The page to tell the agent about (`onPathChanged`), if the site told it about one. */
+  pageView?: PageView | null;
   /** Where the widget's WebMCP tool finds how to ask through this panel's conversation. */
   askAgent?: MutableRefObject<AskAgent | null>;
   /** True while a WebMCP call is what's mounting this panel: its session is the agent's. */
@@ -546,6 +573,7 @@ function ChatPanel({
     autoStart: !inputMode,
     fresh: Boolean(initialMessage),
     startAs,
+    firstEvent: pageView ?? undefined,
   });
   const online = useServerHealth(transport);
   const persistent = usePersistentSuggestions(serverUrl, agentId, sessionId);
@@ -615,6 +643,45 @@ function ChatPanel({
   }, [transport]);
 
   const name = title ?? agent?.name ?? "Assistant";
+  // The page goes into the conversation once, and again when it changes; a new conversation
+  // gets it as it's created. Remembered across tabs and pages, so a widget on another page with
+  // the same page view, or a remount, doesn't repeat it. A message sent meanwhile waits for it.
+  const pageViewKey = pageView ? JSON.stringify(pageView) : null;
+  const pageViewInFlight = useRef<Promise<void> | null>(null);
+  const tellAgentThePage = useCallback(
+    (id: string) => {
+      if (!pageViewKey) return;
+      const view = JSON.parse(pageViewKey) as PageView;
+      if (transport.sentCustomEvent(id, view)) return;
+      transport.rememberCustomEvent(id, view);
+      const sending: Promise<void> = (pageViewInFlight.current ?? Promise.resolve())
+        .then(() => transport.sendCustomEvent(id, view))
+        .catch((e) => console.warn("[parlant] failed to tell the agent about the page", e))
+        .finally(() => {
+          if (pageViewInFlight.current === sending) pageViewInFlight.current = null;
+        });
+      pageViewInFlight.current = sending;
+    },
+    [transport, pageViewKey],
+  );
+  const afterPageView = (then: () => void) => {
+    if (pageViewInFlight.current) void pageViewInFlight.current.then(then);
+    else then();
+  };
+  useEffect(() => {
+    if (sessionId) tellAgentThePage(sessionId);
+  }, [sessionId, tellAgentThePage]);
+  // Another tab may have told the agent about its own page since; coming back, this one's is
+  // the page the visitor is on.
+  useEffect(() => {
+    if (!sessionId) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tellAgentThePage(sessionId);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [sessionId, tellAgentThePage]);
+
   // The visitor's own AI agent asks through this same conversation (WebMCP).
   const ask = useWebMCPConversation({
     sessionId,
@@ -693,7 +760,7 @@ function ChatPanel({
     onOpen?.(); // input mode expands on send
     clearNotice(); // a message in the new session dismisses the "session expired" notice
     if (sessionId) {
-      send(text, attachments);
+      afterPageView(() => send(text, attachments));
     } else {
       pendingSendRef.current = { text, attachments };
       void start();
@@ -711,7 +778,7 @@ function ChatPanel({
     if (sessionId && pendingSendRef.current) {
       const queued = pendingSendRef.current;
       pendingSendRef.current = null;
-      send(queued.text, queued.attachments);
+      afterPageView(() => send(queued.text, queued.attachments));
     }
   }, [sessionId, send]);
 

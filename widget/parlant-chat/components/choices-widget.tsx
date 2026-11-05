@@ -12,6 +12,7 @@
 import { useRef, useState } from "react";
 
 import { cn } from "../lib/cn";
+import { textDirection } from "../lib/direction";
 import type { WidgetContext, WidgetProps } from "./tool-widget";
 
 export const MAX_CHOICES = 8;
@@ -97,7 +98,7 @@ export function ChoicesWidget({
           disabled={disabled}
           aria-pressed={chosen === o.id}
           onClick={() => choose(o)}
-          dir="auto"
+          dir={textDirection(o.label)}
           className={cn("parlant-choice", chosen === o.id && "parlant-choice--chosen")}
         >
           {o.label}

@@ -108,11 +108,15 @@ describe("composer suggestions (non-bar)", () => {
 describe("composer text direction", () => {
   it("lets the input and the suggestions follow their text's direction", () => {
     const { container } = render(
-      <Composer onSend={noop} onStop={noop} busy={false} suggestions={["מה המחיר?"]} />,
+      <Composer onSend={noop} onStop={noop} busy={false} suggestions={["Parlant כמה עולה?"]} />,
     );
+    const input = container.querySelector(".parlant-cmp-input") as HTMLTextAreaElement;
 
-    expect(container.querySelector(".parlant-cmp-input")?.getAttribute("dir")).toBe("auto");
-    expect(container.querySelector(".parlant-cmp-suggestion")?.getAttribute("dir")).toBe("auto");
+    expect(input.getAttribute("dir")).toBe("auto");
+    expect(container.querySelector(".parlant-cmp-suggestion")?.getAttribute("dir")).toBe("rtl");
+
+    fireEvent.change(input, { target: { value: "Dashboard זה מה שאני צריך" } });
+    expect(input.getAttribute("dir")).toBe("rtl");
   });
 });
 

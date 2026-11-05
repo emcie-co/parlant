@@ -8,8 +8,17 @@ describe("textDirection", () => {
     expect(textDirection("مرحبا")).toBe("rtl");
   });
 
-  it("goes by the first letter, past punctuation, digits and Markdown", () => {
-    expect(textDirection("**1. מה** the plan?")).toBe("rtl");
+  it("reads a Hebrew reply that opens with English words right to left", () => {
+    expect(textDirection("Parlant הוא פריימוורק לבניית סוכנים")).toBe("rtl");
+    expect(textDirection("**Parlant Dashboard** מאפשר לך לנהל את הסוכן שלך")).toBe("rtl");
+  });
+
+  it("reads an English reply with a Hebrew word left to right", () => {
+    expect(textDirection("In Hebrew, hello is שלום.")).toBe("ltr");
+  });
+
+  it("goes by the first word on a tie, past punctuation, digits and Markdown", () => {
+    expect(textDirection("**1. מה** plan")).toBe("rtl");
     expect(textDirection("> Parlant הוא")).toBe("ltr");
   });
 

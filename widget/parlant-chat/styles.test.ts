@@ -39,6 +39,7 @@ describe("message bubbles", () => {
   it("keep a right-to-left reply's words inline, so the bidi algorithm can order them", () => {
     // An inline-block word is opaque to bidi: a streamed Hebrew reply came out scrambled.
     expect(rule('.parlant-msg-bubble[dir="rtl"] .parlant-tok')).toMatch(/display:\s*inline;/);
+    expect(rule('.parlant-msg-bubble [dir="rtl"] .parlant-tok')).toMatch(/display:\s*inline;/);
   });
 });
 

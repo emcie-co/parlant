@@ -10,6 +10,7 @@
 
 import { createElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { paragraphDirection, textDirection } from "../lib/direction";
 import type { StreamStyle, StreamSpeed } from "../lib/events";
 import { useLinkTagger } from "./link-tagger";
 import {
@@ -121,7 +122,7 @@ export function StreamingText({
 
   return (
     <div className={`parlant-stream parlant-md ${animating ? `parlant-fx-${style}` : ""}`}>
-      {renderBlocks(blocks, leaf, "b")}
+      {renderBlocks(blocks, leaf, "b", { above: "", open: streaming ? lastBlock(blocks) : null })}
     </div>
   );
 }
@@ -195,7 +196,20 @@ function revealLeaf(ctx: { count: number; limit: number; letter: boolean }): Lea
   };
 }
 
-function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string): ReactNode[] {
+/** What a paragraph's direction leans on: the text above it in the reply, and the block
+ *  still streaming in, if any. */
+interface Prose {
+  above: string;
+  open: Block | null;
+}
+
+function lastBlock(blocks: Block[]): Block | null {
+  const last = blocks.at(-1);
+  if (!last) return null;
+  return last.type === "blockquote" ? lastBlock(last.children) : last;
+}
+
+function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string, prose: Prose): ReactNode[] {
   const out: ReactNode[] = [];
   blocks.forEach((block, i) => {
     if (leaf.done()) return;
@@ -203,12 +217,18 @@ function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string): ReactNode[]
     switch (block.type) {
       case "paragraph": {
         const kids = renderInline(block.children, leaf, key);
-        if (kids.length) out.push(<p key={key}>{kids}</p>);
+        if (kids.length)
+          out.push(
+            <p key={key} dir={blockDirection(block, prose)}>
+              {kids}
+            </p>,
+          );
         break;
       }
       case "heading": {
         const kids = renderInline(block.children, leaf, key);
-        if (kids.length) out.push(createElement(`h${block.level}`, { key }, kids));
+        if (kids.length)
+          out.push(createElement(`h${block.level}`, { key, dir: blockDirection(block, prose) }, kids));
         break;
       }
       case "code": {
@@ -226,6 +246,7 @@ function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string): ReactNode[]
         block.items.forEach((item, j) => {
           if (leaf.done()) return;
           const kids = renderInline(item, leaf, `${key}.${j}`);
+          prose.above += ` ${inlineText(item)}`;
           if (kids.length) lis.push(<li key={j}>{kids}</li>);
         });
         if (lis.length) {
@@ -244,7 +265,7 @@ function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string): ReactNode[]
         break;
       }
       case "blockquote": {
-        const kids = renderBlocks(block.children, leaf, key);
+        const kids = renderBlocks(block.children, leaf, key, prose);
         if (kids.length)
           out.push(
             <blockquote key={key} className="parlant-md-quote">
@@ -293,6 +314,32 @@ function renderInline(nodes: Inline[], leaf: Leaf, keyBase: string): ReactNode[]
     }
   });
   return out;
+}
+
+/** A paragraph's own direction, from all of its text received so far, so each paragraph of
+ *  a reply that mixes languages is laid out its own way, leaning toward the text above it.
+ *  With no letters it follows the bubble. */
+function blockDirection(block: { children: Inline[] } & Block, prose: Prose): "rtl" | "ltr" | undefined {
+  const text = inlineText(block.children);
+  const direction = paragraphDirection(text, textDirection(prose.above), block === prose.open);
+  prose.above += ` ${text}`;
+  return direction === "auto" ? undefined : direction;
+}
+
+function inlineText(nodes: Inline[]): string {
+  return nodes
+    .map((node) => {
+      switch (node.type) {
+        case "text":
+          return node.value;
+        case "code":
+        case "br":
+          return " ";
+        default:
+          return inlineText(node.children);
+      }
+    })
+    .join("");
 }
 
 function renderLink(href: string, children: ReactNode[], key: string): ReactNode {

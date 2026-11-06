@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { AttachmentRef } from "../lib/events";
 import { cn } from "../lib/cn";
+import { textDirection } from "../lib/direction";
 
 export interface ComposerProps {
   onSend: (text: string, attachments?: AttachmentRef[]) => void;
@@ -190,7 +191,7 @@ export function Composer({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { onSuggestionSelect?.(s); onSend(s); dismissKeyboard(); }}
               className={cn("parlant-cmp-suggestion", persistentSuggestions?.includes(s) && "parlant-cmp-suggestion--persistent")}
-              dir="auto"
+              dir={textDirection(s)}
             >
               <svg
                 className="parlant-cmp-suggestion-icon"
@@ -255,8 +256,9 @@ export function Composer({
 
         <textarea
           ref={inputRef}
-          // Follow the typed text's direction, so Hebrew or Arabic types right to left.
-          dir="auto"
+          // Follow the typed text's direction, so Hebrew or Arabic types right to left, even
+          // after an English word. Empty, the placeholder keeps the page's direction.
+          dir={textDirection(text)}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => { keyboardDismissed.current = false; setFocused(true); }}

@@ -77,3 +77,51 @@ describe("tool widgets on a reply", () => {
     expect(option()).not.toBeNull();
   });
 });
+
+describe("direction of a reply", () => {
+  const paragraphs = (container: HTMLElement) =>
+    [...container.querySelectorAll(".parlant-md p")].map((p) => p.getAttribute("dir"));
+
+  it("lays out a Hebrew reply that opens with an English name right to left as it streams in", () => {
+    const streaming = (text: string) => bubble(reply({ text, streaming: true }), "instant");
+    const { container, rerender } = render(streaming("Parlant Dashboard"));
+    expect(paragraphs(container)).toEqual(["ltr"]);
+
+    rerender(streaming("Parlant Dashboard הוא המקום שבו"));
+
+    expect(container.querySelector(".parlant-msg-bubble")?.getAttribute("dir")).toBe("rtl");
+    expect(paragraphs(container)).toEqual(["rtl"]);
+  });
+
+  it("lays out each paragraph of a reply that mixes languages its own way", () => {
+    const { container } = render(
+      bubble(reply({ text: "Here is the answer.\n\nParlant Dashboard הוא המקום שבו מנהלים סוכנים." }), "instant"),
+    );
+
+    expect(paragraphs(container)).toEqual(["ltr", "rtl"]);
+  });
+
+  it("keeps a new paragraph that opens with an English name in the direction of the reply above it", () => {
+    const hebrew = "Parlant הוא כלי לבניית סוכנים שמדברים עם לקוחות.";
+    const streaming = (text: string) => bubble(reply({ text, streaming: true }), "instant");
+    const { container, rerender } = render(streaming(`${hebrew}\n\nParlant Dashboard Pro`));
+    expect(paragraphs(container)).toEqual(["rtl", "rtl"]);
+
+    rerender(streaming(`${hebrew}\n\nParlant Dashboard Pro נותן לכם ניהול מלא`));
+    expect(paragraphs(container)).toEqual(["rtl", "rtl"]);
+  });
+
+  it("lays out a finished English paragraph after Hebrew left to right", () => {
+    const { container } = render(
+      bubble(reply({ text: "Parlant הוא כלי לבניית סוכנים.\n\nSee the docs." }), "instant"),
+    );
+
+    expect(paragraphs(container)).toEqual(["rtl", "ltr"]);
+  });
+
+  it("reads a Hebrew paragraph right to left whatever its code says", () => {
+    const { container } = render(bubble(reply({ text: "הריצו `pip install parlant` ואז" }), "instant"));
+
+    expect(paragraphs(container)).toEqual(["rtl"]);
+  });
+});

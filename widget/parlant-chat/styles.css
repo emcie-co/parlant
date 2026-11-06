@@ -225,9 +225,10 @@
   animation: parlant-blur 0.42s ease both;
 }
 /* An inline-block word is opaque to the bidi algorithm, which then scrambles the word order
- * and punctuation of a right-to-left reply. There, words stay inline: they fade in without
- * rising. */
+ * and punctuation of a right-to-left reply or paragraph. There, words stay inline: they fade
+ * in without rising. */
 .parlant-msg-bubble[dir="rtl"] .parlant-tok { display: inline; }
+.parlant-msg-bubble [dir="rtl"] .parlant-tok { display: inline; }
 .parlant-fx-warm .parlant-tok {
   animation: parlant-warm 0.6s ease both;
 }
@@ -1028,8 +1029,6 @@
 }
 .parlant-widget .parlant-msg-bubble--agent .parlant-md > p + p { margin-top: 0.75em; }
 .parlant-widget .parlant-msg-bubble--agent .parlant-md p { text-wrap: pretty; }
-/* A reply that mixes languages: each paragraph takes its own direction. */
-.parlant-widget .parlant-msg-bubble .parlant-md :is(p, h1, h2, h3, h4, h5, h6) { unicode-bidi: plaintext; }
 .parlant-widget .parlant-msg-bubble--pending { opacity: 0.5; }
 .parlant-widget .parlant-msg-bubble--failed { opacity: 0.6; box-shadow: 0 0 0 1px hsl(var(--destructive)); }
 .parlant-widget .parlant-msg-attachments { display: flex; flex-wrap: wrap; gap: 0.5rem; transition: opacity 200ms; }

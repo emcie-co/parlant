@@ -101,6 +101,24 @@ describe("direction of a reply", () => {
     expect(paragraphs(container)).toEqual(["ltr", "rtl"]);
   });
 
+  it("keeps a new paragraph that opens with an English name in the direction of the reply above it", () => {
+    const hebrew = "Parlant הוא כלי לבניית סוכנים שמדברים עם לקוחות.";
+    const streaming = (text: string) => bubble(reply({ text, streaming: true }), "instant");
+    const { container, rerender } = render(streaming(`${hebrew}\n\nParlant Dashboard Pro`));
+    expect(paragraphs(container)).toEqual(["rtl", "rtl"]);
+
+    rerender(streaming(`${hebrew}\n\nParlant Dashboard Pro נותן לכם ניהול מלא`));
+    expect(paragraphs(container)).toEqual(["rtl", "rtl"]);
+  });
+
+  it("lays out a finished English paragraph after Hebrew left to right", () => {
+    const { container } = render(
+      bubble(reply({ text: "Parlant הוא כלי לבניית סוכנים.\n\nSee the docs." }), "instant"),
+    );
+
+    expect(paragraphs(container)).toEqual(["rtl", "ltr"]);
+  });
+
   it("reads a Hebrew paragraph right to left whatever its code says", () => {
     const { container } = render(bubble(reply({ text: "הריצו `pip install parlant` ואז" }), "instant"));
 

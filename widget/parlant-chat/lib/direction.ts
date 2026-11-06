@@ -14,6 +14,33 @@ const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g;
 /** Words are split by spaces, so a URL, a domain or "ה-Dashboard" counts once, by its first
  *  letter. Markdown, digits and punctuation around a word don't count. */
 export function textDirection(text: string): "rtl" | "ltr" | "auto" {
+  const { rtl, ltr } = countWords(text);
+  if (!rtl && !ltr) return "auto";
+  return rtl >= ltr ? "rtl" : "ltr";
+}
+
+// The head start a paragraph still streaming in gives the direction of the text above it:
+// the length of a product name like "Parlant Dashboard Pro".
+const OPEN_LEAN = 3;
+
+/** A paragraph's direction within a reply. It leans toward `lean`, the direction of the
+ *  text above it: a tie goes that way, and while the paragraph is still streaming in it
+ *  starts three words ahead that way, so a Hebrew reply's next paragraph that opens with an
+ *  English name doesn't flash left to right. Once finished, its own words decide. */
+export function paragraphDirection(
+  text: string,
+  lean: "rtl" | "ltr" | "auto",
+  open: boolean,
+): "rtl" | "ltr" | "auto" {
+  if (lean === "auto") return textDirection(text);
+  const { rtl, ltr } = countWords(text);
+  if (!rtl && !ltr) return "auto";
+  const head = open ? OPEN_LEAN : 0;
+  if (lean === "rtl") return ltr > rtl + head ? "ltr" : "rtl";
+  return rtl > ltr + head ? "rtl" : "ltr";
+}
+
+function countWords(text: string): { rtl: number; ltr: number } {
   let rtl = 0;
   let ltr = 0;
   for (const [word] of text.replace(CODE, " ").matchAll(/\S+/g)) {
@@ -22,6 +49,5 @@ export function textDirection(text: string): "rtl" | "ltr" | "auto" {
     if (RTL.test(letter[0])) rtl++;
     else ltr++;
   }
-  if (!rtl && !ltr) return "auto";
-  return rtl >= ltr ? "rtl" : "ltr";
+  return { rtl, ltr };
 }

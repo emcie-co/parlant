@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { textDirection } from "./direction";
+import { paragraphDirection, textDirection } from "./direction";
 
 describe("textDirection", () => {
   it("reads Hebrew and Arabic right to left", () => {
@@ -37,5 +37,28 @@ describe("textDirection", () => {
   it("leaves text without letters to the browser", () => {
     expect(textDirection("")).toBe("auto");
     expect(textDirection("123 :)")).toBe("auto");
+  });
+});
+
+describe("paragraphDirection", () => {
+  it("keeps a paragraph streaming in after Hebrew right to left through an English name", () => {
+    expect(paragraphDirection("Parlant", "rtl", true)).toBe("rtl");
+    expect(paragraphDirection("Parlant Dashboard Pro", "rtl", true)).toBe("rtl");
+  });
+
+  it("turns a paragraph streaming in once its other language leads by more than a name", () => {
+    expect(paragraphDirection("Here is how it works", "rtl", true)).toBe("ltr");
+    expect(paragraphDirection("זה בדיוק מה שחיפשתי", "ltr", true)).toBe("rtl");
+  });
+
+  it("lets a finished paragraph's own words decide, with a tie leaning on the text above", () => {
+    expect(paragraphDirection("See the docs.", "rtl", false)).toBe("ltr");
+    expect(paragraphDirection("Parlant הוא", "ltr", false)).toBe("ltr");
+    expect(paragraphDirection("Parlant הוא", "rtl", false)).toBe("rtl");
+  });
+
+  it("decides the first paragraph by its own words", () => {
+    expect(paragraphDirection("Parlant", "auto", true)).toBe("ltr");
+    expect(paragraphDirection("Parlant הוא", "auto", true)).toBe("rtl");
   });
 });

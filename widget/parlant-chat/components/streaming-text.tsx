@@ -10,6 +10,7 @@
 
 import { createElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { textDirection } from "../lib/direction";
 import type { StreamStyle, StreamSpeed } from "../lib/events";
 import { useLinkTagger } from "./link-tagger";
 import {
@@ -203,12 +204,18 @@ function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string): ReactNode[]
     switch (block.type) {
       case "paragraph": {
         const kids = renderInline(block.children, leaf, key);
-        if (kids.length) out.push(<p key={key}>{kids}</p>);
+        if (kids.length)
+          out.push(
+            <p key={key} dir={blockDirection(block.children)}>
+              {kids}
+            </p>,
+          );
         break;
       }
       case "heading": {
         const kids = renderInline(block.children, leaf, key);
-        if (kids.length) out.push(createElement(`h${block.level}`, { key }, kids));
+        if (kids.length)
+          out.push(createElement(`h${block.level}`, { key, dir: blockDirection(block.children) }, kids));
         break;
       }
       case "code": {
@@ -293,6 +300,30 @@ function renderInline(nodes: Inline[], leaf: Leaf, keyBase: string): ReactNode[]
     }
   });
   return out;
+}
+
+/** A paragraph's own direction, from all of its text received so far, so each paragraph of
+ *  a reply that mixes languages is laid out its own way. With no letters it follows the
+ *  bubble. */
+function blockDirection(nodes: Inline[]): "rtl" | "ltr" | undefined {
+  const direction = textDirection(inlineText(nodes));
+  return direction === "auto" ? undefined : direction;
+}
+
+function inlineText(nodes: Inline[]): string {
+  return nodes
+    .map((node) => {
+      switch (node.type) {
+        case "text":
+        case "code":
+          return node.value;
+        case "br":
+          return " ";
+        default:
+          return inlineText(node.children);
+      }
+    })
+    .join("");
 }
 
 function renderLink(href: string, children: ReactNode[], key: string): ReactNode {

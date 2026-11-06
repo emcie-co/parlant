@@ -77,3 +77,27 @@ describe("tool widgets on a reply", () => {
     expect(option()).not.toBeNull();
   });
 });
+
+describe("direction of a reply", () => {
+  const paragraphs = (container: HTMLElement) =>
+    [...container.querySelectorAll(".parlant-md p")].map((p) => p.getAttribute("dir"));
+
+  it("lays out a Hebrew reply that opens with an English name right to left as it streams in", () => {
+    const streaming = (text: string) => bubble(reply({ text, streaming: true }), "instant");
+    const { container, rerender } = render(streaming("Parlant Dashboard"));
+    expect(paragraphs(container)).toEqual(["ltr"]);
+
+    rerender(streaming("Parlant Dashboard הוא המקום שבו"));
+
+    expect(container.querySelector(".parlant-msg-bubble")?.getAttribute("dir")).toBe("rtl");
+    expect(paragraphs(container)).toEqual(["rtl"]);
+  });
+
+  it("lays out each paragraph of a reply that mixes languages its own way", () => {
+    const { container } = render(
+      bubble(reply({ text: "Here is the answer.\n\nParlant Dashboard הוא המקום שבו מנהלים סוכנים." }), "instant"),
+    );
+
+    expect(paragraphs(container)).toEqual(["ltr", "rtl"]);
+  });
+});

@@ -17,9 +17,21 @@ describe("textDirection", () => {
     expect(textDirection("In Hebrew, hello is שלום.")).toBe("ltr");
   });
 
-  it("goes by the first word on a tie, past punctuation, digits and Markdown", () => {
+  it("reads a tie right to left, past punctuation, digits and Markdown", () => {
     expect(textDirection("**1. מה** plan")).toBe("rtl");
-    expect(textDirection("> Parlant הוא")).toBe("ltr");
+    expect(textDirection("> Parlant הוא")).toBe("rtl");
+    expect(textDirection("Parlant Dashboard Pro זה התוכנית שלכם")).toBe("rtl");
+  });
+
+  it("counts a URL, a domain or a prefixed word once", () => {
+    expect(textDirection("אפשר לקרוא על זה כאן https://www.parlant.io/docs/pricing")).toBe("rtl");
+    expect(textDirection("כל הפרטים ב-parlant.io")).toBe("rtl");
+    expect(textDirection("See https://www.parlant.io/he/דף")).toBe("ltr");
+  });
+
+  it("leaves code out of the count, even while it streams in", () => {
+    expect(textDirection("הריצו `pip install parlant` ואז")).toBe("rtl");
+    expect(textDirection("הריצו את זה:\n```bash\npip install parlant --upgrade")).toBe("rtl");
   });
 
   it("leaves text without letters to the browser", () => {

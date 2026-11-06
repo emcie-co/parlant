@@ -100,4 +100,10 @@ describe("direction of a reply", () => {
 
     expect(paragraphs(container)).toEqual(["ltr", "rtl"]);
   });
+
+  it("reads a Hebrew paragraph right to left whatever its code says", () => {
+    const { container } = render(bubble(reply({ text: "הריצו `pip install parlant` ואז" }), "instant"));
+
+    expect(paragraphs(container)).toEqual(["rtl"]);
+  });
 });

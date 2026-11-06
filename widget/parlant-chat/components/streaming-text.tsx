@@ -315,8 +315,8 @@ function inlineText(nodes: Inline[]): string {
     .map((node) => {
       switch (node.type) {
         case "text":
-        case "code":
           return node.value;
+        case "code":
         case "br":
           return " ";
         default:

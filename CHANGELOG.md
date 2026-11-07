@@ -15,8 +15,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
-- Encouraged tool preambles explicitly follow the user's language, including
-  subsequent progress updates.
+- Encouraged tool preamble guidance explicitly asks for the user's language,
+  including subsequent progress updates.
 - Agents acknowledge recurring information gaps when different questions cannot
   be answered, without treating a new question as one already answered.
 - Improve how agents check ambiguous request targets and competing unfinished

@@ -206,8 +206,9 @@ def _encourage_note(
             return (
                 "#### Tool communication before tool use\n\n"
                 "If you need to use *a new tool* for this step, you should first send "
-                "exactly one short, natural sentence to the user about what you are "
-                "checking (Checking X; Let me do Y; Just a moment while I Z...). Do not "
+                "exactly one short, natural sentence (adapted to the user's language) "
+                "to the user about what you are checking "
+                "(Checking X; Let me do Y; Just a moment while I Z...). Do not "
                 'add a second "I\'m checking" or "let me check" sentence in the same '
                 "message. Keep it specific to the current action, and avoid repeating "
                 "wording from earlier messages."
@@ -218,8 +219,8 @@ def _encourage_note(
                 f"More than {interval_seconds:g} seconds have passed since your last message to the user. "
                 "If you need to use *a new tool* for this step, please update them on "
                 "what you're currently doing before running the next tool. Send exactly "
-                "one short sentence, and do not add another tool-progress sentence in "
-                "the same message."
+                "one short sentence (adapted to the user's language), and do not add "
+                "another tool-progress sentence in the same message."
             )
         case PreambleDecision.SUPPRESS:
             return (

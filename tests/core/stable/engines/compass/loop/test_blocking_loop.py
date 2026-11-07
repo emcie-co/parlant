@@ -60,6 +60,7 @@ from parlant.core.nlp.react import (
     FinishReason,
     Message,
     ReasoningDelta,
+    ReasoningPart,
     Role,
     StepCompleted,
     StepResult,
@@ -2942,3 +2943,62 @@ async def test_that_committed_assistant_replay_artifacts_survive_split_tool_prea
         metadata_utils.internal_value(messages[0].metadata, ("assistant_replay",), None) == replay
     )
     assert metadata_utils.internal_value(messages[1].metadata, ("assistant_replay",), None) is None
+
+
+class _ReasoningRecordingTracer(_PhaseRecordingTracer):
+    """Also records the loop.reasoning events, with the step they were emitted in."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reasoning: list[tuple[object, dict[str, Any]]] = []
+
+    def add_event(self, name: str, attributes: Any = {}) -> None:
+        super().add_event(name, attributes)
+        if name == "loop.reasoning":
+            self.reasoning.append((self.get_attribute("step_index"), dict(attributes)))
+
+
+async def test_that_each_step_traces_the_reasoning_it_completed_with_its_step_index() -> None:
+    # The Dashboard reads a turn's reasoning from its loop.reasoning events,
+    # each shown under the step (step_index) it was emitted in.
+    tool_call = ToolCallPart(id="call-1", name="lookup_account", args={})
+    tracer = _ReasoningRecordingTracer()
+    await _run_traced_turn(
+        cast(
+            Any,
+            _ScriptedStepsReact(
+                [
+                    ReasoningDelta(text="Look up the account first."),
+                    ToolCallStarted(id=tool_call.id, name=tool_call.name),
+                    _completed(
+                        ReasoningPart(text="Look up the account first."),
+                        tool_call,
+                        finish=FinishReason.TOOL_CALLS,
+                    ),
+                ],
+                [
+                    ReasoningDelta(text="It's active, "),
+                    ReasoningDelta(text="so say so."),
+                    TextDelta(text="Your account is active."),
+                    _completed(
+                        ReasoningPart(text="It's active, so say so."),
+                        TextPart(text="Your account is active."),
+                    ),
+                ],
+            ),
+        ),
+        tracer,
+    )
+
+    assert [(step, attrs["reasoning"]) for step, attrs in tracer.reasoning] == [
+        (0, "Look up the account first."),
+        (1, "It's active, so say so."),
+    ]
+    assert [attrs["chunk_count"] for _, attrs in tracer.reasoning] == [1, 2]
+
+
+async def test_that_a_step_without_reasoning_traces_no_reasoning_event() -> None:
+    tracer = _ReasoningRecordingTracer()
+    await _run_traced_turn(cast(Any, _ScriptedStepsReact([*_ANSWER])), tracer)
+
+    assert tracer.reasoning == []

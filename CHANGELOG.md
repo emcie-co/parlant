@@ -18,6 +18,14 @@ Each entry says what changed and what it means for you, under `Added`,
 - Improve how agents check ambiguous request targets and competing unfinished
   requests before collecting task details.
 
+### Fixed
+
+- The Parlant dashboard now shows your agent's reasoning under Agent activity
+  when the agent streams its messages, the default for `create_agent`. Each
+  step's reasoning is now recorded as a `loop.reasoning` trace event. Before,
+  it reached the dashboard only as a log line, which the dashboard read only
+  from agents in block output mode.
+
 ## [4.0.3] - 2026-11-05
 
 ### Changed

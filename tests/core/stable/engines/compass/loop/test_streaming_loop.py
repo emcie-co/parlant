@@ -34,6 +34,8 @@ from parlant.core.nlp.react import (
     FinishReason,
     Message,
     ReasoningConfig,
+    ReasoningDelta,
+    ReasoningPart,
     Role,
     StepCompleted,
     StepResult,
@@ -894,3 +896,52 @@ async def test_that_committed_assistant_replay_artifacts_survive_split_tool_prea
         metadata_utils.internal_value(messages[0].metadata, ("assistant_replay",), None) == replay
     )
     assert metadata_utils.internal_value(messages[1].metadata, ("assistant_replay",), None) is None
+
+
+class _ReasonThenAnswerReact(_ModelResolvingStubReact):
+    def serialize_tool_messages(self, messages: list[Message], serializer: Any) -> None:
+        return None
+
+    async def stream_step(
+        self,
+        *,
+        history: list[Message],
+        tools: list[Any],
+        tool_choice: str,
+        reasoning: Any,
+        hints: dict[str, Any],
+    ) -> Any:
+        yield ReasoningDelta(text="The facts don't cover this, ")
+        yield ReasoningDelta(text="so offer a consultant.")
+        yield TextDelta(text="A consultant can help with that.")
+        yield StepCompleted(
+            result=StepResult(
+                message=Message(
+                    role=Role.ASSISTANT,
+                    parts=[
+                        ReasoningPart(text="The facts don't cover this, so offer a consultant."),
+                        TextPart(text="A consultant can help with that."),
+                    ],
+                ),
+                finish_reason=FinishReason.STOP,
+                usage=Usage(),
+            )
+        )
+
+
+async def test_that_a_streamed_step_traces_its_reasoning() -> None:
+    # Stream output mode is the SDK's default. The Dashboard reads a turn's
+    # reasoning from its loop.reasoning events, so a streamed turn must trace
+    # them just as a blocking one does.
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "which is better?")])
+    context.state = ResponseState()
+    tracer = _EventRecordingTracer()
+    loop = _make_streaming_loop(tracer)
+    cast(_ModelRouterStub, loop._model_router).react = _ReasonThenAnswerReact()
+    context.tracer = tracer
+
+    await loop.run(LoopJob(context=context, system_instructions="SYSTEM"))
+
+    assert [a for n, a in tracer.recorded_events if n == "loop.reasoning"] == [
+        {"reasoning": "The facts don't cover this, so offer a consultant.", "chunk_count": 2}
+    ]

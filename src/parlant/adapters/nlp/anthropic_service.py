@@ -15,6 +15,7 @@
 import re
 import time
 import httpx
+import httpx2
 from pydantic import ValidationError
 from anthropic import (
     APIConnectionError,
@@ -96,7 +97,9 @@ from parlant.core.usage_reporter import UsageReporter
 # stays short. max_retries=0 leaves retrying to our own policy / the loop rather
 # than triple-stacking the timeout. For streaming the read timeout is per-chunk
 # (max gap between tokens), so it doesn't cut off long-but-active responses.
-_ANTHROPIC_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
+# An httpx2 object, not an httpx one: anthropic 1.0 moved the SDK onto HTTPX2,
+# and its client rejects a legacy httpx timeout.
+_ANTHROPIC_TIMEOUT = httpx2.Timeout(60.0, connect=5.0)
 _ANTHROPIC_MAX_RETRIES = 0
 
 
@@ -1255,6 +1258,8 @@ class RoutedAnthropicSchematicGenerator(AnthropicAISchematicGenerator[T]):
 
 
 _VOYAGE_EMBEDDINGS_URL = "https://api.voyageai.com/v1/embeddings"
+# Voyage is called with plain httpx, so it keeps an httpx timeout of the same shape.
+_VOYAGE_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 
 _MISSING_VOYAGE_API_KEY_MESSAGE = (
     "Anthropic has no native embeddings API, so the anthropic provider fulfills "
@@ -1338,7 +1343,7 @@ class VoyageAIEmbedder(BaseEmbedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        async with httpx.AsyncClient(timeout=_ANTHROPIC_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_VOYAGE_TIMEOUT) as client:
             response = await client.post(
                 _VOYAGE_EMBEDDINGS_URL,
                 headers={"Authorization": f"Bearer {self._api_key}"},

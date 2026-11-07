@@ -796,6 +796,7 @@ class _StepPhaseTracer:
         self._tracer = tracer
         self._message_mode = message_mode
         self._reasoning_chunks: int | None = None
+        self._step_reasoning_chunks = 0
         self._message_open = False
         self._message_traced = False
         self._tool_call_ids: set[str] = set()
@@ -806,10 +807,18 @@ class _StepPhaseTracer:
     def begin(self) -> None:
         """The model call is starting: it's thinking until it writes or calls a tool."""
         self._reasoning_chunks = 0
+        self._step_reasoning_chunks = 0
         self._tracer.loop_reasoning_started()
+
+    def trace_reasoning(self, reasoning: str) -> None:
+        """Records the reasoning the step completed with, which the Dashboard shows
+        under the step. Counts every chunk the step streamed, including any after
+        its reasoning phase closed."""
+        self._tracer.loop_reasoning(reasoning, chunk_count=self._step_reasoning_chunks)
 
     def observe(self, event: StreamEvent) -> None:
         if isinstance(event, ReasoningDelta):
+            self._step_reasoning_chunks += 1
             if self._reasoning_chunks is not None:
                 self._reasoning_chunks += 1
             return
@@ -1737,7 +1746,7 @@ class BaseLoop(Loop):
                         phases=phases,
                     )
                     if not committed:
-                        await self._commit_react_event(state, event, react)
+                        await self._commit_react_event(state, event, react, phases)
 
                 phases.close("completed")
                 await job.context.dependencies.hooks.call_on_step_completed(
@@ -2020,6 +2029,7 @@ class BaseLoop(Loop):
         state: _LoopState,
         event: StreamEvent,
         react: ReactGenerator,
+        phases: _StepPhaseTracer | None = None,
     ) -> None:
         if isinstance(event, StepCompleted):
             message = event.result.message
@@ -2034,6 +2044,10 @@ class BaseLoop(Loop):
             state.message.reset_commit_policy()
 
             if event.result.message.reasoning:
+                # The Dashboard reads a step's reasoning from its loop.reasoning event.
+                # The log line stays for collectors that still read it from logs.
+                if phases is not None:
+                    phases.trace_reasoning(event.result.message.reasoning)
                 self._logger.trace(
                     f"{self.__class__.__name__} step reasoning:\n {event.result.message.reasoning}"
                 )
@@ -2066,7 +2080,7 @@ class BaseLoop(Loop):
             job.context,
             state,
             event,
-            lambda s, e: self._commit_react_event(s, e, react),
+            lambda s, e: self._commit_react_event(s, e, react, phases),
             react,
             tokenizer,
             refresh_step_instructions=lambda: self._update_step_instructions(job, state),

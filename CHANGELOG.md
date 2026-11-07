@@ -25,6 +25,10 @@ Each entry says what changed and what it means for you, under `Added`,
   step's reasoning is now recorded as a `loop.reasoning` trace event. Before,
   it reached the dashboard only as a log line, which the dashboard read only
   from agents in block output mode.
+- `parlant[anthropic]` works with the current Anthropic SDK. A fresh install
+  picked anthropic 1.0 or later, whose client refused Parlant's request timeout,
+  so no Claude model could start. The extra now requires `anthropic>=1.0.0`;
+  if your project capped anthropic below 1.0 to work around this, drop the cap.
 
 ## [4.0.3] - 2026-11-05
 

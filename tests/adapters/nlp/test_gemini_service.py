@@ -440,17 +440,25 @@ def test_that_encode_wraps_non_object_tool_results_and_passes_objects_through(
     gemini: GeminiReactGenerator,
 ) -> None:
     history = [
+        Message(role=Role.USER, parts=[TextPart(text="Check both values")]),
+        Message(
+            role=Role.ASSISTANT,
+            parts=[
+                ToolCallPart(id="c1", name="t", args={}),
+                ToolCallPart(id="c2", name="t", args={}),
+            ],
+        ),
         Message(
             role=Role.TOOL,
             parts=[
                 ToolResultPart(call_id="c1", name="t", content="plain string"),
                 ToolResultPart(call_id="c2", name="t", content={"temp": 18}),
             ],
-        )
+        ),
     ]
 
     parts = gemini._encode(history, [], "auto", reasoning=ReasoningConfig())["all_contents"][
-        0
+        2
     ].parts
 
     assert parts[0].function_response.response == {"result": "plain string"}
@@ -2011,3 +2019,81 @@ async def test_that_argon_tool_replay_preserves_results_and_native_signatures(
         assert "18" in final.message.text
     finally:
         await generator.aclose()
+
+
+def test_that_leading_background_results_are_context_without_invented_tool_calls(
+    gemini: GeminiReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Support agent")]),
+        Message(
+            role=Role.TOOL,
+            cache_key="session",
+            parts=[
+                ToolResultPart(
+                    call_id="1",
+                    name="release_lookup",
+                    content={"product": "Boreal", "launch_date": "2032-09-22"},
+                )
+            ],
+        ),
+        Message(
+            role=Role.TOOL,
+            cache_key="session",
+            parts=[
+                ToolResultPart(
+                    call_id="2",
+                    name="region_lookup",
+                    content={"region": "Europe"},
+                )
+            ],
+        ),
+        Message(role=Role.USER, parts=[TextPart(text="When does Boreal launch?")]),
+    ]
+    encoded = gemini._encode(history, [], "none", reasoning=ReasoningConfig())
+    contents = encoded["all_contents"]
+    assert [content.role for content in contents] == ["user", "user", "user"]
+    for content in contents[:2]:
+        assert all(
+            part.function_call is None and part.function_response is None for part in content.parts
+        )
+    context = "\n".join(part.text or "" for content in contents[:2] for part in content.parts)
+    assert "release_lookup" in context and "Boreal" in context and "2032-09-22" in context
+    assert "region_lookup" in context and "Europe" in context
+    assert contents[-1].parts[0].text == "When does Boreal launch?"
+
+
+def test_that_native_tool_history_still_preserves_the_matching_call_and_result(
+    gemini: GeminiReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.USER, parts=[TextPart(text="Weather in Paris?")]),
+        Message(
+            role=Role.ASSISTANT,
+            parts=[
+                ToolCallPart(
+                    id="weather-call",
+                    name="get_weather",
+                    args={"city": "Paris"},
+                    provider_data={GEMINI_THOUGHT_SIGNATURE_KEY: b"native-signature"},
+                )
+            ],
+        ),
+        Message(
+            role=Role.TOOL,
+            parts=[
+                ToolResultPart(
+                    call_id="weather-call",
+                    name="get_weather",
+                    content={"temperature_c": 18},
+                )
+            ],
+        ),
+    ]
+    encoded = gemini._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())
+    contents = encoded["all_contents"]
+    call = contents[1].parts[0]
+    result = contents[2].parts[0]
+    assert call.function_call.id == result.function_response.id == "weather-call"
+    assert call.thought_signature == b"native-signature"
+    assert result.function_response.response == {"temperature_c": 18}

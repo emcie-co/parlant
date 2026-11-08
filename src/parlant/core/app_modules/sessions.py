@@ -815,6 +815,7 @@ class SessionModule:
         response_run: ResponseRun,
     ) -> None:
         succeeded = False
+        coordinated_emitter: CoordinatedEventEmitter | None = None
         try:
             self._logger.debug(f"Starting background processing for session {session.id}")
             event_emitter = await self._event_emitter_factory.create_event_emitter(
@@ -823,6 +824,7 @@ class SessionModule:
             )
 
             engine = await self._engine_for_agent(session.agent_id)
+            coordinated_emitter = CoordinatedEventEmitter(event_emitter, response_run)
 
             with response_run_scope(response_run):
                 succeeded = await engine.process(
@@ -830,9 +832,11 @@ class SessionModule:
                         session_id=session.id,
                         agent_id=session.agent_id,
                     ),
-                    event_emitter=CoordinatedEventEmitter(event_emitter, response_run),
+                    event_emitter=coordinated_emitter,
                 )
         finally:
+            if coordinated_emitter is not None:
+                await self._close_response_streams(coordinated_emitter)
             await self.response_coordinator.finish_foreground(response_run, succeeded=succeeded)
             report_service = get_diagnostic_report_service(self._tracer)
 
@@ -857,6 +861,15 @@ class SessionModule:
                 active_task = self._active_processing_tasks.get(session.id)
                 if active_task and active_task.trace_id == trace_id:
                     del self._active_processing_tasks[session.id]
+
+    async def _close_response_streams(self, emitter: CoordinatedEventEmitter) -> None:
+        try:
+            await emitter.close_interrupted_messages()
+        except ItemNotFoundError:
+            # History/session deletion already removed the old stream.
+            pass
+        except Exception as error:
+            self._logger.warning(f"Closing interrupted response streams failed: {error}")
 
     async def _attach_session_data_to_diagnostics(
         self,
@@ -1053,15 +1066,17 @@ class SessionModule:
 
             engine = await self._engine_for_agent(session.agent_id)
 
+            coordinated_emitter: CoordinatedEventEmitter | None = None
             if response_run is not None:
 
                 async def may_publish() -> bool:
                     current = await self._session_store.read_session(session_id)
                     return current.mode != "manual"
 
-                event_emitter = CoordinatedEventEmitter(
+                coordinated_emitter = CoordinatedEventEmitter(
                     event_emitter, response_run, may_publish=may_publish
                 )
+                event_emitter = coordinated_emitter
                 async with self._lock:
                     self._active_processing_tasks[session_id] = _ActiveProcessingTask(
                         trace_id=trace_id,
@@ -1091,6 +1106,8 @@ class SessionModule:
                     )
                 raise
             finally:
+                if coordinated_emitter is not None:
+                    await self._close_response_streams(coordinated_emitter)
                 if response_run is not None:
                     async with self._lock:
                         active = self._active_processing_tasks.get(session_id)

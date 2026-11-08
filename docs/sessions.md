@@ -220,6 +220,12 @@ one automatic continuation unless a newer customer turn incorporates them
 first. Three requests made before that boundary combine into one pending reply,
 not one reply per caller. This cannot combine work that has not yet been registered.
 
+Clearing or truncating history removes obsolete queued input requirements;
+remaining results can still be answered. This does not undo external work that
+has already started. If a new customer message interrupts a streaming reply,
+the already-persisted prefix stays and its stream is terminated without adding
+unpublished text.
+
 Background-only replies use the responder without fresh matching or tool calls.
 Manual mode suppresses them, including a handoff that happens during generation.
 Stopping the active queued reply through the cancellation API also cancels its

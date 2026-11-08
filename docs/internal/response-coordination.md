@@ -90,6 +90,36 @@ without an intervening await; canceled workers unwind their jobs before releasin
 state. Unstarted application coroutines are closed on registration failure or
 pre-start cancellation.
 
+### Edge-case corrections — 2026-11-08
+
+The initial merge-readiness assessment was superseded after an edge audit.
+Twenty-seven additional checks initially produced seven failures: four core and
+three live SDK cases. Their assertions remain unchanged during the fixes.
+
+- Reconcile request inputs with a fresh store view under the publication lock,
+  rather than interpreting an older model snapshot as evidence of deletion.
+  Retire removed requirements and keep still-relevant results. Validate before
+  generation and first visible publication, without rereading full history for
+  every subsequent streaming chunk.
+- Concurrent registrations await the same worker-installation task. A worker
+  canceled before entering its coroutine cannot own new application work;
+  registration closes that unstarted work and releases queue state.
+- Track copies of the chunks actually persisted by each message handle. Finalize
+  an interrupted stream with that committed prefix plus its terminator, bypassing
+  only the stale-text guard for this closing write. Do not flush the loop's live
+  buffer, which may already contain an unpublished next chunk. Missing events
+  after deletion require no replacement write; other closing failures are logged.
+- Gemini generateContent cannot start history with an unpaired function response.
+  Render leading external results as text context without inventing tool calls
+  or signatures. Normal native call/result replay remains unchanged; the
+  Interactions API retains its existing encoding.
+
+The live regeneration regression originally stopped at a Gemini protocol error;
+the adapter fix lets it reach and pass its queue assertions. A focused offline
+encoding regression failed before that repair, while a native replay control
+passed. The existing payload-packing test now supplies matching calls, keeping
+its original response-payload assertions.
+
 ## Trace and cost attribution
 
 Every generated queued reply has one fresh trace and one model-usage record,

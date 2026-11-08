@@ -27,7 +27,7 @@ from contextvars import Context, ContextVar, copy_context
 from dataclasses import dataclass, field
 import hashlib
 import json
-from typing import Any, Literal, Mapping, TypeVar
+from typing import Any, Literal, Mapping, TypeVar, cast
 from typing_extensions import override
 
 from parlant.core.background_tasks import BackgroundTaskService
@@ -87,6 +87,14 @@ class _Request:
     context: Context
 
 
+def _retain_live_inputs(state: _SessionState, inputs: Inputs) -> None:
+    state.requests = {
+        seq: _Request(request.inputs & inputs, request.context)
+        for seq, request in state.requests.items()
+        if not request.inputs or request.inputs & inputs
+    }
+
+
 @dataclass
 class _SessionState:
     session_id: SessionId
@@ -101,14 +109,21 @@ class _SessionState:
     queued: ResponseRun | None = None
     rendering: asyncio.Task[bool] | None = None
     worker_installed: bool = False
+    installation: asyncio.Task[None] | None = None
     closed: bool = False
     users: int = 0
     answered_inputs: Inputs | None = None
 
 
 class ResponseRun:
-    def __init__(self, state: _SessionState, kind: Literal["foreground", "queued"]) -> None:
+    def __init__(
+        self,
+        state: _SessionState,
+        kind: Literal["foreground", "queued"],
+        read_inputs: Callable[[SessionId], Awaitable[Inputs]],
+    ) -> None:
         self._state = state
+        self._read_inputs = read_inputs
         self.session_id = state.session_id
         self.kind = kind
         self.generation = state.generation
@@ -128,6 +143,13 @@ class ResponseRun:
                 raise ResponseSuperseded("A newer customer turn superseded this reply")
             if self.kind == "queued" and state.foreground is not None:
                 raise ResponseSuperseded("A customer turn is handling this session")
+            if not self.visible and state.requests:
+                # Read under the publication lock: an older model snapshot is
+                # not evidence that a newly registered result was deleted.
+                current = await self._read_inputs(self.session_id)
+                _retain_live_inputs(state, current)
+                if self.snapshot_loaded and not self.inputs <= current:
+                    raise ResponseSuperseded("Conversation history changed during generation")
             if not self.visible and self.snapshot_loaded:
                 unseen = any(
                     not request.inputs <= self.inputs for request in state.requests.values()
@@ -175,6 +197,7 @@ class CoordinatedEventEmitter(EventEmitter):
         self._emitter = emitter
         self._run = run
         self._may_publish = may_publish
+        self._open_messages: dict[object, tuple[MessageEventHandle, MessageEventData]] = {}
 
     async def _publish(self, operation: Callable[[], Awaitable[T]], *, visible: bool) -> T:
         async def guarded() -> T:
@@ -184,7 +207,17 @@ class CoordinatedEventEmitter(EventEmitter):
 
         return await self._run.publish(guarded, visible=visible)
 
-    def _handle(self, handle: MessageEventHandle) -> MessageEventHandle:
+    def _handle(self, handle: MessageEventHandle, key: object | None = None) -> MessageEventHandle:
+        key = key if key is not None else object()
+        data = cast(MessageEventData, handle.event.data)
+        chunks = data.get("chunks")
+        if chunks and chunks[-1] is not None:
+            # The loop mutates its chunk buffer before the next write. Freeze
+            # only what this handle actually persisted, not that live buffer.
+            self._open_messages[key] = (handle, {**data, "chunks": list(chunks)})
+        else:
+            self._open_messages.pop(key, None)
+
         async def update(
             data: MessageEventData,
             *,
@@ -194,9 +227,17 @@ class CoordinatedEventEmitter(EventEmitter):
                 lambda: handle.update(data, internal_metadata=internal_metadata),
                 visible=bool(data["message"].strip()),
             )
-            return self._handle(result)
+            return self._handle(result, key)
 
         return MessageEventHandle(event=handle.event, update=update)
+
+    async def close_interrupted_messages(self) -> None:
+        async with self._run._state.lock:
+            for key, (handle, data) in list(self._open_messages.items()):
+                # Closing a committed prefix is allowed after supersession or
+                # handoff; generating or appending new text is still fenced.
+                await handle.update({**data, "chunks": [*data["chunks"], None]})
+                self._open_messages.pop(key, None)
 
     @override
     async def emit_message_event(
@@ -305,7 +346,7 @@ class LocalResponseCoordinator:
     async def begin_foreground(self, session_id: SessionId) -> ResponseRun:
         async with self._access(session_id) as state:
             state.generation += 1
-            run = ResponseRun(state, "foreground")
+            run = ResponseRun(state, "foreground", self._read_inputs)
             state.foreground = run
             if state.rendering is not None:
                 state.rendering.cancel("A new customer turn superseded the deferred reply")
@@ -420,24 +461,35 @@ class LocalResponseCoordinator:
 
     async def _ensure_worker(self, state: _SessionState) -> None:
         async with state.lock:
-            if state.worker_installed:
-                return
-            state.worker_installed = True
+            if not state.worker_installed:
+                state.worker_installed = True
+                state.installation = asyncio.create_task(self._install_worker(state))
+            installation = state.installation
+            assert installation is not None
 
-        async def install() -> None:
-            worker = self._worker(state)
-            try:
-                await self._background.start(worker, tag=self.task_tag(state.session_id))
-            except BaseException:
+        # Every registering caller waits for the same owner to be installed;
+        # none may launch application work under a canceled pre-start worker.
+        await asyncio.shield(installation)
+
+    async def _install_worker(self, state: _SessionState) -> None:
+        worker = self._worker(state)
+        owner: asyncio.Task[None] | None = None
+        try:
+            owner = await self._background.start(worker, tag=self.task_tag(state.session_id))
+            if owner.cancelled() or owner.cancelling():
+                raise asyncio.CancelledError(
+                    "Queued response owner was canceled during installation"
+                )
+        except BaseException:
+            if owner is None:
                 worker.close()
-                async with state.lock:
-                    state.worker_installed = False
-                    self._discard_idle(state)
-                raise
-
-        # If the caller's normal turn is interrupted during registration, the
-        # worker installation still completes and remains owned by the service.
-        await asyncio.shield(install())
+            else:
+                await asyncio.gather(owner, return_exceptions=True)
+            async with state.lock:
+                state.requests.clear()
+                state.worker_installed = False
+                self._discard_idle(state)
+            raise
 
     async def _worker(self, state: _SessionState) -> None:
         exhausted = False
@@ -453,10 +505,14 @@ class LocalResponseCoordinator:
                         state.changed.clear()
                         selected = None
                     else:
+                        current = await self._read_inputs(state.session_id)
+                        _retain_live_inputs(state, current)
+                        if not state.requests:
+                            continue
                         selected = max(state.requests)
                         attempt = frozenset(state.requests)
                         context = state.requests[selected].context
-                        run = ResponseRun(state, "queued")
+                        run = ResponseRun(state, "queued", self._read_inputs)
                         state.queued = run
                         state.rendering = asyncio.create_task(self._render(run), context=context)
                         rendering = state.rendering

@@ -19,7 +19,8 @@ Each entry says what changed and what it means for you, under `Added`,
   results or a customer turn. Pass `after=coroutine` to register work before it
   starts; only the deferred reply waits for the registered batch. Coordination
   lives in one process and requires session routing affinity; pending work is
-  not recovered after a restart.
+  not recovered after a restart. Queued replies tolerate history edits and
+  terminate interrupted streams without appending stale text.
 
 ### Changed
 
@@ -32,6 +33,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- Gemini conversations can resume from background results after history is
+  cleared, without an invalid tool-response ordering error.
 - The Parlant dashboard now shows your agent's reasoning under Agent activity
   when the agent streams its messages, the default for `create_agent`. Each
   step's reasoning is now recorded as a `loop.reasoning` trace event. Before,

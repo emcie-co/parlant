@@ -19,8 +19,8 @@ Parlant aggregates these per execution trace, by provider and model, and
 persists the record with the session once that execution has finished.
 
 A normal turn has one execution. A completed background `Session.emit_tool_result()`
-and each `Agent.utter()` follow-up have their own traces and immutable usage
-records. A later reply therefore cannot lose its model usage by reusing an
+and each generated `Agent.utter()` or `Agent.queue_response()` follow-up have
+their own traces and immutable usage records. A later reply therefore cannot lose its model usage by reusing an
 already finalized record. Engine follow-ups also retain already incurred usage
 during failed or cancelled generation finalization.
 
@@ -30,8 +30,18 @@ before they finish. Emit the result before requesting the follow-up:
 
 ```python
 await p.Session.current.emit_tool_result(my_tool, result)
-await p.Agent.current.utter(rules=[{"content": "Explain the result to the customer."}])
+await p.Agent.current.queue_response()
 ```
+
+Queueing coalesces local follow-ups and lets a customer turn fulfill ready
+requests. Register unfinished jobs with `after=coroutine` to wait for their batch;
+see [queued follow-ups](sessions.md#queue-a-background-follow-up) for the process-local
+and restart limits. A generated combined reply uses the most recently joined
+request's originating turn when generation starts; each tool result retains its
+original attribution.
+If a foreground customer turn fulfills the request, that turn owns its reply's
+model usage. `utter(rules=...)` is still available for an independent immediate
+response. Neither operation duplicates already-recorded tool charges.
 
 The reserved event metadata `__parlant__.turn_trace_id` and each execution's
 usage-record `turn_trace_id` carry that shared origin; traces also carry

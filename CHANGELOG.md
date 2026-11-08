@@ -13,6 +13,14 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Added
+
+- `Agent.queue_response()` combines background follow-ups with other ready
+  results or a customer turn. Pass `after=coroutine` to register work before it
+  starts; only the deferred reply waits for the registered batch. Coordination
+  lives in one process and requires session routing affinity; pending work is
+  not recovered after a restart.
+
 ### Changed
 
 - Encouraged tool preamble guidance explicitly asks for the user's language,

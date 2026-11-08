@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import hmac
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence, Set, cast
+from typing import Any, Coroutine, Mapping, Sequence, Set, cast
 
 from parlant.core.agents import Moderation, AgentId, AgentStore
 from parlant.core.app_modules.request_context import RequestContext
@@ -21,10 +21,24 @@ from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tracer import Tracer, session_operation_span
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.engines.types import Context, Engine, EngineRegistry, UtteranceRequest
+from parlant.core.engines.types import (
+    Context,
+    Engine,
+    EngineRegistry,
+    UtteranceRationale,
+    UtteranceRequest,
+)
 from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.nlp.moderation import CustomerModerationContext
 from parlant.core.nlp.model_routing import ModelRouter
+from parlant.core.response_coordination import (
+    CoordinatedEventEmitter,
+    Inputs,
+    LocalResponseCoordinator,
+    ResponseRun,
+    response_inputs,
+    response_run_scope,
+)
 from parlant.core.sessions import (
     AgentState,
     AttachmentRef,
@@ -146,6 +160,29 @@ class SessionModule:
 
         self._lock = asyncio.Lock()
         self._active_processing_tasks: dict[SessionId, _ActiveProcessingTask] = {}
+        self.response_coordinator = LocalResponseCoordinator(
+            background_tasks=background_task_service,
+            logger=self._logger,
+            read_inputs=self._read_response_inputs,
+            render=self._render_queued_response,
+        )
+
+    async def _read_response_inputs(self, session_id: SessionId) -> Inputs:
+        # Emission and engine history use the runtime store, which can differ
+        # from the SDK declaration store on managed servers.
+        store = self._store_provider.get_store(SessionStore, StoreProviderHints(call_site="engine"))
+        return response_inputs(await store.list_events(session_id))
+
+    async def queue_response(
+        self, session_id: SessionId, *, after: Coroutine[Any, Any, None] | None = None
+    ) -> None:
+        try:
+            await self._session_store.read_session(session_id)
+        except BaseException:
+            if after is not None:
+                after.close()
+            raise
+        await self.response_coordinator.request(session_id, after=after)
 
     @property
     def _agent_store(self) -> AgentStore:
@@ -703,6 +740,7 @@ class SessionModule:
         return f"process-session({session_id})"
 
     async def dispatch_processing_task(self, session: Session) -> str:
+        response_run = await self.response_coordinator.begin_foreground(session.id)
         tag = self._processing_task_tag(session.id)
         trace_id = self._tracer.trace_id
         report_service = get_diagnostic_report_service(self._tracer)
@@ -721,6 +759,7 @@ class SessionModule:
             session,
             trace_id=trace_id,
             release_retained_trace=retained_trace,
+            response_run=response_run,
         )
         try:
             await self._background_task_service.restart(
@@ -729,6 +768,7 @@ class SessionModule:
             )
         except BaseException:
             processing.close()
+            await self.response_coordinator.finish_foreground(response_run, succeeded=False)
             if retained_trace:
                 report_service.release(trace_id)
             async with self._lock:
@@ -772,7 +812,9 @@ class SessionModule:
         session: Session,
         trace_id: str,
         release_retained_trace: bool,
+        response_run: ResponseRun,
     ) -> None:
+        succeeded = False
         try:
             self._logger.debug(f"Starting background processing for session {session.id}")
             event_emitter = await self._event_emitter_factory.create_event_emitter(
@@ -782,14 +824,16 @@ class SessionModule:
 
             engine = await self._engine_for_agent(session.agent_id)
 
-            await engine.process(
-                Context(
-                    session_id=session.id,
-                    agent_id=session.agent_id,
-                ),
-                event_emitter=event_emitter,
-            )
+            with response_run_scope(response_run):
+                succeeded = await engine.process(
+                    Context(
+                        session_id=session.id,
+                        agent_id=session.agent_id,
+                    ),
+                    event_emitter=CoordinatedEventEmitter(event_emitter, response_run),
+                )
         finally:
+            await self.response_coordinator.finish_foreground(response_run, succeeded=succeeded)
             report_service = get_diagnostic_report_service(self._tracer)
 
             if report_service.should_attach_session_data(trace_id):
@@ -961,6 +1005,34 @@ class SessionModule:
         session_id: SessionId,
         requests: Sequence[UtteranceRequest],
     ) -> Event:
+        # Explicit utter() remains an independent operation, even when called
+        # from inside a coordinated turn or its inherited background context.
+        with response_run_scope(None):
+            return await self._utter(session_id, requests)
+
+    async def _render_queued_response(self, run: ResponseRun) -> bool:
+        session = await self._session_store.read_session(run.session_id)
+        if session.mode == "manual":
+            return False
+        with response_run_scope(run):
+            event = await self._utter(
+                run.session_id,
+                requests=[
+                    UtteranceRequest(
+                        action="Respond to the customer's pending requests using the completed background results in the conversation.",
+                        rationale=UtteranceRationale.FOLLOW_UP,
+                    )
+                ],
+                response_run=run,
+            )
+        return event.kind == EventKind.MESSAGE
+
+    async def _utter(
+        self,
+        session_id: SessionId,
+        requests: Sequence[UtteranceRequest],
+        response_run: ResponseRun | None = None,
+    ) -> Event:
         session = await self._session_store.read_session(session_id)
         report_service = get_diagnostic_report_service(self._tracer)
 
@@ -968,9 +1040,9 @@ class SessionModule:
         # must export as it does a request's, or the message shows no activity.
         with session_operation_span(
             self._tracer,
-            "sessions.utter",
+            "sessions.queue_response" if response_run else "sessions.utter",
             session_id,
-            "utter",
+            "queue_response" if response_run else "utter",
         ):
             trace_id = self._tracer.trace_id
             report_service.mark_engine_turn(trace_id, str(session.id))
@@ -981,16 +1053,49 @@ class SessionModule:
 
             engine = await self._engine_for_agent(session.agent_id)
 
+            if response_run is not None:
+
+                async def may_publish() -> bool:
+                    current = await self._session_store.read_session(session_id)
+                    return current.mode != "manual"
+
+                event_emitter = CoordinatedEventEmitter(
+                    event_emitter, response_run, may_publish=may_publish
+                )
+                async with self._lock:
+                    self._active_processing_tasks[session_id] = _ActiveProcessingTask(
+                        trace_id=trace_id,
+                        tag=self.response_coordinator.task_tag(session_id),
+                    )
+
             # Engine cleanup clears its EntityContext. Keep that mutation in
             # an awaited child task so the caller can continue using its own
             # Session.current / Agent.current after this follow-up completes.
-            succeeded = await asyncio.create_task(
-                engine.utter(
-                    context=Context(session_id=session.id, agent_id=session.agent_id),
-                    event_emitter=event_emitter,
-                    requests=requests,
+            try:
+                succeeded = await asyncio.create_task(
+                    engine.utter(
+                        context=Context(session_id=session.id, agent_id=session.agent_id),
+                        event_emitter=event_emitter,
+                        requests=requests,
+                    )
                 )
-            )
+            except asyncio.CancelledError:
+                if response_run is not None:
+                    await event_emitter.emit_status_event(
+                        trace_id=trace_id,
+                        data=StatusEventData(status="cancelled", data={}),
+                    )
+                    await event_emitter.emit_status_event(
+                        trace_id=trace_id,
+                        data=StatusEventData(status="ready", data={"stage": "completed"}),
+                    )
+                raise
+            finally:
+                if response_run is not None:
+                    async with self._lock:
+                        active = self._active_processing_tasks.get(session_id)
+                        if active is not None and active.trace_id == trace_id:
+                            del self._active_processing_tasks[session_id]
 
             event_kinds = [EventKind.MESSAGE] if succeeded else [EventKind.STATUS]
             events = await self._session_store.list_events(

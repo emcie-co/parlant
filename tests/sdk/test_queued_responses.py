@@ -28,8 +28,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+import pytest
 import parlant.sdk as p
 from parlant.core.application import Application
+from parlant.core.common import ItemNotFoundError
 from parlant.core.sessions import Event, EventKind, EventSource, SessionId, SessionStore
 from parlant.core.tracer import Tracer
 from tests.sdk.utils import Context, SDKTest
@@ -499,3 +501,256 @@ class Test_that_manual_mode_does_not_emit_a_queued_response(QueuedSDKTest):
             SessionId(session.id), kinds=[EventKind.TOOL]
         )
         assert len(tools) == 1
+
+
+class PendingHistorySDKTest(QueuedSDKTest):
+    replacement_customer_turn = False
+
+    async def setup(self, server: p.Server) -> None:
+        await super().setup(server)
+        self.release_work = asyncio.Event()
+        self.reply_emitted = asyncio.Event()
+        self.generations = 0
+        self.engine_errors: list[str] = []
+
+    async def configure_hooks(self, hooks: p.CompassHooks) -> p.CompassHooks:
+        async def generating(
+            context: p.EngineContext, payload: Any, error: Exception | None
+        ) -> p.CompassHookResult:
+            self.generations += 1
+            if self.generations >= 2:
+                # A safety fuse for the known infinite retry. No second model
+                # request is made; the test still fails on the attempt count.
+                return p.CompassHookResult.BAIL
+            return p.CompassHookResult.CALL_NEXT
+
+        async def emitted(
+            context: p.EngineContext, payload: Any, error: Exception | None
+        ) -> p.CompassHookResult:
+            self.reply_emitted.set()
+            return p.CompassHookResult.CALL_NEXT
+
+        async def failed(
+            context: p.EngineContext, payload: Any, error: Exception | None
+        ) -> p.CompassHookResult:
+            # Surface the engine failure itself instead of reporting a timeout
+            # while waiting for a message it can no longer deliver.
+            assert error is not None
+            self.engine_errors.append(f"{error!r}; caused by {error.__cause__!r}")
+            self.reply_emitted.set()
+            return p.CompassHookResult.CALL_NEXT
+
+        hooks.on_generating_messages.append(generating)
+        hooks.on_messages_emitted.append(emitted)
+        hooks.on_error.append(failed)
+        return hooks
+
+    async def run(self, ctx: Context) -> None:
+        session = await self.session(ctx, "When will Atlas launch?")
+        await self.persist(session, "Atlas")
+
+        async def work() -> None:
+            await self.release_work.wait()
+
+        await self.agent.queue_response(session, after=work())
+        await self.agent.queue_response(session)
+        async with httpx.AsyncClient(base_url=ctx.base_url) as http:
+            deleted = await http.delete(f"/sessions/{session.id}/events", params={"min_offset": 0})
+        deleted.raise_for_status()
+        assert await ctx.container[SessionStore].list_events(SessionId(session.id)) == []
+        if self.replacement_customer_turn:
+            await self.persist(session, "Boreal")
+            await ctx.client.sessions.create_event(
+                session_id=session.id,
+                kind="message",
+                source="customer",
+                message="What date is Boreal launching?",
+            )
+            await asyncio.wait_for(self.reply_emitted.wait(), timeout=60)
+        self.release_work.set()
+        await self.idle(ctx, session)
+        replies = await self.messages(ctx, session)
+        assert not self.engine_errors, self.engine_errors
+        assert self.generations <= 1, (
+            "History changes must not cause repeated generation against the same snapshot"
+        )
+        assert all("Atlas" not in text for text in replies), (
+            "Deleted history must not be reintroduced"
+        )
+        if self.replacement_customer_turn:
+            assert len(replies) == 1
+            assert await nlp_test(
+                replies[0], "The reply gives Boreal's launch date as 22 September 2032."
+            )
+
+
+class Test_that_deleting_history_during_pending_work_does_not_loop(PendingHistorySDKTest):
+    pass
+
+
+class Test_that_regenerating_after_history_deletion_does_not_replay_old_requests(
+    PendingHistorySDKTest
+):
+    replacement_customer_turn = True
+
+
+class Test_that_deleting_a_session_during_work_does_not_recreate_it(QueuedSDKTest):
+    async def run(self, ctx: Context) -> None:
+        session = await self.session(ctx, "When will Atlas launch?")
+        release = asyncio.Event()
+        completed = asyncio.Event()
+
+        async def work() -> None:
+            await release.wait()
+            try:
+                await self.persist(session, "Atlas")
+            finally:
+                completed.set()
+
+        await self.agent.queue_response(session, after=work())
+        await self.agent.queue_response(session)
+        async with httpx.AsyncClient(base_url=ctx.base_url) as http:
+            deleted = await http.delete(f"/sessions/{session.id}")
+            deleted.raise_for_status()
+            release.set()
+            await asyncio.wait_for(completed.wait(), timeout=30)
+            await self.idle(ctx, session)
+            retrieved = await http.get(f"/sessions/{session.id}")
+        assert retrieved.status_code == 404
+        with pytest.raises(ItemNotFoundError):
+            await ctx.container[SessionStore].list_events(SessionId(session.id))
+        assert ctx.container[Application].sessions.response_coordinator.session_count == 0
+
+
+class MidstreamQueuedSDKTest(QueuedSDKTest):
+    async def setup(self, server: p.Server) -> None:
+        await super().setup(server)
+        self.partial_visible = asyncio.Event()
+        self.resume_stream = asyncio.Event()
+        self.first_partial: Event | None = None
+        self.first_trace = ""
+        self.update_count = 0
+
+    async def configure_hooks(self, hooks: p.CompassHooks) -> p.CompassHooks:
+        async def updated(
+            context: p.EngineContext, payload: Any, error: Exception | None
+        ) -> p.CompassHookResult:
+            self.update_count += 1
+            if self.first_partial is None:
+                events = await self.server.container[SessionStore].list_events(
+                    context.session.id,
+                    trace_id=context.tracer.trace_id,
+                    source=EventSource.AI_AGENT,
+                    kinds=[EventKind.MESSAGE],
+                )
+                for event in events:
+                    if not isinstance(event.data, dict):
+                        continue
+                    chunks = event.data.get("chunks")
+                    if (
+                        event.data.get("message")
+                        and isinstance(chunks, list)
+                        and chunks
+                        and chunks[-1] is not None
+                    ):
+                        self.first_partial = event
+                        self.first_trace = event.trace_id
+                        self.partial_visible.set()
+                        await self.resume_stream.wait()
+                        break
+            return p.CompassHookResult.CALL_NEXT
+
+        hooks.on_message_updated.append(updated)
+        return hooks
+
+    async def begin_partial_reply(self, ctx: Context) -> p.Session:
+        session = await self.session(ctx, "Please explain Atlas's launch date and region.")
+        await self.persist(session, "Atlas")
+        await self.agent.queue_response(session)
+        await asyncio.wait_for(self.partial_visible.wait(), timeout=60)
+        assert self.first_partial is not None
+        assert isinstance(self.first_partial.data, dict)
+        chunks = self.first_partial.data["chunks"]
+        assert isinstance(chunks, list) and chunks[-1] is not None
+        assert self.update_count == 1
+        return session
+
+    async def assert_finished_prefix(self, ctx: Context, session: p.Session) -> None:
+        assert self.first_partial is not None
+        current = await ctx.container[SessionStore].read_event(session.id, self.first_partial.id)
+        assert isinstance(current.data, dict) and isinstance(self.first_partial.data, dict)
+        prefix = str(self.first_partial.data["message"])
+        assert str(current.data["message"]).startswith(prefix), "Already visible text must remain"
+        chunks = current.data.get("chunks")
+        assert isinstance(chunks, list) and chunks[-1] is None, (
+            "The old stream must terminate, not remain open forever"
+        )
+
+
+class Test_that_a_customer_interrupting_actual_streaming_keeps_a_finished_prefix_and_one_new_reply(
+    MidstreamQueuedSDKTest
+):
+    async def run(self, ctx: Context) -> None:
+        session = await self.begin_partial_reply(ctx)
+        await self.persist(session, "Boreal")
+        try:
+            await ctx.client.sessions.create_event(
+                session_id=session.id,
+                kind="message",
+                source="customer",
+                message="What date is Boreal launching?",
+            )
+        finally:
+            self.resume_stream.set()
+        await self.idle(ctx, session)
+        replies = await ctx.container[SessionStore].list_events(
+            session.id,
+            kinds=[EventKind.MESSAGE],
+            source=EventSource.AI_AGENT,
+        )
+        new_replies = [event for event in replies if event.trace_id != self.first_trace]
+        assert len(new_replies) == 1
+        assert isinstance(new_replies[0].data, dict)
+        assert await nlp_test(
+            str(new_replies[0].data["message"]),
+            "The reply gives Boreal's launch date as 22 September 2032.",
+        )
+        await self.assert_finished_prefix(ctx, session)
+
+
+class Test_that_api_cancellation_during_actual_streaming_keeps_a_finished_prefix(
+    MidstreamQueuedSDKTest
+):
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.background_tasks import BackgroundTaskService
+
+        session = await self.begin_partial_reply(ctx)
+        coordinator = ctx.container[Application].sessions.response_coordinator
+        worker = ctx.container[BackgroundTaskService]._tasks[coordinator.task_tag(session.id)]
+        async with httpx.AsyncClient(base_url=ctx.base_url) as http:
+            cancellation = asyncio.create_task(
+                http.post(
+                    f"/sessions/{session.id}/events",
+                    json={"kind": "status", "source": "customer", "status": "cancelled"},
+                )
+            )
+            try:
+                async with asyncio.timeout(10):
+                    # Observe the real service task solely to establish that
+                    # HTTP cancellation arrived before releasing the live stream.
+                    while not worker.cancelling() and not cancellation.done():
+                        await asyncio.sleep(0)
+            finally:
+                self.resume_stream.set()
+            response = await asyncio.wait_for(cancellation, timeout=30)
+        response.raise_for_status()
+        assert response.json()["data"]["status"] == "cancelled"
+        await self.idle(ctx, session)
+        await self.assert_finished_prefix(ctx, session)
+        replies = await ctx.container[SessionStore].list_events(
+            session.id,
+            kinds=[EventKind.MESSAGE],
+            source=EventSource.AI_AGENT,
+        )
+        assert len(replies) == 1
+        assert coordinator.session_count == 0

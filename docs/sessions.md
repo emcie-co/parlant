@@ -180,6 +180,70 @@ recalled as a candidate. They accumulate across the session, and Parlant does
 not remove them when the observation or policy stops matching. Remove
 temporary labels explicitly from a tool or through the HTTP API.
 
+### Queue a Background Follow-Up
+
+Use `Agent.queue_response()` when background work should lead to a reply that
+can combine with other results or a newer customer turn. First persist the
+completed result, then request the reply:
+
+```python
+await session.emit_tool_result(my_tool, result)
+await agent.queue_response(session)
+```
+
+When launching work from a tool or hook, register its unstarted coroutine so
+Parlant knows what the deferred reply must wait for:
+
+```python
+session = p.Session.current
+agent = p.Agent.current
+
+async def complete_lookup() -> None:
+    result = await lookup_in_background()
+    await session.emit_tool_result(my_tool, result)
+
+await agent.queue_response(session, after=complete_lookup())
+```
+
+The await acknowledges scheduling, not delivery. The coroutine starts after
+registration and inherits `Session.current` and `Agent.current`. Interruption
+of the originating customer turn does not cancel the registered work. Only the
+deferred reply waits for registered jobs; normal customer turns remain responsive.
+Unregistered tasks are invisible to batching. A job that raises is logged and
+removed from the batch, without retries or an invented answer. Catch expected
+failures and persist an error result if the customer needs an explanation.
+
+**If a response is already in progress:** it can fulfill queued requests for
+information included in its loaded history. New results can refresh an
+unpublished reply. Once text is visible, it stays; uncovered results produce
+one automatic continuation unless a newer customer turn incorporates them
+first. Three requests made before that boundary combine into one pending reply,
+not one reply per caller. This cannot combine work that has not yet been registered.
+
+Clearing or truncating history removes obsolete queued input requirements;
+remaining results can still be answered. This does not undo external work that
+has already started. If a new customer message interrupts a streaming reply,
+the already-persisted prefix stays and its stream is terminated without adding
+unpublished text.
+
+Background-only replies use the responder without fresh matching or tool calls.
+Manual mode suppresses them, including a handoff that happens during generation.
+Stopping the active queued reply through the cancellation API also cancels its
+remaining local jobs and requests. `utter(rules=...)` remains the operation for
+an independent, immediate generated reply, without this coalescing behavior.
+
+**Deployment limit:** the queue and registered coroutines live in the server
+process. Use routing affinity for a session. Traffic split across pods can still
+produce competing replies, and restarts lose pending requests and unfinished
+jobs. Completed tool results and costs remain persisted; there is no automatic
+replay or recovery. Queueing is an in-process SDK API, not a new HTTP endpoint.
+
+Each generated reply gets its own trace and usage record. A combined reply uses
+the latest pending request's originating turn when generation starts; contributing
+tool results keep their own original attribution. A customer turn that fulfills
+the request owns its normal response usage. Costs are never copied into each
+contributing job. See [usage reporting](usage-reports.md#what-gets-recorded).
+
 ## HTTP API
 
 The session API is centered on two resources:

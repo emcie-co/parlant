@@ -71,6 +71,7 @@ from parlant.core.entity_cq import EntityCommands, EntityQueries
 from parlant.core.loggers import Logger
 from parlant.core import metadata as metadata_utils
 from parlant.core.meter import Meter
+from parlant.core.response_coordination import observe_response_inputs
 from parlant.core.sessions import (
     Event,
     EventKind,
@@ -667,6 +668,9 @@ class CompassEngine(Engine):
         session_metadata: SessionMetadataWorkspace,
     ) -> Interaction:
         history = await self._entity_queries.find_events(context.session_id)
+        # Capture the store snapshot actually loaded by this execution, including
+        # history represented by a compaction summary. Dispatch time is too early.
+        await observe_response_inputs(context.session_id, history)
         self._prepare_workspace_recovery(session_metadata, history)
 
         state.session_summary = ""

@@ -17,6 +17,7 @@ import base64
 import enum
 import hashlib
 import inspect
+import json
 import time
 import types
 import uuid
@@ -1093,7 +1094,36 @@ class GeminiReactGenerator(ReactGenerator):
                 cache_key = message.cache_key
             non_system.append(message)
 
-        contents = [self._encode_message(message) for message in non_system]
+        contents: list[google.genai.types.Content] = []
+        leading_background = True
+        for message in non_system:
+            content = self._encode_message(message)
+            if leading_background and message.role == Role.TOOL:
+                # A cleared/truncated conversation can start with external
+                # results, without any preceding model call. generateContent
+                # rejects a leading functionResponse. Preserve that data as
+                # context rather than inventing a call/thought signature.
+                content = google.genai.types.Content(
+                    role="user",
+                    parts=[
+                        google.genai.types.Part(
+                            text=(
+                                f"[Background tool result: {part.function_response.name}]\n"
+                                + json.dumps(
+                                    part.function_response.response,
+                                    ensure_ascii=False,
+                                    default=str,
+                                )
+                            )
+                        )
+                        if part.function_response is not None
+                        else part
+                        for part in content.parts or []
+                    ],
+                )
+            else:
+                leading_background = False
+            contents.append(content)
 
         if tail_instruction_chunks:
             self._append_turn_instructions(contents, "\n\n".join(tail_instruction_chunks))

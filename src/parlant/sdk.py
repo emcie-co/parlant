@@ -2170,6 +2170,47 @@ class Agent:
             self.id, id, title=title, description=description
         )
 
+    async def queue_response(
+        self,
+        session: Session | None = None,
+        *,
+        after: Coroutine[Any, Any, None] | None = None,
+    ) -> None:
+        """Queue a reply that can join other background results or a customer turn.
+
+        Save ready results with :meth:`Session.emit_tool_result` before calling
+        this method. Alternatively, pass an unstarted coroutine as ``after``;
+        it is registered before launch and must save its results before returning.
+        The deferred reply waits for all registered work for this session. Normal
+        customer turns remain responsive and may fulfill the queued request.
+
+        This await acknowledges scheduling, not delivery. Multiple local requests
+        coalesce. New data refreshes unpublished text; once text is visible,
+        uncovered results produce one automatic continuation unless a customer
+        turn incorporates them first. Background replies use the responder only,
+        without fresh rule matching or tool calls, and respect manual mode.
+
+        State and jobs live in this server process. Use session routing affinity:
+        split-pod requests are not deduplicated, and restarts lose pending work.
+        Completed results and costs remain persisted. Failed work is logged and
+        releases its registration; save an error result yourself if the customer
+        needs an explanation. Work is not automatically retried.
+
+        ``session`` defaults to :attr:`Session.current`. Registered work inherits
+        the current agent/session and survives interruption of the originating
+        turn. Each generated reply has its own trace and usage record, attributed
+        to the latest pending request's originating turn when generation starts.
+        Use :meth:`utter` when you need an independent, immediate response instead.
+        """
+        try:
+            if session is None:
+                session = Session.current
+        except BaseException:
+            if after is not None:
+                after.close()
+            raise
+        await self._container[_Application].sessions.queue_response(session.id, after=after)
+
     async def utter(
         self,
         session: Session | None = None,
@@ -2799,8 +2840,9 @@ class Session:
 
         No tool or model is called. The result is saved as session context and
         exported through the same tracing/accounting path as ordinary results.
-        Call ``agent.utter(session, ...)`` separately when a follow-up is needed;
-        costs remain recorded even when no follow-up is delivered.
+        Call ``agent.queue_response(session)`` separately for a coalesced follow-up,
+        or ``agent.utter(session, ...)`` for an independent immediate reply. Costs
+        remain recorded even when no follow-up is delivered.
 
         The result has its own execution trace and immutable usage record. A
         tool or hook's child task retains the original turn reference, allowing

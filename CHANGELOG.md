@@ -11,7 +11,7 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
-## [Unreleased]
+## [4.0.4] - 2026-11-08
 
 ### Added
 
@@ -24,12 +24,13 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
-- Encouraged tool preamble guidance explicitly asks for the user's language,
-  including subsequent progress updates.
+- When tool preambles are encouraged, the agent writes them, and the progress
+  updates that follow, in the customer's language.
 - Agents acknowledge recurring information gaps when different questions cannot
   be answered, without treating a new question as one already answered.
-- Improve how agents check ambiguous request targets and competing unfinished
-  requests before collecting task details.
+- Agents ask which record or request the customer means when it's ambiguous,
+  and which of several unfinished requests to handle first, before collecting
+  task details.
 
 ### Fixed
 
@@ -44,6 +45,11 @@ Each entry says what changed and what it means for you, under `Added`,
   picked anthropic 1.0 or later, whose client refused Parlant's request timeout,
   so no Claude model could start. The extra now requires `anthropic>=1.0.0`;
   if your project capped anthropic below 1.0 to work around this, drop the cap.
+- The chat widget lays out a right-to-left reply, such as Hebrew, right to left
+  even when it opens with an English word, a URL or code. It used to take the
+  direction from the first letter, so such a reply read left to right with its
+  punctuation on the wrong side. Each paragraph, the message box and the
+  suggestion buttons now follow the script most of their words are in.
 
 ## [4.0.3] - 2026-11-05
 

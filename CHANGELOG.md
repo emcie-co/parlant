@@ -11,6 +11,14 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
+## [Unreleased]
+
+### Fixed
+
+- MCP tools that return a structured value now pass that value to the model as
+  JSON instead of reporting "Tool call error". A completed call also no longer
+  fails when its result cannot be written to a debug log line.
+
 ## [4.0.4] - 2026-11-08
 
 ### Added

@@ -108,6 +108,20 @@ async def test_that_run_tool_executes_against_the_service_and_returns_its_result
     assert result.data == {"called": "echo", "args": {"x": 1}}
 
 
+class _OpaqueResult:
+    def __str__(self) -> str:
+        return "opaque result"
+
+
+async def test_that_run_tool_keeps_a_non_json_serializable_result() -> None:
+    payload = _OpaqueResult()
+    runner = _runner(_FakeService(lambda name, args: ToolResult(data=payload)))
+
+    result = await runner.run_tool(_engine_context(), ToolId("svc", "opaque"), {})
+
+    assert result.data is payload
+
+
 async def test_that_run_tool_captures_a_failure_as_an_error_result() -> None:
     def boom(name: str, args: Mapping[str, Any]) -> ToolResult:
         raise RuntimeError("kaboom")

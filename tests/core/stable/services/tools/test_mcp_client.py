@@ -1,11 +1,19 @@
 import asyncio
+import json
+from types import SimpleNamespace
+
+from pydantic import BaseModel
 
 from parlant.core.container import Container
 
 from parlant.core.agents import Agent
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.loggers import StdoutLogger
-from parlant.core.services.tools.mcp_service import MCPToolClient, MCPToolServer
+from parlant.core.services.tools.mcp_service import (
+    MCPToolClient,
+    MCPToolServer,
+    mcp_result_to_tool_result_data,
+)
 from parlant.core.tracer import LocalTracer
 from parlant.sdk import ToolContext
 from tests.test_utilities import SERVER_BASE_URL, get_random_port
@@ -61,6 +69,24 @@ async def test_that_mcp_client_reconnects_after_its_session_is_closed(
                 "Ahoy Another Pirate! I doubled your lucky number to 18 !"
                 in reconnected_result.data
             )
+
+
+class Order(BaseModel):
+    order_id: str
+    status: str
+
+
+async def get_order(order_id: str) -> Order:
+    return Order(order_id=order_id, status="shipped")
+
+
+def test_that_mcp_structured_output_is_converted_to_json_native_data() -> None:
+    result = SimpleNamespace(data=Order(order_id="A-1", status="shipped"))
+
+    data = mcp_result_to_tool_result_data(result)
+
+    assert data == {"order_id": "A-1", "status": "shipped"}
+    assert json.loads(json.dumps(data)) == data
 
 
 async def test_that_mcp_client_retries_initial_connection(

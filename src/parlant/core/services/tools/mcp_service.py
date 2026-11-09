@@ -28,6 +28,7 @@ from fastmcp import FastMCP
 from fastmcp.tools import Tool as FastMCPTool
 from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from pydantic_core import to_jsonable_python
 
 from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.tools import (
@@ -452,7 +453,7 @@ def mcp_result_to_tool_result_data(result: Any) -> Any:
     if structured_content is None:
         structured_content = getattr(result, "structured_content", None)
     if structured_content is not None:
-        return structured_content
+        return to_jsonable_python(structured_content)
 
     text_blocks = [
         content.text for content in getattr(result, "content", []) if content.type == "text"
@@ -479,7 +480,10 @@ def _deserialize_mcp_text(text: str) -> Any:
 def _deserialize_mcp_data(data: Any) -> Any:
     if isinstance(data, str):
         return _deserialize_mcp_text(data)
-    return data
+    # FastMCP can hand back a structured value (for example a pydantic Root)
+    # instead of JSON-native data. The prompt serializer and the debug log
+    # expect JSON-native data, so convert it here, at the boundary.
+    return to_jsonable_python(data)
 
 
 def resolve_ref(ref_: str, schema: dict[str, Any]) -> dict[str, Any]:

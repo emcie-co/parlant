@@ -550,7 +550,7 @@ model-routing diagnostics described under Troubleshooting.
 ## Built-In Providers
 
 The built-in providers are OpenAI, Gemini, Anthropic,
-OpenRouter, and LiteLLM.
+OpenRouter, AI/ML API, and LiteLLM.
 
 | Provider | Prefix | Environment variable | Schematic | ReAct | Embedding | Moderation | Tokenizer |
 |---|---|---|---|---|---|---|---|
@@ -558,6 +558,7 @@ OpenRouter, and LiteLLM.
 | Gemini | `gemini` | `GEMINI_API_KEY` | Yes | Yes | Yes | No | Yes |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | Yes | Yes | Voyage AI (`VOYAGE_API_KEY`) | No | Yes |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | Yes | Yes | Yes | No | Yes |
+| AI/ML API | `aimlapi` | `AIMLAPI_API_KEY` | Yes | Yes | Yes | No | Yes |
 | LiteLLM | `litellm` | per-model (e.g. `OPENAI_API_KEY`) | Yes | Yes | Yes | No | Yes |
 
 Provider adapters are loaded lazily. Starting Parlant does not import every
@@ -832,6 +833,53 @@ OpenRouter ReAct generation uses a provider-portable representation for
 mid-conversation system instructions. Application code does not need to detect
 whether the model behind OpenRouter supports native mid-conversation system
 messages.
+
+### AI/ML API
+
+AI/ML API is available as `aimlapi` using the existing OpenAI SDK dependency.
+Set `AIMLAPI_API_KEY` and configure routes:
+
+```python
+import parlant.sdk as p
+
+async with p.Server(models={"*": "aimlapi"}) as server:
+    agent = await server.create_agent(
+        id="aimlapi-assistant",
+        name="AI Assistant",
+        instructions="Help the user clearly and accurately.",
+    )
+```
+
+Defaults are `openai/gpt-4.1` for schematic generation and ReAct, and
+`openai/text-embedding-3-large` (3072 dimensions) for embeddings. To select models:
+
+```python
+models = {
+    "*": "aimlapi",
+    "react": p.ModelConfig("aimlapi:openai/gpt-4.1"),
+    "embedding.*": p.ModelConfig("aimlapi:openai/text-embedding-3-small"),
+}
+```
+
+The adapter sends requests to `https://api.aimlapi.com/v1`. Chat models must
+support JSON object output for schematic routes and streaming tool calls for
+ReAct routes. Output is validated against the requested Parlant schema.
+Model availability and capabilities depend on the AI/ML API catalog.
+
+Schematic and ReAct factories accept `api_key`; embedding factories also accept
+`dimensions`. Use Parlant secret references for per-agent keys. For an embedding
+model other than the three recognized OpenAI embedding models, supply a positive
+`dimensions` argument before creating the vector index. Returned vectors must
+match that dimension. Token counts use an estimating tokenizer; the default chat
+model has a 1,047,576-token context estimate and other models use 131,072.
+
+Requests include `HTTP-Referer`, `X-Title`, `X-AIMLAPI-Partner-ID`, and
+`X-AIMLAPI-Source` for Parlant and partner attribution. These headers are scoped
+to `api.aimlapi.com`; `PARLANT_CLIENT_IDENTITY=false` disables them. Override the
+application title and URL with `AIMLAPI_SITE_NAME` and `AIMLAPI_HTTP_REFERER`.
+Token usage, including cached input tokens, is reported to Parlant. The adapter
+does not invent provider-reported monetary costs. Moderation and decision models
+are not registered; configure another provider for those capabilities if needed.
 
 ### LiteLLM
 

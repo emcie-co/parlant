@@ -360,6 +360,21 @@ def load_openrouter_models(
     )
 
 
+def load_aimlapi_models(
+    registry: ModelImplementationRegistry,
+    container: Container,
+) -> None:
+    _load_model_implementations(
+        registry,
+        container,
+        provider="aimlapi",
+        display_name="AI/ML API",
+        module_path="parlant.adapters.nlp.aimlapi_service",
+        registrar_name="register_aimlapi_models",
+        installation_command="pip install parlant",
+    )
+
+
 def load_litellm_models(
     registry: ModelImplementationRegistry,
     container: Container,
@@ -398,6 +413,10 @@ def register_model_implementation_loaders(
     registry.register_provider_loader(
         "litellm",
         lambda: load_litellm_models(registry, container),
+    )
+    registry.register_provider_loader(
+        "aimlapi",
+        lambda: load_aimlapi_models(registry, container),
     )
     registry.register_provider_loader(
         "null",

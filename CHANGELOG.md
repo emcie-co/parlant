@@ -15,6 +15,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- Add AI/ML API as a model provider (`aimlapi`) for structured generation, streaming ReAct tool calls, and embeddings. Configure it through `Server(models={"*": "aimlapi"})` and `AIMLAPI_API_KEY`. Request attribution respects `PARLANT_CLIENT_IDENTITY=false`.
+
 - `Agent.queue_response()` combines background follow-ups with other ready
   results or a customer turn. Pass `after=coroutine` to register work before it
   starts; only the deferred reply waits for the registered batch. Coordination

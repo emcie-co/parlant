@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Generic, Mapping, Optional, cast
 from typing_extensions import TypedDict, Self
@@ -39,6 +41,31 @@ async def load_metadata_document(doc: BaseDocument) -> MetadataDocument:
     return doc
 
 
+@dataclass(frozen=True)
+class _CurrentStore:
+    database: DocumentDatabase
+    collections_prefix: str | None
+
+
+_current_store: ContextVar[_CurrentStore | None] = ContextVar("current_store", default=None)
+
+
+def documents_are_current(database: DocumentDatabase, collection_name: str) -> bool:
+    """Whether `collection_name` belongs to a store being opened whose recorded
+    version matches the running one, so every document in it is already current.
+
+    The previous startup only recorded that version after loading every document
+    through the store's loaders, so a database adapter may skip doing so again.
+    Only the store's own database and collection prefix are covered: another
+    database opened while the store opens still loads its documents."""
+    store = _current_store.get()
+    if store is None or store.database is not database:
+        return False
+    if store.collections_prefix is None:
+        return True
+    return collection_name.startswith(f"{store.collections_prefix}_")
+
+
 class DocumentStoreMigrationHelper:
     def __init__(
         self,
@@ -52,6 +79,7 @@ class DocumentStoreMigrationHelper:
         self._database = database
         self._allow_migration = allow_migration
         self._collections_prefix = collections_prefix
+        self._current_store_token: Token[_CurrentStore | None] | None = None
 
     async def __aenter__(self) -> Self:
         migration_required = await self._is_migration_required(
@@ -62,6 +90,11 @@ class DocumentStoreMigrationHelper:
         if migration_required and not self._allow_migration:
             raise MigrationRequired(f"Migration required for {self._store_name}.")
 
+        if not migration_required:
+            self._current_store_token = _current_store.set(
+                _CurrentStore(self._database, self._collections_prefix)
+            )
+
         return self
 
     async def __aexit__(
@@ -70,6 +103,10 @@ class DocumentStoreMigrationHelper:
         exc_value: Optional[BaseException],
         traceback: Optional[object],
     ) -> bool:
+        if self._current_store_token is not None:
+            _current_store.reset(self._current_store_token)
+            self._current_store_token = None
+
         if exc_type is None:
             await self._update_metadata_version(self._database, self._runtime_store_version)
 

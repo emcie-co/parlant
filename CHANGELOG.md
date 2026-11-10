@@ -19,6 +19,10 @@ Each entry says what changed and what it means for you, under `Added`,
   the agent the result as plain JSON. Before, the call ran but the agent was
   told "Tool call error", so it could retry a call that had already taken
   effect or tell the customer it failed.
+- Gemini agents under concurrent load no longer queue behind each other while
+  a prompt cache is being created. Requests for other caches, and requests whose
+  cache already exists, go ahead at once; requests for the same cache still
+  share one creation, so it is created and its storage charged once.
 
 ## [4.0.4] - 2026-11-08
 

@@ -1166,6 +1166,214 @@ async def test_that_a_vanished_cache_falls_back_to_an_inline_request(
     assert lookup_key not in schematic._managed_caches
 
 
+# ════════════════════ 2c. CONCURRENT CACHE CREATION ═══════════════════════
+#
+# A cache is created at most once per key, but creating one key's cache must
+# never hold up requests for other keys, or requests whose cache already exists.
+
+
+class _GatedCacheCreate:
+    """A fake `caches.create` that blocks every call until `release` is set."""
+
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.release = asyncio.Event()
+        self.calls = 0
+        self._error = error
+
+    async def __call__(self, *, model: str, config: Any) -> SimpleNamespace:
+        self.calls += 1
+        await self.release.wait()
+        if self._error is not None:
+            raise self._error
+        return SimpleNamespace(
+            name=f"cachedContents/{config.display_name}",
+            expire_time=datetime.now(timezone.utc) + timedelta(hours=1),
+            usage_metadata=SimpleNamespace(total_token_count=1000),
+        )
+
+    async def wait_for_calls(self, count: int) -> None:
+        async def reached() -> None:
+            while self.calls < count:
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(reached(), timeout=1.0)
+
+
+async def _let_pending_tasks_run() -> None:
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+def _schematic_with_gated_create(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe], create: _GatedCacheCreate
+) -> None:
+    generate = AsyncMock(return_value=_fake_generation({"answer": "ranked"}))
+    schematic._client = _FakeAioClient(schematic._client, create=create, generate=generate)  # type: ignore[assignment]
+
+
+def _schematic_request(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe], key: str
+) -> "asyncio.Task[Any]":
+    return asyncio.create_task(
+        schematic._do_generate(
+            f"STABLE HEAD FOR {key}\n# LIVE\nbody",
+            hints={"cache": {"key": key, "breakpoint": "# LIVE"}},
+        )
+    )
+
+
+async def test_that_schematic_caches_for_different_keys_are_created_concurrently(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    create = _GatedCacheCreate()
+    _schematic_with_gated_create(schematic, create)
+
+    requests = [_schematic_request(schematic, "s1"), _schematic_request(schematic, "s2")]
+    try:
+        await create.wait_for_calls(2)
+    finally:
+        create.release.set()
+        await asyncio.gather(*requests)
+
+    assert create.calls == 2
+
+
+async def test_that_a_warm_schematic_cache_is_used_while_another_key_is_being_created(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    create = _GatedCacheCreate()
+    _schematic_with_gated_create(schematic, create)
+    create.release.set()
+    await _schematic_request(schematic, "s1")
+
+    create.release.clear()
+    cold = _schematic_request(schematic, "s2")
+    await create.wait_for_calls(2)
+    try:
+        await asyncio.wait_for(_schematic_request(schematic, "s1"), timeout=1.0)
+    finally:
+        create.release.set()
+        await cold
+
+    assert create.calls == 2
+
+
+async def test_that_concurrent_schematic_requests_for_one_key_create_the_cache_once(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    create = _GatedCacheCreate()
+    _schematic_with_gated_create(schematic, create)
+
+    requests = [_schematic_request(schematic, "s1") for _ in range(5)]
+    await _let_pending_tasks_run()
+    create.release.set()
+    await asyncio.gather(*requests)
+
+    assert create.calls == 1
+
+
+def _react_cache_request(gemini: GeminiReactGenerator, key: str) -> "asyncio.Task[Any]":
+    return asyncio.create_task(
+        gemini._get_or_create_cache(
+            model=gemini.model,
+            system_instruction=f"system for {key}",
+            prefix_contents=[],
+            cache_key=key,
+        )
+    )
+
+
+async def test_that_react_caches_for_different_keys_are_created_concurrently(
+    gemini: GeminiReactGenerator,
+) -> None:
+    create = _GatedCacheCreate()
+    gemini._client = _FakeAioClient(gemini._client, create=create)  # type: ignore[assignment]
+
+    requests = [_react_cache_request(gemini, "k1"), _react_cache_request(gemini, "k2")]
+    try:
+        await create.wait_for_calls(2)
+    finally:
+        create.release.set()
+        await asyncio.gather(*requests)
+
+    assert create.calls == 2
+
+
+async def test_that_concurrent_react_requests_for_one_key_create_the_cache_once_and_charge_storage_once(
+    gemini: GeminiReactGenerator,
+) -> None:
+    create = _GatedCacheCreate()
+    gemini._client = _FakeAioClient(gemini._client, create=create)  # type: ignore[assignment]
+
+    requests = [_react_cache_request(gemini, "k1") for _ in range(5)]
+    await _let_pending_tasks_run()
+    create.release.set()
+    results = await asyncio.gather(*requests)
+
+    assert create.calls == 1
+    assert {name for name, _ in results} == {"cachedContents/k1"}
+    assert sum(1 for _, storage in results if storage > 0) == 1
+
+
+async def test_that_concurrent_waiters_share_one_rejected_creation_and_mark_the_prefix_uncacheable_once(
+    gemini: GeminiReactGenerator,
+) -> None:
+    rejected = ClientError(
+        400, {"error": {"message": "token count too small", "status": "INVALID_ARGUMENT"}}
+    )
+    create = _GatedCacheCreate(error=rejected)
+    gemini._client = _FakeAioClient(gemini._client, create=create)  # type: ignore[assignment]
+
+    requests = [_react_cache_request(gemini, "k1") for _ in range(3)]
+    await _let_pending_tasks_run()
+    create.release.set()
+    results = await asyncio.gather(*requests)
+
+    assert results == [(None, 0.0)] * 3
+    assert create.calls == 1
+    assert len(gemini._uncacheable_keys) == 1
+
+    assert await _react_cache_request(gemini, "k1") == (None, 0.0)
+    assert create.calls == 1
+
+
+async def test_that_cancelling_one_waiter_does_not_cancel_the_shared_cache_creation(
+    gemini: GeminiReactGenerator,
+) -> None:
+    create = _GatedCacheCreate()
+    gemini._client = _FakeAioClient(gemini._client, create=create)  # type: ignore[assignment]
+
+    first = _react_cache_request(gemini, "k1")
+    second = _react_cache_request(gemini, "k1")
+    await create.wait_for_calls(1)
+    first.cancel()
+    await _let_pending_tasks_run()
+    create.release.set()
+
+    name, _storage = await second
+
+    assert first.cancelled()
+    assert name == "cachedContents/k1"
+    assert create.calls == 1
+
+
+async def test_that_aclose_deletes_a_cache_whose_creation_was_in_flight(
+    gemini: GeminiReactGenerator,
+) -> None:
+    create = _GatedCacheCreate()
+    delete = AsyncMock()
+    gemini._client = _FakeAioClient(gemini._client, create=create, delete=delete)  # type: ignore[assignment]
+
+    request = _react_cache_request(gemini, "k1")
+    await create.wait_for_calls(1)
+    closing = asyncio.create_task(gemini.aclose())
+    await _let_pending_tasks_run()
+    create.release.set()
+    await asyncio.gather(request, closing)
+
+    delete.assert_awaited_once_with(name="cachedContents/k1")
+
+
 # ════════════════════════════ 3. LIVE INTEGRATION ══════════════════════════
 
 LIVE = pytest.mark.skipif(

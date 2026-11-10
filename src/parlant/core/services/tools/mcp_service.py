@@ -23,6 +23,7 @@ from typing import Any, Sequence, Mapping, Optional, Literal, Callable, Awaitabl
 from typing_extensions import override
 import asyncio
 import httpx
+import pydantic_core
 
 from fastmcp import FastMCP
 from fastmcp.tools import Tool as FastMCPTool
@@ -479,7 +480,9 @@ def _deserialize_mcp_text(text: str) -> Any:
 def _deserialize_mcp_data(data: Any) -> Any:
     if isinstance(data, str):
         return _deserialize_mcp_text(data)
-    return data
+    # FastMCP hydrates structured results into its own objects (e.g. `Root`);
+    # tool results must be plain JSON for prompts, logs and storage.
+    return pydantic_core.to_jsonable_python(data)
 
 
 def resolve_ref(ref_: str, schema: dict[str, Any]) -> dict[str, Any]:

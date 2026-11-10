@@ -105,7 +105,7 @@ class ToolRunner:
             )
 
             self._logger.debug(
-                f"Tool {tool.to_string()} completed with result {json.dumps(result.data, indent=2)}"
+                f"Tool {tool.to_string()} completed with result {stringify_tool_result(result.data)}"
             )
 
             await self._warn_if_result_is_large(context, tool, result)

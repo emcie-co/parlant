@@ -18,6 +18,7 @@ from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.persistence.common import Cursor, SortDirection, Where, ObjectId
+from parlant.core.persistence.document_database_helper import documents_are_current
 from parlant.core.persistence.document_database import (
     CollectionIndex,
     CollectionSort,
@@ -91,11 +92,38 @@ class MongoDocumentDatabase(DocumentDatabase):
         )
 
         failed_migrations_collection_name = f"{self.database_name}_{name}_failed_migrations"
-        collection_existing_documents = result_collection.find({})
         if failed_migrations_collection_name in await self._database.list_collection_names():
             self._logger.info(f"deleting old `{failed_migrations_collection_name}` collection")
             await self.delete_collection(failed_migrations_collection_name)
 
+        # A store whose recorded version matches the running one has nothing to
+        # migrate, so skip reading every document back through its loader.
+        if not documents_are_current(self, name):
+            await self._load_existing_documents(
+                result_collection, failed_migrations_collection_name, schema, document_loader
+            )
+
+        self._collections[name] = MongoDocumentCollection(self, result_collection)
+        await self._collections[name].ensure_indexes(
+            [
+                CollectionIndex(
+                    fields=(
+                        ("creation_utc", SortDirection.ASC),
+                        ("id", SortDirection.ASC),
+                    )
+                )
+            ]
+        )
+        return self._collections[name]
+
+    async def _load_existing_documents(
+        self,
+        result_collection: AsyncCollection[Any],
+        failed_migrations_collection_name: str,
+        schema: type[TDocument],
+        document_loader: Callable[[BaseDocument], Awaitable[TDocument | None]],
+    ) -> None:
+        collection_existing_documents = result_collection.find({})
         failed_migration_collection: Optional[DocumentCollection[TDocument]] = None
         async for doc in collection_existing_documents:
             try:
@@ -131,19 +159,6 @@ class MongoDocumentDatabase(DocumentDatabase):
                     f"failed to load document '{doc}' with error: {e}. Added to `{failed_migrations_collection_name}` collection."
                 )
                 await failed_migration_collection.insert_one(doc)
-
-        self._collections[name] = MongoDocumentCollection(self, result_collection)
-        await self._collections[name].ensure_indexes(
-            [
-                CollectionIndex(
-                    fields=(
-                        ("creation_utc", SortDirection.ASC),
-                        ("id", SortDirection.ASC),
-                    )
-                )
-            ]
-        )
-        return self._collections[name]
 
     async def get_or_create_collection(
         self,

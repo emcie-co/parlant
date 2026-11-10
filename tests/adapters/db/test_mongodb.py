@@ -569,6 +569,121 @@ async def test_that_persistence_and_store_version_match_allows_store_to_open_whe
             assert meta_document["version"] == "2.0.0"
 
 
+class CountingDummyStore(DummyStore):
+    def __init__(self, database: MongoDocumentDatabase, allow_migration: bool = True):
+        super().__init__(database, allow_migration)
+        self.loaded_document_ids: list[str] = []
+
+    async def _document_loader(self, doc: BaseDocument) -> Optional[DummyStore.DummyDocumentV2]:
+        self.loaded_document_ids.append(str(doc["id"]))
+        return await super()._document_loader(doc)
+
+
+async def test_that_reopening_a_current_store_does_not_reload_its_documents(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    adb = test_mongo_client[test_database_name]
+    await adb.metadata.insert_one({"id": "meta_id", "version": "1.0.0"})
+    await adb.dummy_collection.insert_one({"id": "old_doc", "version": "1.0.0", "name": "Old"})
+
+    logger = container[Logger]
+
+    async with MongoDocumentDatabase(test_mongo_client, test_database_name, logger) as db:
+        async with CountingDummyStore(db, allow_migration=True) as migrating_store:
+            await migrating_store.create_dummy("new")
+
+        assert migrating_store.loaded_document_ids == ["old_doc"]
+
+    async with MongoDocumentDatabase(test_mongo_client, test_database_name, logger) as db:
+        async with CountingDummyStore(db, allow_migration=False) as current_store:
+            result = await current_store.list_dummy()
+
+        assert current_store.loaded_document_ids == []
+        assert {doc["id"] for doc in result.items} == {"old_doc", "dummy_new"}
+        assert all(doc["version"] == "2.0.0" for doc in result.items)
+
+
+async def test_that_documents_are_still_loaded_when_the_store_needs_migration(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    adb = test_mongo_client[test_database_name]
+    await adb.metadata.insert_one({"id": "meta_id", "version": "1.0.0"})
+    await adb.dummy_collection.insert_many(
+        [
+            {"id": "old_doc", "version": "1.0.0", "name": "Old"},
+            {"id": "current_doc", "version": "2.0.0", "name": "Current"},
+        ]
+    )
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as db:
+        async with CountingDummyStore(db, allow_migration=True) as store:
+            result = await store.list_dummy()
+
+    assert sorted(store.loaded_document_ids) == ["current_doc", "old_doc"]
+    assert all(doc["version"] == "2.0.0" for doc in result.items)
+
+
+async def test_that_another_database_opened_inside_a_current_store_still_loads_its_documents(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    other_database_name = f"{test_database_name}_other"
+    await test_mongo_client.drop_database(test_database_name)
+    await test_mongo_client.drop_database(other_database_name)
+
+    adb = test_mongo_client[test_database_name]
+    await adb.metadata.insert_one({"id": "meta_id", "version": "2.0.0"})
+    await test_mongo_client[other_database_name].other_collection.insert_one(
+        {"id": "other_doc", "version": "1.0.0", "name": "Other"}
+    )
+
+    logger = container[Logger]
+    other_loaded_ids: list[str] = []
+
+    async def other_loader(doc: BaseDocument) -> BaseDocument:
+        other_loaded_ids.append(str(doc["id"]))
+        return doc
+
+    class NestingStore(CountingDummyStore):
+        async def __aenter__(self) -> Self:
+            async with DocumentStoreMigrationHelper(
+                store=self,
+                database=self._database,
+                allow_migration=self.allow_migration,
+            ):
+                self._collection = await self._database.get_or_create_collection(
+                    name="dummy_collection",
+                    schema=DummyStore.DummyDocumentV2,
+                    document_loader=self._document_loader,
+                )
+                async with MongoDocumentDatabase(
+                    test_mongo_client, other_database_name, logger
+                ) as other_db:
+                    await other_db.get_collection("other_collection", BaseDocument, other_loader)
+
+            return self
+
+    try:
+        async with MongoDocumentDatabase(test_mongo_client, test_database_name, logger) as db:
+            async with NestingStore(db, allow_migration=False):
+                pass
+    finally:
+        await test_mongo_client.drop_database(other_database_name)
+
+    assert other_loaded_ids == ["other_doc"]
+
+
 async def test_that_collections_can_be_deleted(
     container: Container,
     test_mongo_client: AsyncMongoClient[Any],

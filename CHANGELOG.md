@@ -23,6 +23,10 @@ Each entry says what changed and what it means for you, under `Added`,
   a prompt cache is being created. Requests for other caches, and requests whose
   cache already exists, go ahead at once; requests for the same cache still
   share one creation, so it is created and its storage charged once.
+- Servers with MongoDB stores start faster as session and event history grows.
+  When a store's recorded version already matches the running one, startup no
+  longer reads every document back through its loader. When a migration is
+  needed, documents are loaded and migrated as before.
 
 ## [4.0.4] - 2026-11-08
 

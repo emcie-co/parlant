@@ -31,7 +31,18 @@ from google.genai.errors import APIError, ClientError, ServerError as GenaiServe
 import google.genai  # type: ignore
 import google.genai.types  # type: ignore
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, AsyncIterator, Literal, Mapping, Optional, Sequence, Union, cast
+from typing import (
+    Any,
+    AsyncIterator,
+    Coroutine,
+    Callable,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Union,
+    cast,
+)
 from typing_extensions import get_args, get_origin, override
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
@@ -126,6 +137,52 @@ def _gemini_identity_headers() -> dict[str, str]:
         headers["user-agent"] = token
 
     return headers
+
+
+class _CacheCreation:
+    """One in-flight `caches.create` shared by every request for the same key.
+
+    Creating a cache must not hold up requests for other keys, or requests whose
+    cache already exists, so there is no generator-wide lock: requests for one
+    key await the same task instead, and the cache is created (and its storage
+    charged) once. The task is shielded, so a cancelled caller doesn't cancel the
+    creation for the others."""
+
+    def __init__(self, task: "asyncio.Task[Optional[tuple[str, float]]]") -> None:
+        self.task = task
+        self._storage_claimed = False
+
+    async def result(self) -> tuple[Optional[str], float]:
+        """Return ``(cache_name, storage_token_hours)``. The storage charge goes
+        to the first caller that gets the result, and 0.0 to everyone else."""
+        created = await asyncio.shield(self.task)
+        if created is None:
+            return None, 0.0
+        name, storage_token_hours = created
+        if self._storage_claimed:
+            return name, 0.0
+        self._storage_claimed = True
+        return name, storage_token_hours
+
+
+def _start_cache_creation(
+    creations: dict[str, _CacheCreation],
+    key: str,
+    create: Callable[[], Coroutine[Any, Any, Optional[tuple[str, float]]]],
+) -> _CacheCreation:
+    """Join the in-flight creation for `key`, or start one."""
+    if (creation := creations.get(key)) is not None:
+        return creation
+
+    creation = _CacheCreation(asyncio.create_task(create()))
+    creations[key] = creation
+
+    def forget(_task: "asyncio.Task[Optional[tuple[str, float]]]") -> None:
+        if creations.get(key) is creation:
+            del creations[key]
+
+    creation.task.add_done_callback(forget)
+    return creation
 
 
 class GeminiMissingFunctionCallError(Exception):
@@ -252,7 +309,7 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         self._uncacheable_prefixes: cachetools.LRUCache[str, bool] = cachetools.LRUCache(
             maxsize=256
         )
-        self._cache_lock = asyncio.Lock()
+        self._cache_creations: dict[str, _CacheCreation] = {}
 
     @property
     @override
@@ -582,30 +639,33 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         managed caches are never deleted early (they lapse at their TTL)."""
         prefix_hash = self._prefix_hash(prefix_text, tools, tool_config)
 
-        async with self._cache_lock:
-            if prefix_hash in self._uncacheable_prefixes:
-                return None, 0.0
+        if prefix_hash in self._uncacheable_prefixes:
+            return None, 0.0
 
-            entry = self._managed_caches.get(lookup_key)
-            if entry is not None:
-                name, _prefix_text, expiry = entry
-                if expiry - datetime.now(timezone.utc) > self._CACHE_REUSE_MARGIN:
-                    return name, 0.0
+        entry = self._managed_caches.get(lookup_key)
+        if entry is not None:
+            name, _prefix_text, expiry = entry
+            if expiry - datetime.now(timezone.utc) > self._CACHE_REUSE_MARGIN:
+                return name, 0.0
 
-            created = await self._create_cache(
+        creation = _start_cache_creation(
+            self._cache_creations,
+            lookup_key,
+            lambda: self._create_cache(
                 display_name=lookup_key,
                 prefix_hash=prefix_hash,
                 prefix_text=prefix_text,
                 ttl_seconds=ttl_seconds,
                 tools=tools,
                 tool_config=tool_config,
-            )
-            if created is None:
-                return None, 0.0
+            ),
+        )
+        cached_name, storage_token_hours = await creation.result()
+        if cached_name is None:
+            return None, 0.0
 
-            _cached_name, storage_token_hours = created
-            entry = self._managed_caches.get(lookup_key)
-            return (entry[0] if entry is not None else None), storage_token_hours
+        entry = self._managed_caches.get(lookup_key)
+        return (entry[0] if entry is not None else None), storage_token_hours
 
     async def _create_cache(
         self,
@@ -667,10 +727,9 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
     async def _forget_cache(self, key: str, name: str) -> None:
         """Drop a managed cache entry that turned out to be unusable, so later loads
         miss (and a later store recreates it) instead of re-hitting the dead name."""
-        async with self._cache_lock:
-            entry = self._managed_caches.get(key)
-            if entry is not None and entry[0] == name:
-                del self._managed_caches[key]
+        entry = self._managed_caches.get(key)
+        if entry is not None and entry[0] == name:
+            del self._managed_caches[key]
 
     def _reasoning_thinking_config(self, effort: ReasoningEffort) -> dict[str, Any] | None:
         """Map the normalized reasoning effort to this model's thinking config, or
@@ -982,7 +1041,7 @@ class GeminiReactGenerator(ReactGenerator):
         # Prefix keys we know can't be cached (e.g. below the provider minimum),
         # so we don't re-attempt creation on every call.
         self._uncacheable_keys: cachetools.LRUCache[str, bool] = cachetools.LRUCache(maxsize=256)
-        self._cache_lock = asyncio.Lock()
+        self._cache_creations: dict[str, _CacheCreation] = {}
         # Storage charges from caches created while building a request, drained
         # into the next decoded usage (see _decode_usage).
         self._pending_storage_token_hours: float = 0.0
@@ -1558,72 +1617,92 @@ class GeminiReactGenerator(ReactGenerator):
             cache_key, model, system_instruction, prefix_contents, tools, tool_config
         )
 
-        async with self._cache_lock:
-            if key in self._uncacheable_keys:
-                return None, 0.0
+        if key in self._uncacheable_keys:
+            return None, 0.0
 
-            existing = self._managed_caches.get(key)
-            if existing is not None:
-                name, expiry = existing
-                # Reuse only while comfortably within the resource's lifetime.
-                if expiry - datetime.now(timezone.utc) > self._CACHE_REUSE_MARGIN:
-                    return name, 0.0
+        existing = self._managed_caches.get(key)
+        if existing is not None:
+            name, expiry = existing
+            # Reuse only while comfortably within the resource's lifetime.
+            if expiry - datetime.now(timezone.utc) > self._CACHE_REUSE_MARGIN:
+                return name, 0.0
 
-            config_kwargs: dict[str, Any] = {"display_name": cache_key}
-            if prefix_contents:
-                config_kwargs["contents"] = prefix_contents
-            if system_instruction is not None:
-                config_kwargs["system_instruction"] = system_instruction
-            if tools is not None:
-                config_kwargs["tools"] = tools
-            if tool_config is not None:
-                config_kwargs["tool_config"] = tool_config
-            if self.cache.ttl is not None:
-                config_kwargs["ttl"] = f"{int(self.cache.ttl.total_seconds())}s"
+        config_kwargs: dict[str, Any] = {"display_name": cache_key}
+        if prefix_contents:
+            config_kwargs["contents"] = prefix_contents
+        if system_instruction is not None:
+            config_kwargs["system_instruction"] = system_instruction
+        if tools is not None:
+            config_kwargs["tools"] = tools
+        if tool_config is not None:
+            config_kwargs["tool_config"] = tool_config
+        if self.cache.ttl is not None:
+            config_kwargs["ttl"] = f"{int(self.cache.ttl.total_seconds())}s"
 
-            try:
-                cached = await self._client.aio.caches.create(
-                    model=model,
-                    config=google.genai.types.CreateCachedContentConfig(**config_kwargs),
-                )
-            except ClientError as exc:
-                # Deterministic rejection (e.g. prefix below the minimum token
-                # count): this prefix will never cache, so stop retrying it.
-                self._logger.warning(
-                    f"Gemini rejected caching for key '{cache_key}' "
-                    f"({exc}); proceeding without caching."
-                )
-                self._uncacheable_keys[key] = True
-                return None, 0.0
-            except Exception as exc:  # noqa: BLE001 - transient: degrade, retry later
-                self._logger.warning(
-                    f"Gemini cache creation failed for key '{cache_key}' "
-                    f"({exc}); proceeding without caching."
-                )
-                return None, 0.0
+        creation = _start_cache_creation(
+            self._cache_creations,
+            key,
+            lambda: self._create_cache(
+                key=key, model=model, cache_key=cache_key, config_kwargs=config_kwargs
+            ),
+        )
+        return await creation.result()
 
-            assert cached.name and cached.expire_time
-            self._managed_caches[key] = (cached.name, cached.expire_time)
-
-            cached_tokens = (
-                getattr(getattr(cached, "usage_metadata", None), "total_token_count", 0) or 0
+    async def _create_cache(
+        self,
+        *,
+        key: str,
+        model: str,
+        cache_key: str,
+        config_kwargs: dict[str, Any],
+    ) -> Optional[tuple[str, float]]:
+        try:
+            cached = await self._client.aio.caches.create(
+                model=model,
+                config=google.genai.types.CreateCachedContentConfig(**config_kwargs),
             )
-            lifetime_hours = (
-                max((cached.expire_time - datetime.now(timezone.utc)).total_seconds(), 0.0) / 3600.0
+        except ClientError as exc:
+            # Deterministic rejection (e.g. prefix below the minimum token
+            # count): this prefix will never cache, so stop retrying it.
+            self._logger.warning(
+                f"Gemini rejected caching for key '{cache_key}' "
+                f"({exc}); proceeding without caching."
             )
-            return cached.name, cached_tokens * lifetime_hours
+            self._uncacheable_keys[key] = True
+            return None
+        except Exception as exc:  # noqa: BLE001 - transient: degrade, retry later
+            self._logger.warning(
+                f"Gemini cache creation failed for key '{cache_key}' "
+                f"({exc}); proceeding without caching."
+            )
+            return None
+
+        assert cached.name and cached.expire_time
+        self._managed_caches[key] = (cached.name, cached.expire_time)
+
+        cached_tokens = (
+            getattr(getattr(cached, "usage_metadata", None), "total_token_count", 0) or 0
+        )
+        lifetime_hours = (
+            max((cached.expire_time - datetime.now(timezone.utc)).total_seconds(), 0.0) / 3600.0
+        )
+        return cached.name, cached_tokens * lifetime_hours
 
     async def aclose(self) -> None:
         """Delete every cache this generator created. Optional: cached content
         auto-expires at its TTL, but deleting early frees the resource (and cost)
         sooner. Best-effort; failures are logged and swallowed."""
-        async with self._cache_lock:
-            for name, _ in self._managed_caches.values():
-                try:
-                    await self._client.aio.caches.delete(name=name)
-                except Exception as exc:  # noqa: BLE001 - cleanup must not raise
-                    self._logger.warning(f"Failed to delete Gemini cache {name}: {exc}")
-            self._managed_caches.clear()
+        # Let in-flight creations land first, so their caches are deleted too.
+        in_flight = [creation.task for creation in self._cache_creations.values()]
+        if in_flight:
+            await asyncio.gather(*in_flight, return_exceptions=True)
+
+        for name, _ in list(self._managed_caches.values()):
+            try:
+                await self._client.aio.caches.delete(name=name)
+            except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+                self._logger.warning(f"Failed to delete Gemini cache {name}: {exc}")
+        self._managed_caches.clear()
 
     @override
     def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:

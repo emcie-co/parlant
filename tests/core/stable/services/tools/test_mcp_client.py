@@ -1,4 +1,9 @@
 import asyncio
+import json
+from typing import Any
+
+from pydantic import BaseModel
+import pytest
 
 from parlant.core.container import Container
 
@@ -104,3 +109,62 @@ async def test_that_mcp_client_retries_initial_connection(
     async with client:
         assert len(attempted_clients) == 2
         assert attempted_clients[-1].is_connected()
+
+
+class Order(BaseModel):
+    order_id: str
+    status: str
+
+
+async def get_order(order_id: str) -> Order:
+    return Order(order_id=order_id, status="shipped")
+
+
+async def is_in_stock(sku: str) -> bool:
+    return False
+
+
+async def count_returns(sku: str) -> int:
+    return 0
+
+
+async def list_discounts(sku: str) -> dict[str, int]:
+    return {}
+
+
+async def test_that_a_structured_mcp_tool_result_is_returned_as_json_native_data(
+    container: Container,
+) -> None:
+    async with MCPToolServer([get_order], port=get_random_port()) as server:
+        async with create_client(server, container) as client:
+            result = await client.call_tool(
+                "get_order",
+                ToolContext("", "", ""),
+                {"order_id": "A-1"},
+            )
+
+    assert result.data == {"order_id": "A-1", "status": "shipped"}
+    assert json.loads(json.dumps(result.data)) == result.data
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "expected"),
+    [
+        ("is_in_stock", False),
+        ("count_returns", 0),
+        ("list_discounts", {}),
+    ],
+)
+async def test_that_falsey_structured_mcp_results_are_preserved(
+    container: Container,
+    tool_name: str,
+    expected: Any,
+) -> None:
+    async with MCPToolServer(
+        [is_in_stock, count_returns, list_discounts], port=get_random_port()
+    ) as server:
+        async with create_client(server, container) as client:
+            result = await client.call_tool(tool_name, ToolContext("", "", ""), {"sku": "S-1"})
+
+    assert result.data == expected
+    assert type(result.data) is type(expected)

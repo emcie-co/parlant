@@ -11,6 +11,15 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
+## [Unreleased]
+
+### Fixed
+
+- MCP tools that return structured results, such as a pydantic model, now give
+  the agent the result as plain JSON. Before, the call ran but the agent was
+  told "Tool call error", so it could retry a call that had already taken
+  effect or tell the customer it failed.
+
 ## [4.0.4] - 2026-11-08
 
 ### Added

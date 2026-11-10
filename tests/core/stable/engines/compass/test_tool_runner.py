@@ -119,6 +119,21 @@ async def test_that_run_tool_captures_a_failure_as_an_error_result() -> None:
     assert "kaboom" in str(metadata.internal_value(result.metadata, ("error_details",)))
 
 
+class _NotJSONEncodable:
+    def __str__(self) -> str:
+        return "not-json-encodable"
+
+
+async def test_that_a_result_that_json_cannot_encode_is_not_reported_as_a_tool_error() -> None:
+    value = _NotJSONEncodable()
+    runner = _runner(_FakeService(lambda name, args: ToolResult(data=cast(Any, value))))
+
+    result = await runner.run_tool(_engine_context(), ToolId("svc", "lookup"), {})
+
+    assert result.data is value
+    assert metadata.internal_value(result.metadata, ("error_details",)) is None
+
+
 class _HangingService:
     async def call_tool(
         self, name: str, context: ToolContext, arguments: Mapping[str, Any]

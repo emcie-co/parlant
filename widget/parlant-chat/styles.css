@@ -323,6 +323,36 @@
   background: none;
   padding: 0;
 }
+/* Tables keep the bubble's type, ruled like the code blocks' muted surface, and scroll
+ * sideways rather than squeezing their columns. Scoped to the widget so a host page's
+ * own table styles (block display, striped rows) don't reach them. */
+.parlant-md-table-wrap {
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.parlant-widget .parlant-md-table {
+  display: table;
+  width: auto;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+.parlant-widget .parlant-md-table tr {
+  background: none;
+  border: 0;
+}
+.parlant-widget .parlant-md-table th,
+.parlant-widget .parlant-md-table td {
+  padding: 0.35em 0.65em;
+  border: 1px solid hsl(var(--border));
+  text-align: start;
+  vertical-align: top;
+}
+.parlant-widget .parlant-md-table th {
+  font-weight: 600;
+  background: hsl(var(--muted));
+}
 .parlant-md-quote {
   margin: 0.5em 0;
   padding-inline-start: 0.75em;

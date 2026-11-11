@@ -13,6 +13,20 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Added
+
+- Event streams (`sse=true`) now carry an `id` on every frame and resume from
+  it. A client that reconnects with `Last-Event-ID` picks up after the frame it
+  last saw, instead of replaying the session from the beginning. Streams ask a
+  reconnecting browser to wait three seconds (`retry: 3000`), and an idle
+  stream sends a keep-alive comment every 15 seconds, so a proxy no longer
+  closes a quiet connection before `wait_for_data` expires. When a request carries both
+  `min_offset` and `Last-Event-ID`, `min_offset` still wins.
+- `GET /sessions/{id}/events/{event_id}?sse=true&delta=true` sends only the
+  chunks added since the previous frame. Before, each frame repeated every chunk
+  of the event so far, so a long stream grew quadratically in bytes. The first
+  frame is still the complete event, so existing clients are unaffected.
+
 ### Fixed
 
 - MCP tools that return structured results, such as a pydantic model, now give

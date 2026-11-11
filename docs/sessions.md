@@ -852,11 +852,31 @@ source.onmessage = (message) => {
 The stream sends each matching event as:
 
 ```text
+id: 12
 data: {"id":"evt_123", ...}
 ```
 
-and closes when no matching event arrives within `wait_for_data` seconds.
-Reconnect with the next `min_offset` to continue.
+The `id` is the event's offset, and it is what makes the stream resumable: a
+client that reconnects with `Last-Event-ID` continues after the frame it last
+saw instead of replaying the session from the start.
+
+Browsers send that header on their own when `EventSource` reconnects. Other
+clients set it explicitly:
+
+```bash
+curl -N -H "Last-Event-ID: 12" \
+  "$PARLANT_URL/sessions/$SESSION_ID/events?sse=true&wait_for_data=60"
+```
+
+When a request carries both `min_offset` and `Last-Event-ID`, `min_offset` wins:
+it is the explicit request, and the header only says where an earlier stream got
+to.
+
+The stream opens with `retry: 3000`, so a browser waits three seconds before
+reconnecting. While it is idle it sends a comment frame (`: keep-alive`) every
+15 seconds, so a proxy does not close a quiet connection before `wait_for_data`
+expires. The stream closes when no matching event arrives within `wait_for_data`
+seconds; reconnect to continue.
 
 #### Filtering Examples
 
@@ -899,6 +919,7 @@ Optional query parameters:
 | `wait_for_completion=true` | Wait until a streaming event completes before returning. |
 | `wait_for_data` | Timeout in seconds for completion or streaming updates. |
 | `sse=true` | Stream updates to this event until it completes. |
+| `delta=true` | With `sse=true`, send only the chunks added since the previous frame. |
 
 Streaming events use `data.chunks`. Completion is represented by a final
 `null` chunk:
@@ -932,6 +953,26 @@ source.onmessage = (message) => {
 ```
 
 For non-streaming events, `sse=true` sends the event once and closes.
+
+Every frame of a streaming event carries an `id` of the form
+`<offset>:<chunk_count>`, so a reconnecting client resumes at the chunk it last
+saw:
+
+```bash
+curl -N -H "Last-Event-ID: 0:3" \
+  "$PARLANT_URL/sessions/$SESSION_ID/events/$EVENT_ID?sse=true&wait_for_data=60"
+```
+
+With `delta=true`, the frames after the first carry only the chunks added since
+the previous one:
+
+```text
+id: 0:3
+data: {"id": "evt_123", "offset": 0, "chunk_index": 1, "chunks": [" there"], "is_complete": false}
+```
+
+The first frame is always the complete event, so a client that starts from zero,
+or that resumes before any chunk, needs no special handling.
 
 ### Update Event Metadata
 

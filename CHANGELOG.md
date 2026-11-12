@@ -52,6 +52,11 @@ Each entry says what changed and what it means for you, under `Added`,
   in the background, on the first count. Until it's ready, or if your server
   can't reach GitHub, Parlant counts with the API as before and logs one warning
   saying so.
+- Agents no longer repeat what the customer just said back to them before
+  replying ("Lead generation for a logistics startup, so…"). A reaction now
+  responds to what the message means, and when the customer is answering the
+  agent's own question, the agent goes straight to its next step. The prompt no
+  longer bans stock acknowledgments such as "makes sense" by name.
 
 ### Fixed
 

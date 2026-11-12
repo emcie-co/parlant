@@ -57,6 +57,7 @@ from parlant.adapters.nlp.gemini_service import (
     GeminiTextEmbedding_001,
     GemmaTokenCounter,
     RoutedGeminiEmbedder,
+    RoutedGeminiSchematicGenerator,
     register_gemini_models,
 )
 from parlant.adapters.nlp.gemini_service import (
@@ -88,6 +89,7 @@ from parlant.core.nlp.model_routing import (
     NullSecretLoader,
 )
 from parlant.core.tracer import LocalTracer
+from parlant.core.nlp.generation import ReasoningEffort
 from parlant.core.nlp.react import (
     CacheConfig,
     FinishReason,
@@ -219,9 +221,9 @@ async def test_that_gemini_embedder_sends_each_text_as_its_own_content(logger: L
     [
         ("min", "gemini:gemini-3.5-flash-lite", None),
         ("low", "gemini:gemini-3.5-flash-lite", ReasoningConfig(effort="medium")),
-        ("medium", "gemini:gemini-3.8-flash", ReasoningConfig(effort="low")),
-        ("high", "gemini:gemini-3.8-flash", None),
-        ("max", "gemini:gemini-3.8-flash", None),
+        ("medium", "gemini:gemini-4-hydrogen", ReasoningConfig(effort="low")),
+        ("high", "gemini:gemini-4-hydrogen", None),
+        ("max", "gemini:gemini-4-hydrogen", None),
     ],
 )
 async def test_that_the_gemini_react_default_routes_each_effort_to_its_model_and_thinking_level(
@@ -265,6 +267,28 @@ async def test_that_the_gemini_distill_default_is_flash_lite_thinking_at_medium(
 
     assert config.model == "gemini:gemini-3.5-flash-lite"
     assert config.reasoning == ReasoningConfig(effort="medium")
+
+
+@pytest.mark.parametrize("route", ["review.message", "review.tools"])
+async def test_that_the_gemini_review_default_is_gemini_4_hydrogen(
+    container: Container,
+    monkeypatch: pytest.MonkeyPatch,
+    route: str,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "offline-registry-tests")
+
+    registry = ModelImplementationRegistry(NullSecretLoader())
+    register_gemini_models(registry, container)
+
+    config = registry.default_config(
+        "gemini",
+        ModelCapability.SCHEMATIC,
+        route=route,
+        qualifiers={},
+    )
+
+    assert config.model == "gemini:gemini-4-hydrogen"
+    assert config.reasoning is None
 
 
 # ═════════════════════ EMBEDDING DEFAULT-MODEL RESOLUTION ═══════════════════
@@ -661,6 +685,32 @@ def test_that_encode_maps_effort_to_a_thinking_level_on_gemini_3x(
     assert thinking is not None
     assert thinking.include_thoughts is True
     assert thinking.thinking_level == google.genai.types.ThinkingLevel.MEDIUM
+
+
+@pytest.mark.parametrize(
+    ("effort", "level"),
+    [
+        ("minimal", google.genai.types.ThinkingLevel.LOW),
+        ("low", google.genai.types.ThinkingLevel.LOW),
+        ("medium", google.genai.types.ThinkingLevel.MEDIUM),
+        ("high", google.genai.types.ThinkingLevel.HIGH),
+    ],
+)
+def test_that_a_gemini_4_schematic_generator_sends_its_reasoning_effort_as_a_thinking_level(
+    logger: Logger,
+    effort: ReasoningEffort,
+    level: google.genai.types.ThinkingLevel,
+) -> None:
+    # Reviews run on schematic generators. Gemini 4 takes the same named thinking
+    # levels as 3.x; without a mapping the effort would be silently dropped.
+    generator = RoutedGeminiSchematicGenerator[_CacheProbe](
+        model_name="gemini-4-hydrogen",
+        logger=logger,
+        tracer=LocalTracer(),
+        meter=LocalMeter(logger),
+    )
+
+    assert generator._reasoning_thinking_config(effort) == {"thinking_level": level}
 
 
 def test_that_service_tier_maps_to_gemini_values(gemini: GeminiReactGenerator) -> None:

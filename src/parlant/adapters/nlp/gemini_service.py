@@ -835,8 +835,9 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
     def _reasoning_thinking_config(self, effort: ReasoningEffort) -> dict[str, Any] | None:
         """Map the normalized reasoning effort to this model's thinking config, or
-        None for models without thinking support (e.g. Gemini 2.0)."""
-        if self.model_name.startswith("gemini-3"):
+        None for models without thinking support (e.g. Gemini 2.0). Gemini 4 takes
+        the same named levels as 3.x."""
+        if self.model_name.startswith(("gemini-3", "gemini-4")):
             return {"thinking_level": self._EFFORT_TO_THINKING_LEVEL_3X[effort]}
         if self.model_name.startswith("gemini-2.5"):
             return {"thinking_budget": self._EFFORT_TO_THINKING_BUDGET_25[effort]}
@@ -2567,7 +2568,7 @@ def register_gemini_models(
 
 def _gemini_schematic_default(route: str, qualifiers: Mapping[str, str]) -> str | ModelConfig:
     if route.startswith("review"):
-        return "gemini-3.8-flash"
+        return "gemini-4-hydrogen"
     elif route.startswith("matching.distill"):
         # Distillation is state-tracking-heavy (which policy clauses apply at
         # THIS point of the conversation), so give the small model a thinking
@@ -2590,8 +2591,10 @@ def _gemini_react_default(route: str, qualifiers: Mapping[str, str]) -> str | Mo
                 reasoning=ReasoningConfig(effort="medium", visibility="summary"),
             )
         if effort == "medium":
+            # Hydrogen keeps its deliberation in its thought channel at LOW, where
+            # 3.8 Flash wrote it into replies and spent seconds more at MEDIUM.
             return ModelConfig(
-                model="gemini:gemini-3.8-flash",
+                model="gemini:gemini-4-hydrogen",
                 reasoning=ReasoningConfig(effort="low", visibility="summary"),
             )
-    return "gemini-3.8-flash"
+    return "gemini-4-hydrogen"

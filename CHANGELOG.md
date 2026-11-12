@@ -11,6 +11,27 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
+## [Unreleased]
+
+### Changed
+
+- With Gemini as your provider, replies at medium, high and max effort and both
+  review checks now run on Gemini 4 Hydrogen instead of Gemini 3.8 Flash. Medium
+  effort keeps low reasoning. On a website agent this cut replies from 15–30
+  seconds to 6–8, and Hydrogen kept its reasoning out of replies where 3.8 Flash
+  at low reasoning had written it into one. Minimal and low effort stay on
+  Flash-Lite. A `react` or `review.*` route you set yourself is unchanged. To
+  keep the old model, route it explicitly, e.g.
+  `"react": p.ModelConfig("gemini:gemini-3.8-flash", reasoning="low")`.
+- LiteLLM's default for both review checks is now `gemini/gemini-4-hydrogen`
+  instead of `gemini/gemini-3.8-flash`.
+
+### Fixed
+
+- A reasoning level set on a Gemini 4 model in a schematic route, such as
+  `"review.*": p.ModelConfig("gemini:gemini-4-hydrogen", reasoning="high")`, is now
+  sent to Gemini. It used to be dropped, so the model thought at its own default.
+
 ## [4.0.5] - 2026-11-12
 
 ### Added

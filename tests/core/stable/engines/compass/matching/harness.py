@@ -39,11 +39,13 @@ from dataclasses import dataclass, field, replace
 import re
 from typing import Any, cast
 
+from typing_extensions import override
+
 from parlant.core.container import Container, Singleton
 
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
-from parlant.core.agents import AgentStore, Effort
+from parlant.core.agents import AgentId, AgentStore, Effort
 from parlant.core.common import IdGenerator, JSONSerializable, generate_id
 from parlant.core.customers import CustomerStore
 from parlant.core.emission.event_buffer import EventBuffer
@@ -80,9 +82,14 @@ from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.model_routing import (
     ModelConfig,
     ModelConfigurationService,
+    ModelImplementationRegistry,
+    ModelRouteQualifiers,
     ModelRouter,
     ModelScope,
+    RuntimeModelRouteSource,
+    TransientModelRouteStore,
 )
+from parlant.core.nlp.rate_limits import RateLimiter
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 from parlant.core.loggers import Logger
 from parlant.core import metadata
@@ -374,6 +381,27 @@ class _PrefillThresholdPolicy(CompassOptimizationPolicy):
         return self._minimum
 
 
+class _NoDecisionModelRouter(ModelRouter):
+    """The shared test router, minus any decision model.
+
+    The suite routes `{"*": "gemini"}`, and Gemini registers a decision default,
+    so that wildcard would serve the real Gemini Decision 1 to the ranker. A
+    route cannot say "no decision model", so a harness built without a scripted
+    one swaps in this router: the ranker keeps its per-rule path through the
+    scripted generator, and no test reaches a real decision endpoint."""
+
+    @override
+    async def get_decision_maker(
+        self,
+        *,
+        context: CoreEngineContext[Any, Any] | None,
+        route: str,
+        agent_id: AgentId | None = None,
+        qualifiers: ModelRouteQualifiers = {},
+    ) -> DecisionMaker | None:
+        return None
+
+
 async def matching_harness(
     container: Container,
     rules: Sequence[Rule],
@@ -443,8 +471,15 @@ async def matching_harness(
 
     if decision_maker is not None:
         # A decision model has to be named explicitly — the bare route above
-        # serves schematic ranking, and decisions never ride a wildcard.
+        # serves schematic ranking.
         routes["matching.rank[capability=decision]"] = ModelConfig(provide_decision_maker)
+    else:
+        container[ModelRouter] = _NoDecisionModelRouter(
+            base_container[TransientModelRouteStore],
+            base_container[RuntimeModelRouteSource],
+            base_container[ModelImplementationRegistry],
+            base_container[RateLimiter],
+        )
 
     await base_container[ModelConfigurationService].configure(
         ModelScope.server(),

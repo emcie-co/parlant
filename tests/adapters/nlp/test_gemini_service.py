@@ -26,12 +26,17 @@ tests/core/nlp/test_react.py. This file covers Gemini specifics:
 """
 
 import asyncio
+import json
 import os
+import re
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Callable, cast
 from unittest.mock import AsyncMock
+
+import httpx
 
 import google.genai
 import google.genai.types as genai_types
@@ -52,6 +57,25 @@ from parlant.adapters.nlp.gemini_service import (
     RoutedGeminiEmbedder,
     register_gemini_models,
 )
+from parlant.adapters.nlp.gemini_service import (
+    DEFAULT_DECISION_MODEL as GEMINI_DEFAULT_DECISION_MODEL,
+    GeminiDecisionMaker,
+)
+from parlant.core.nlp.common import UsageInfo
+from parlant.core.nlp.decision import (
+    Choice,
+    ChoiceAnswer,
+    DecisionError,
+    Proposition,
+    PropositionAnswer,
+    PropositionCriteria,
+    Question,
+    Scale,
+    ScaleAnswer,
+)
+from parlant.core.nlp.model_routing import MissingProviderCredentialsError
+from parlant.core.pricing import ModelPricing, Pricing
+from parlant.core.usage_reporter import UsageReporter
 from parlant.core.common import DefaultBaseModel
 from parlant.core.container import Container
 from parlant.core.loggers import Logger, StdoutLogger
@@ -2305,3 +2329,659 @@ def test_that_native_tool_history_still_preserves_the_matching_call_and_result(
     assert call.function_call.id == result.function_response.id == "weather-call"
     assert call.thought_signature == b"native-signature"
     assert result.function_response.response == {"temperature_c": 18}
+
+
+# ════════════════════════════ 4. DECISIONS API ═════════════════════════════
+#
+# Gemini Decision 1 answers a batch of named questions about one shared input in
+# a single request, on its own v1beta endpoint rather than generateContent. These
+# tests drive the adapter through a fake HTTP transport: the request it sends is
+# checked as Google documents it, and answers are fabricated in the documented
+# response shape.
+#
+# The endpoint only accepts question names matching [A-Za-z0-9_-]{1,64}, and a
+# caller's names (rule ids, for the ranker) need not. So the tests never assume a
+# question goes out under the caller's name: the fake server answers whatever
+# names it was sent, and every assertion reads the answers back by the caller's.
+
+_GEMINI_DECISIONS_URL = "https://generativelanguage.googleapis.com/v1beta/decisions"
+_GEMINI_QUESTION_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _noul(question: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "noul", "noul": 0.9, "confidence": 0.9}
+
+
+def _gemini_answers(
+    answer: Callable[[dict[str, Any]], dict[str, Any]] = _noul,
+    usage: dict[str, Any] | None = None,
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Answer every question the request carried, under the name it was sent."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        questions = json.loads(request.content)["questions"]
+        return httpx.Response(
+            200,
+            json={
+                "answers": {name: answer(question) for name, question in questions.items()},
+                "usage": usage
+                or {
+                    "total_input_tokens": 324,
+                    "input_tokens_by_modality": [{"modality": "text", "tokens": 324}],
+                    "total_output_tokens": 0,
+                    "total_tokens": 324,
+                },
+            },
+        )
+
+    return handler
+
+
+def _gemini_decisions_http(
+    handler: Callable[[httpx.Request], httpx.Response],
+    requests: list[httpx.Request] | None = None,
+) -> httpx.AsyncClient:
+    def record(request: httpx.Request) -> httpx.Response:
+        if requests is not None:
+            requests.append(request)
+        return handler(request)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(record))
+
+
+def _gemini_decision_maker(
+    handler: Callable[[httpx.Request], httpx.Response],
+    requests: list[httpx.Request] | None = None,
+    usage_reporter: UsageReporter | None = None,
+    provider_name: str | None = None,
+) -> GeminiDecisionMaker:
+    tracer = LocalTracer()
+    logger = StdoutLogger(tracer)
+    return GeminiDecisionMaker(
+        logger=logger,
+        tracer=tracer,
+        meter=LocalMeter(logger),
+        api_key="test-gemini-key",
+        http=_gemini_decisions_http(handler, requests),
+        usage_reporter=usage_reporter,
+        provider_name=provider_name,
+    )
+
+
+def _sent_questions(request: httpx.Request) -> list[dict[str, Any]]:
+    """The questions as sent, in the caller's order, whatever names they went under."""
+    return list(json.loads(request.content)["questions"].values())
+
+
+async def test_that_gemini_decision_maker_posts_to_the_v1beta_decisions_endpoint_with_the_api_key_header() -> (
+    None
+):
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(_gemini_answers(), requests)
+
+    await maker.decide("the state", {"q": Proposition(instructions="Does it hold?")})
+
+    (request,) = requests
+    assert str(request.url) == _GEMINI_DECISIONS_URL
+    assert request.method == "POST"
+    assert request.headers["x-goog-api-key"] == "test-gemini-key"
+
+    body = json.loads(request.content)
+    assert body["model"] == "gemini-decision-1" == GEMINI_DEFAULT_DECISION_MODEL
+    assert body["input"] == "the state"
+
+
+async def test_that_gemini_decision_maker_maps_our_question_types_to_gemini_primitives() -> None:
+    requests: list[httpx.Request] = []
+
+    def answer(question: dict[str, Any]) -> dict[str, Any]:
+        match question["type"]:
+            case "choice":
+                return {
+                    "type": "choice",
+                    "choice": "a",
+                    "probabilities": {"a": 0.7, "b": 0.3},
+                    "confidence": 0.7,
+                }
+            case "score":
+                return {
+                    "type": "score",
+                    "score": 0.5,
+                    "legend": {"0": "low", "1": "high"},
+                    "probabilities": {"0": 0.5, "1": 0.5},
+                    "confidence": 0.5,
+                }
+        return _noul(question)
+
+    maker = _gemini_decision_maker(_gemini_answers(answer), requests)
+
+    await maker.decide(
+        "the state",
+        {
+            "p": Proposition(instructions="Holds?"),
+            "c": Choice(instructions="Which?", criteria={"a": "the first", "b": "the second"}),
+            "s": Scale(instructions="How much?", criteria=["low", "high"]),
+        },
+    )
+
+    proposition, choice, scale = _sent_questions(requests[0])
+
+    assert proposition == {"type": "noul", "instructions": "Holds?"}
+    assert choice == {
+        "type": "choice",
+        "instructions": "Which?",
+        "criteria": {"a": "the first", "b": "the second"},
+    }
+    assert scale == {"type": "score", "instructions": "How much?", "criteria": ["low", "high"]}
+
+
+async def test_that_gemini_decision_maker_sends_a_propositions_criteria_as_true_and_false_descriptions() -> (
+    None
+):
+    # Unlike OpenAI's predicate, Gemini's noul has a place for what yes and no
+    # each mean, so the rule ranker's signals and anti-signals go there instead
+    # of being folded into the instructions.
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(_gemini_answers(), requests)
+
+    await maker.decide(
+        "Customer: I asked three times already",
+        {
+            "q": Proposition(
+                instructions="Has the customer contacted support about this before?",
+                criteria=PropositionCriteria(
+                    true="Mentions a prior attempt, ticket, or having asked before",
+                    false="No sign of any previous contact",
+                ),
+            )
+        },
+    )
+
+    (question,) = _sent_questions(requests[0])
+    assert question == {
+        "type": "noul",
+        "instructions": "Has the customer contacted support about this before?",
+        "criteria": {
+            "true_description": "Mentions a prior attempt, ticket, or having asked before",
+            "false_description": "No sign of any previous contact",
+        },
+    }
+
+
+async def test_that_gemini_decision_maker_sends_an_undescribed_choice_option_as_an_empty_description() -> (
+    None
+):
+    # The endpoint accepts "" for an option whose id speaks for itself, which is
+    # exactly what a None criterion means in the port.
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(
+        _gemini_answers(
+            lambda _: {
+                "type": "choice",
+                "choice": "refund",
+                "probabilities": {"refund": 0.6, "replace": 0.4},
+                "confidence": 0.6,
+            }
+        ),
+        requests,
+    )
+
+    await maker.decide(
+        "the state",
+        {"c": Choice(instructions="Which?", criteria={"refund": None, "replace": "a new unit"})},
+    )
+
+    (question,) = _sent_questions(requests[0])
+    assert question["criteria"] == {"refund": "", "replace": "a new unit"}
+
+
+async def test_that_gemini_decision_maker_serializes_structured_instructions_and_criteria_to_text() -> (
+    None
+):
+    # Instructions and criteria are text-only on this endpoint, while a Criterion
+    # is any JSON value — and the rule ranker sends a mapping of the rule plus its
+    # question. Every part has to survive into the text.
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(_gemini_answers(), requests)
+
+    await maker.decide(
+        "the state",
+        {
+            "q": Proposition(
+                instructions={"rule": "the rule text", "question": "Does it apply?"},
+                criteria=PropositionCriteria(
+                    true=["same name", "same city"],
+                    false="a different person",
+                ),
+            )
+        },
+    )
+
+    (question,) = _sent_questions(requests[0])
+    assert isinstance(question["instructions"], str)
+    assert "the rule text" in question["instructions"]
+    assert "Does it apply?" in question["instructions"]
+
+    true_description = question["criteria"]["true_description"]
+    assert isinstance(true_description, str)
+    assert "same name" in true_description
+    assert "same city" in true_description
+    assert question["criteria"]["false_description"] == "a different person"
+
+
+async def test_that_gemini_decision_maker_serializes_a_non_string_state_to_text() -> None:
+    # Google asks for JSON to be serialized to a string and sent as text.
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(_gemini_answers(), requests)
+
+    await maker.decide(
+        {"conversation": "the customer is upset"},
+        {"q": Proposition(instructions="Holds?")},
+    )
+
+    sent_input = json.loads(requests[0].content)["input"]
+    assert isinstance(sent_input, str)
+    assert "the customer is upset" in sent_input
+
+
+async def test_that_gemini_decision_maker_sends_question_names_gemini_accepts_and_answers_under_the_callers_names() -> (
+    None
+):
+    requests: list[httpx.Request] = []
+    probabilities = iter([0.1, 0.5, 0.9])
+    maker = _gemini_decision_maker(
+        _gemini_answers(lambda _: {"type": "noul", "noul": next(probabilities), "confidence": 0.5}),
+        requests,
+    )
+
+    names = ["rule:abc/1", "a" * 70, "plain_name"]
+
+    result = await maker.decide(
+        "the state",
+        {name: Proposition(instructions=f"Holds for {name}?") for name in names},
+    )
+
+    sent = json.loads(requests[0].content)["questions"]
+    assert len(sent) == 3
+    assert all(_GEMINI_QUESTION_NAME.match(name) for name in sent)
+
+    assert set(result.answers) == set(names)
+    by_name = {
+        name: cast(PropositionAnswer, answer).probability for name, answer in result.answers.items()
+    }
+    assert by_name == {"rule:abc/1": 0.1, "a" * 70: 0.5, "plain_name": 0.9}
+
+
+async def test_that_gemini_decision_maker_sends_one_request_for_many_questions() -> None:
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(_gemini_answers(), requests)
+
+    result = await maker.decide(
+        "the state",
+        {f"q{i}": Proposition(instructions=f"Holds {i}?") for i in range(12)},
+    )
+
+    assert len(requests) == 1
+    assert len(result.answers) == 12
+
+
+async def test_that_gemini_decision_maker_parses_every_answer_type() -> None:
+    def answer(question: dict[str, Any]) -> dict[str, Any]:
+        match question["type"]:
+            case "choice":
+                return {
+                    "type": "choice",
+                    "choice": "refund",
+                    "probabilities": {"refund": 0.9, "replace": 0.1},
+                    "confidence": 0.9,
+                }
+            case "score":
+                return {
+                    "type": "score",
+                    "score": 1.25,
+                    "legend": {"0": "low", "1": "mid", "2": "high"},
+                    "probabilities": {"0": 0.25, "1": 0.25, "2": 0.5},
+                    "confidence": 0.5,
+                }
+        return {"type": "noul", "noul": 0.84, "confidence": 0.84}
+
+    maker = _gemini_decision_maker(_gemini_answers(answer))
+
+    result = await maker.decide(
+        "the state",
+        {
+            "p": Proposition(instructions="Holds?"),
+            "c": Choice(instructions="Which?", criteria={"refund": None, "replace": None}),
+            "s": Scale(instructions="How much?", criteria=["low", "mid", "high"]),
+        },
+    )
+
+    proposition = result.answers["p"]
+    assert isinstance(proposition, PropositionAnswer)
+    assert proposition.probability == 0.84
+
+    choice = result.answers["c"]
+    assert isinstance(choice, ChoiceAnswer)
+    assert choice.option == "refund"
+    assert choice.probabilities == {"refund": 0.9, "replace": 0.1}
+    assert choice.confidence == 0.9
+
+    scale = result.answers["s"]
+    assert isinstance(scale, ScaleAnswer)
+    assert scale.score == 1.25
+    assert scale.confidence == 0.5
+
+
+async def test_that_gemini_decision_maker_decodes_a_scales_zero_based_levels() -> None:
+    # Levels come back keyed "0" to "N-1" as strings, so a three-level scale
+    # answers in [0, 2] and never reaches 3.
+    maker = _gemini_decision_maker(
+        _gemini_answers(
+            lambda _: {
+                "type": "score",
+                "score": 2.0,
+                "legend": {"0": "low", "1": "mid", "2": "high"},
+                "probabilities": {"0": 0.0, "1": 0.0, "2": 1.0},
+                "confidence": 1.0,
+            }
+        )
+    )
+
+    result = await maker.decide(
+        "the state",
+        {"s": Scale(instructions="How much?", criteria=["low", "mid", "high"])},
+    )
+
+    scale = result.answers["s"]
+    assert isinstance(scale, ScaleAnswer)
+    assert scale.legend == {0: "low", 1: "mid", 2: "high"}
+    assert scale.probabilities == {0: 0.0, 1: 0.0, 2: 1.0}
+
+
+async def test_that_gemini_decision_maker_rejects_a_choice_with_a_single_option_before_sending() -> (
+    None
+):
+    # The port allows a one-option choice; Gemini takes 2 to 255 and would
+    # answer a 400. Failing here names the question instead of the whole batch.
+    requests: list[httpx.Request] = []
+    maker = _gemini_decision_maker(_gemini_answers(), requests)
+
+    with pytest.raises(DecisionError, match="lonely"):
+        await maker.decide(
+            "the state",
+            {"lonely": Choice(instructions="Which?", criteria={"only": None})},
+        )
+
+    assert requests == []
+
+
+async def test_that_gemini_decision_maker_raises_when_an_answer_is_missing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        first, _second = json.loads(request.content)["questions"]
+        return httpx.Response(
+            200,
+            json={"answers": {first: {"type": "noul", "noul": 0.5, "confidence": 0.5}}},
+        )
+
+    maker = _gemini_decision_maker(handler)
+
+    with pytest.raises(DecisionError, match="second"):
+        await maker.decide(
+            "the state",
+            {
+                "first": Proposition(instructions="One?"),
+                "second": Proposition(instructions="Two?"),
+            },
+        )
+
+
+async def test_that_gemini_decision_maker_raises_on_an_unrecognized_answer_type() -> None:
+    # A judgment the caller is waiting on must never be silently dropped, even if
+    # the endpoint grows a primitive this adapter doesn't know.
+    maker = _gemini_decision_maker(
+        _gemini_answers(lambda _: {"type": "ranking", "confidence": 0.5})
+    )
+
+    with pytest.raises(DecisionError):
+        await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+
+async def test_that_gemini_decision_maker_surfaces_a_safety_block_with_its_code() -> None:
+    # A blocked input comes back as a 400 whose code says why. Whoever reads the
+    # error needs that reason, not just the status.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"code": "safety", "message": "The input was blocked."}},
+        )
+
+    maker = _gemini_decision_maker(handler)
+
+    with pytest.raises(DecisionError, match="safety"):
+        await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+
+async def test_that_gemini_decision_maker_surfaces_an_api_error() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"code": 400, "message": "A choice takes 2 to 255 options."}},
+        )
+
+    maker = _gemini_decision_maker(handler, requests)
+
+    with pytest.raises(DecisionError, match="2 to 255 options"):
+        await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+    # A rejected request is rejected again if resent, so it is not retried.
+    assert len(requests) == 1
+
+
+async def test_that_gemini_decision_maker_retries_a_rate_limited_request() -> None:
+    requests: list[httpx.Request] = []
+    answer = _gemini_answers()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if len(requests) == 1:
+            return httpx.Response(
+                429,
+                json={
+                    "error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "Slow down"}
+                },
+            )
+        return answer(request)
+
+    maker = _gemini_decision_maker(handler, requests)
+
+    result = await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+    assert len(requests) == 2
+    assert isinstance(result.answers["q"], PropositionAnswer)
+
+
+async def test_that_gemini_decision_maker_requires_an_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    tracer = LocalTracer()
+    logger = StdoutLogger(tracer)
+
+    with pytest.raises(MissingProviderCredentialsError):
+        GeminiDecisionMaker(logger=logger, tracer=tracer, meter=LocalMeter(logger))
+
+
+async def test_that_gemini_decision_maker_reports_one_request_for_a_batch_and_its_input_tokens() -> (
+    None
+):
+    # One request for the whole batch is the point of the port, and usage has to
+    # say so or the saving is invisible to cost accounting.
+    maker = _gemini_decision_maker(
+        _gemini_answers(
+            usage={
+                "total_input_tokens": 1000,
+                "input_tokens_by_modality": [{"modality": "text", "tokens": 1000}],
+                "total_output_tokens": 0,
+                "total_tokens": 1000,
+            }
+        )
+    )
+
+    result = await maker.decide(
+        "the state",
+        {f"q{i}": Proposition(instructions=f"Holds {i}?") for i in range(5)},
+    )
+
+    assert result.info.usage.requests == 1
+    assert result.info.usage.input_tokens == 1000
+    assert result.info.usage.output_tokens == 0
+    assert result.info.model == "gemini-decision-1"
+
+
+async def test_that_gemini_decision_maker_reports_its_usage_for_accounting() -> None:
+    # Nothing downstream reports an evaluator's generation info, so a decision
+    # that stays quiet here is free as far as pricing, budgets and cost control
+    # are concerned.
+    tracer = LocalTracer()
+    reported: list[tuple[str, UsageInfo]] = []
+    usage_reporter = UsageReporter(tracer)
+    usage_reporter.add_listener(lambda _trace, model, usage: reported.append((model, usage)))
+
+    maker = _gemini_decision_maker(_gemini_answers(), usage_reporter=usage_reporter)
+
+    await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+    (model, usage) = reported[-1]
+    assert model == "gemini:gemini-decision-1"
+    assert usage.input_tokens == 324
+    assert usage.requests == 1
+
+
+async def test_that_a_gemini_decision_is_priced_from_its_input_tokens() -> None:
+    # Gemini reports no cost, so a decision is priced from the server's pricing
+    # table like any other Gemini call — $0.10 per million input tokens today.
+    maker = _gemini_decision_maker(
+        _gemini_answers(
+            usage={
+                "total_input_tokens": 1_000_000,
+                "total_output_tokens": 0,
+                "total_tokens": 1_000_000,
+            }
+        )
+    )
+
+    result = await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+    pricing = Pricing(
+        currency="USD",
+        models={
+            "gemini:gemini-decision-1": ModelPricing(
+                input_tokens=Decimal("0.10"),
+                cached_input_tokens=Decimal("0"),
+                output_tokens=Decimal("0"),
+            )
+        },
+    )
+
+    assert pricing.calculate_model(f"gemini:{result.info.model}", result.info.usage) == Decimal(
+        "0.10"
+    )
+
+
+async def test_that_gemini_decision_maker_reports_under_a_custom_provider_name() -> None:
+    # Two Gemini accounts at different rates can be told apart only if each
+    # adapter's usage is keyed under its own provider name.
+    tracer = LocalTracer()
+    reported: list[str] = []
+    usage_reporter = UsageReporter(tracer)
+    usage_reporter.add_listener(lambda _trace, model, _usage: reported.append(model))
+
+    maker = _gemini_decision_maker(
+        _gemini_answers(), usage_reporter=usage_reporter, provider_name="gemini-eu"
+    )
+
+    assert maker.provider_name == "gemini-eu"
+
+    await maker.decide("the state", {"q": Proposition(instructions="Holds?")})
+
+    assert reported == ["gemini-eu:gemini-decision-1"]
+
+
+async def test_that_gemini_model_registry_serves_a_decision_maker(
+    container: Container,
+) -> None:
+    # Registering a decision default is what opts Gemini into decisions: a bare
+    # `{"*": "gemini"}` route then ranks rules with Gemini Decision 1.
+    registry = ModelImplementationRegistry(NullSecretLoader())
+    register_gemini_models(registry, container)
+
+    assert (
+        registry.default_config(
+            "gemini",
+            ModelCapability.DECISION,
+            route="matching.rank",
+            qualifiers={},
+        ).model
+        == "gemini:gemini-decision-1"
+    )
+
+
+@LIVE
+async def test_that_gemini_decision_1_answers_a_batch_of_questions_live() -> None:
+    tracer = LocalTracer()
+    logger = StdoutLogger(tracer)
+    maker = GeminiDecisionMaker(logger=logger, tracer=tracer, meter=LocalMeter(logger))
+
+    questions: dict[str, Question] = {
+        "damaged": Proposition(
+            instructions="Does the customer report a damaged item?",
+            criteria=PropositionCriteria(
+                true="the customer says an item arrived broken",
+                false="no damage is mentioned",
+            ),
+        ),
+        "wants": Choice(
+            instructions="What does the customer want?",
+            criteria={
+                "refund": "the customer wants money back",
+                "replacement": "the customer wants a new unit",
+            },
+        ),
+        "urgency": Scale(
+            instructions="How urgent is this request?",
+            criteria=["can wait", "should be handled today", "handle immediately"],
+        ),
+        # A rule id is not a name the endpoint accepts as is.
+        "rule:grinder/returns": Proposition(
+            instructions="Is the conversation about a coffee grinder?",
+        ),
+    }
+
+    result = await maker.decide(
+        "Customer: My coffee grinder arrived with a cracked burr assembly.\n"
+        "Agent: I'm sorry about that.\n"
+        "Customer: I'd like a replacement, not a refund.",
+        questions,
+    )
+
+    damaged = result.answers["damaged"]
+    assert isinstance(damaged, PropositionAnswer)
+    assert damaged.probability > 0.5
+
+    wants = result.answers["wants"]
+    assert isinstance(wants, ChoiceAnswer)
+    assert wants.option == "replacement"
+
+    urgency = result.answers["urgency"]
+    assert isinstance(urgency, ScaleAnswer)
+    # Zero-based levels: a three-level scale tops out at 2.
+    assert 0.0 <= urgency.score <= 2.0
+    assert set(urgency.legend) == {0, 1, 2}
+
+    grinder = result.answers["rule:grinder/returns"]
+    assert isinstance(grinder, PropositionAnswer)
+    assert grinder.probability > 0.5
+
+    assert result.info.usage.requests == 1
+    assert result.info.usage.input_tokens > 0

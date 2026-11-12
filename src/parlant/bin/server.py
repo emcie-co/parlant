@@ -442,6 +442,7 @@ async def configure_model_routing(
             container[PricingRegistry],
             container[AgentStore],
             container[Logger],
+            router=container[ModelRouter],
         )
         container[PricingReportService] = pricing_report
         container[HealthReporter].register_admin_detail("pricing", pricing_report.read)

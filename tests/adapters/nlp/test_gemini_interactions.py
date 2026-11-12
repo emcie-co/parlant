@@ -52,6 +52,7 @@ from parlant.core.nlp.react import (
 from parlant.core.tracer import LocalTracer
 
 MODEL = "gemini-4-argon"
+MODELS = [MODEL, "gemini-4-hydrogen"]
 LIVE = pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="requires live Gemini")
 WEATHER = ToolSpec(
     name="get_weather",
@@ -221,9 +222,11 @@ def tool_events() -> list[dict[str, Any]]:
     return [*events, terminal("requires_action")]
 
 
-def generator_for(logger: Logger, provider: tuple[Provider, str]) -> GeminiReactGenerator:
+def generator_for(
+    logger: Logger, provider: tuple[Provider, str], model: str = MODEL
+) -> GeminiReactGenerator:
     state, url = provider
-    return GeminiReactGenerator(model=MODEL, logger=logger, client=state.client(url))
+    return GeminiReactGenerator(model=model, logger=logger, client=state.client(url))
 
 
 def history(question: str = "Hello") -> list[Message]:
@@ -375,17 +378,18 @@ def test_that_cancelling_one_cold_request_does_not_abort_another(
     ],
     ids=["empty", "system-only", "customer", "assistant-first"],
 )
-def test_that_argon_uses_stateless_interactions_without_changing_its_model_identity(
-    logger: Logger, tool_choice: Any, messages: list[Message]
+@pytest.mark.parametrize("model", MODELS)
+def test_that_gemini_4_uses_stateless_interactions_without_changing_its_model_identity(
+    logger: Logger, tool_choice: Any, messages: list[Message], model: str
 ) -> None:
     generator = GeminiReactGenerator(
-        model=MODEL, logger=logger, client=google.genai.Client(api_key="offline")
+        model=model, logger=logger, client=google.genai.Client(api_key="offline")
     )
     original = deepcopy(messages)
     request = generator._encode(messages, [WEATHER], tool_choice, reasoning=ReasoningConfig())
-    assert generator.id == "gemini/gemini-4-argon"
+    assert generator.id == f"gemini/{model}"
     assert generator.provider_name == "gemini"
-    assert request["model"] == MODEL
+    assert request["model"] == model
     assert request["store"] is False
     assert request["stream"] is True
     assert not request.get("previous_interaction_id")
@@ -397,11 +401,12 @@ def test_that_argon_uses_stateless_interactions_without_changing_its_model_ident
 
 
 @pytest.mark.parametrize("assistant_tail", [False, True])
+@pytest.mark.parametrize("model", MODELS)
 def test_that_history_edits_and_mid_turn_instructions_reach_the_provider(
-    logger: Logger, assistant_tail: bool
+    logger: Logger, assistant_tail: bool, model: str
 ) -> None:
     generator = GeminiReactGenerator(
-        model=MODEL, logger=logger, client=google.genai.Client(api_key="offline")
+        model=model, logger=logger, client=google.genai.Client(api_key="offline")
     )
     messages = [
         Message(role=Role.SYSTEM, parts=[TextPart(text="Stable rules")]),
@@ -425,11 +430,12 @@ def test_that_history_edits_and_mid_turn_instructions_reach_the_provider(
     [("minimal", "low"), ("low", "low"), ("medium", "medium"), ("high", "high")],
 )
 @pytest.mark.parametrize("visibility", ["none", "summary", "full"])
-def test_that_argon_thinking_uses_supported_levels_and_a_compatible_output_budget(
-    logger: Logger, effort: Any, expected: str, visibility: Any
+@pytest.mark.parametrize("model", MODELS)
+def test_that_gemini_4_thinking_uses_supported_levels_and_a_compatible_output_budget(
+    logger: Logger, effort: Any, expected: str, visibility: Any, model: str
 ) -> None:
     generator = GeminiReactGenerator(
-        model=MODEL, logger=logger, client=google.genai.Client(api_key="offline")
+        model=model, logger=logger, client=google.genai.Client(api_key="offline")
     )
     request = generator._encode(
         history(), [], "none", reasoning=ReasoningConfig(effort=effort, visibility=visibility)
@@ -532,12 +538,13 @@ async def test_that_tool_call_start_is_available_before_argument_completion(
         state.release.set()
 
 
+@pytest.mark.parametrize("model", MODELS)
 async def test_that_split_function_arguments_and_parallel_calls_keep_their_ids(
-    logger: Logger, provider: tuple[Provider, str]
+    logger: Logger, provider: tuple[Provider, str], model: str
 ) -> None:
     state, _ = provider
     state.replies.append(Reply(events=tool_events()))
-    generator = generator_for(logger, provider)
+    generator = generator_for(logger, provider, model)
     events = [event async for event in generator.stream_step(history(), [WEATHER])]
     calls = [event for event in events if isinstance(event, ToolCallStarted)]
     assert [(c.id, c.name) for c in calls] == [("call_1", "get_weather"), ("call_2", "get_weather")]
@@ -572,14 +579,15 @@ class ToolTurnStore(ToolMessageSerializer, ToolMessageDeserializer):
 
 
 @pytest.mark.parametrize("reverse_results", [False, True])
+@pytest.mark.parametrize("model", MODELS)
 async def test_that_serialized_tool_turns_replay_native_steps_without_reexecuting_tools(
-    logger: Logger, provider: tuple[Provider, str], reverse_results: bool
+    logger: Logger, provider: tuple[Provider, str], reverse_results: bool, model: str
 ) -> None:
     state, _ = provider
     state.replies.extend(
         [Reply(events=tool_events()), Reply(events=[*text_events("18 degrees"), terminal()])]
     )
-    generator = generator_for(logger, provider)
+    generator = generator_for(logger, provider, model)
     first = await generator.step(history(), [WEATHER])
     store = ToolTurnStore()
     results = [
@@ -591,7 +599,7 @@ async def test_that_serialized_tool_turns_replay_native_steps_without_reexecutin
     generator.serialize_tool_messages(
         [first.message, Message(role=Role.TOOL, parts=results)], store
     )
-    replayed = generator.deserialize_tool_messages(store, model=MODEL)
+    replayed = generator.deserialize_tool_messages(store, model=model)
     assert replayed is not None
     assert generator.deserialize_tool_messages(store, model="gemini-3.8-flash") is None
     assert [call.provider_data[THOUGHTS] for call in replayed[0].tool_calls] == [
@@ -689,18 +697,20 @@ async def test_that_invalid_saved_tool_turns_are_not_replayed(
     assert len(state.requests) == 1
 
 
+@pytest.mark.parametrize("model", MODELS)
 async def test_that_usage_counts_cached_and_reasoning_tokens_once(
-    logger: Logger, provider: tuple[Provider, str]
+    logger: Logger, provider: tuple[Provider, str], model: str
 ) -> None:
     state, _ = provider
     done = terminal()
+    done["interaction"]["model"] = model
     state.replies.append(Reply(events=[*text_events("Hello"), done, done]))
-    result = await generator_for(logger, provider).step(history())
+    result = await generator_for(logger, provider, model).step(history())
     assert result.usage.input_tokens == 100
     assert result.usage.cached_input_tokens == 20
     assert result.usage.output_tokens == 12
     assert result.usage.reasoning_tokens == 7
-    assert result.usage.model_name == MODEL
+    assert result.usage.model_name == model
 
 
 @pytest.mark.parametrize("ending", ["incomplete", "failed", "truncated", "malformed_arguments"])
@@ -785,7 +795,9 @@ async def test_that_concurrent_interactions_keep_their_steps_and_usage_isolated(
     assert len(state.requests) == 2
 
 
-def live_generator(logger: Logger) -> tuple[GeminiReactGenerator, list[str], google.genai.Client]:
+def live_generator(
+    logger: Logger, model: str = MODEL
+) -> tuple[GeminiReactGenerator, list[str], google.genai.Client]:
     paths: list[str] = []
 
     async def observe(response: httpx.Response) -> None:
@@ -796,12 +808,15 @@ def live_generator(logger: Logger) -> tuple[GeminiReactGenerator, list[str], goo
             async_client_args={"event_hooks": {"response": [observe]}}
         )
     )
-    return GeminiReactGenerator(model=MODEL, logger=logger, client=client), paths, client
+    return GeminiReactGenerator(model=model, logger=logger, client=client), paths, client
 
 
 @LIVE
-async def test_that_live_argon_streams_text_and_accounts_for_usage(logger: Logger) -> None:
-    generator, paths, client = live_generator(logger)
+@pytest.mark.parametrize("model", MODELS)
+async def test_that_live_gemini_4_streams_text_and_accounts_for_usage(
+    logger: Logger, model: str
+) -> None:
+    generator, paths, client = live_generator(logger, model)
     try:
         events = [
             event
@@ -900,10 +915,11 @@ async def test_that_live_argon_runs_parallel_tools_and_continues_after_their_res
 
 
 @LIVE
-async def test_that_live_argon_replays_a_serialized_tool_turn_in_a_later_request(
-    logger: Logger,
+@pytest.mark.parametrize("model", MODELS)
+async def test_that_live_gemini_4_replays_a_serialized_tool_turn_in_a_later_request(
+    logger: Logger, model: str
 ) -> None:
-    generator, paths, client = live_generator(logger)
+    generator, paths, client = live_generator(logger, model)
     try:
         first = await generator.step(
             history("Use get_weather for Paris."),
@@ -930,7 +946,7 @@ async def test_that_live_argon_replays_a_serialized_tool_turn_in_a_later_request
             ],
             store,
         )
-        replayed = generator.deserialize_tool_messages(store, model=MODEL)
+        replayed = generator.deserialize_tool_messages(store, model=model)
         assert replayed is not None
         final = await generator.step(
             [

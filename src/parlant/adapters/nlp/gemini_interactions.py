@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Stateless Argon transport, private to the Gemini ReAct adapter.
+"""Stateless Gemini 4 transport, private to the Gemini ReAct adapter.
 
 Google's native steps and signatures stay opaque provider artifacts. Canonical
 history and tool execution remain owned by Parlant; no server-side conversation
@@ -62,7 +62,7 @@ _CONTINUE = (
 
 
 def uses_interactions(model: str) -> bool:
-    return model == "gemini-4-argon"
+    return model in {"gemini-4-argon", "gemini-4-hydrogen"}
 
 
 def _native_thoughts(part: Part) -> list[dict[str, Any]]:

@@ -15,6 +15,10 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- Gemini 4 Hydrogen works through the Gemini provider, including streamed replies,
+  tool calls, saved conversation replay and token accounting. Select it as
+  `gemini:gemini-4-hydrogen`; existing default models are unchanged.
+
 - Event streams (`sse=true`) now carry an `id` on every frame and resume from
   it. A client that reconnects with `Last-Event-ID` picks up after the frame it
   last saw, instead of replaying the session from the beginning. Streams ask a

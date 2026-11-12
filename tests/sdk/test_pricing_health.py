@@ -11,7 +11,7 @@ import parlant.sdk as p
 
 from parlant.api.app import create_api_app
 from parlant.api.authorization import AuthorizationPolicy, HeaderApiKeyAuthorizationPolicy
-from parlant.core.agents import Effort
+from parlant.core.agents import AgentId, AgentStore, Effort
 from parlant.core.application import Application
 from parlant.core.engines.compass.engine import CompassEngine
 from parlant.core.emissions import EventEmitter
@@ -23,6 +23,7 @@ from parlant.core.nlp.model_routing import (
     ModelCapability,
     ModelConfigurationService,
     ModelImplementationRegistry,
+    ModelRouter,
     ModelScope,
 )
 from parlant.core.pricing import ModelPricing, PricingRegistry
@@ -223,6 +224,200 @@ class Test_that_provider_default_pricing_respects_capability_and_effort_qualifie
 
         # Compare all six contexts so failures show both server and agent scope.
         assert actual == expected
+
+
+_EMBEDDING_ROUTES = ("embedding.rules", "embedding.tools", "embedding.tag")
+_GEMINI_EMBEDDING = "gemini:gemini-embedding-2"
+_ANTHROPIC_EMBEDDING = "anthropic:voyage-3.5"
+
+
+async def resolved_embedding_models(
+    ctx: Context, *, agent_id: AgentId | None = None, effort: Effort = Effort.LOW
+) -> set[str]:
+    models: set[str] = set()
+    for route in _EMBEDDING_ROUTES:
+        config, _, _, _ = await ctx.container[ModelRouter]._resolve_config(
+            context=None,
+            route=route,
+            capability=ModelCapability.EMBEDDING,
+            agent_id=agent_id,
+            qualifiers={"effort": effort.value},
+        )
+        assert isinstance(config.model, str)
+        models.add(config.model)
+    return models
+
+
+class Test_that_pricing_excludes_provider_defaults_shadowed_by_server_embedding_routes(
+    _PricingSDKTest
+):
+    async def run(self, ctx: Context) -> None:
+        await ctx.container[ModelConfigurationService].configure(
+            ModelScope.server(),
+            {"*": "anthropic", "embedding": p.ModelConfig(_GEMINI_EMBEDDING)},
+        )
+        assert await resolved_embedding_models(ctx) == {_GEMINI_EMBEDDING}
+        assert ctx.container[PricingRegistry].observed_models == {}
+
+        body = await health(ctx)
+        handlers = create_tunnel_handler_registry(
+            ctx.container[Application], ctx.container[HealthReporter]
+        )
+        tunneled = await handlers.unary["system.health"]({})
+        assert tunneled["pricing"] == body["pricing"]
+        assert body["status"] == "healthy"
+        entries = {row["key"]: row for row in body["pricing"]["models"]}
+        assert entries[_GEMINI_EMBEDDING]["source"] == "configured"
+        assert _ANTHROPIC_EMBEDDING not in entries
+
+
+class Test_that_effort_specific_embedding_overrides_keep_only_reachable_defaults(_PricingSDKTest):
+    async def run(self, ctx: Context) -> None:
+        configuration = ctx.container[ModelConfigurationService]
+        await configuration.configure(
+            ModelScope.server(), {"*": None, "*[capability=embedding]": "anthropic"}
+        )
+        cases = (
+            {"embedding": p.ModelConfig(_GEMINI_EMBEDDING)},
+            {"embedding[effort>=high]": p.ModelConfig(_GEMINI_EMBEDDING)},
+            {
+                "embedding[effort<high]": p.ModelConfig(_GEMINI_EMBEDDING),
+                "embedding[effort>=high]": p.ModelConfig(_GEMINI_EMBEDDING),
+            },
+        )
+        actual: list[set[str]] = []
+        resolved: list[set[str]] = []
+        for updates in cases:
+            await configuration.configure(ModelScope.server(), updates)
+            routed: set[str] = set()
+            for effort in Effort:
+                routed.update(await resolved_embedding_models(ctx, effort=effort))
+            resolved.append(routed)
+            body = await health(ctx)
+            actual.append({row["key"] for row in body["pricing"]["models"]})
+            await configuration.configure(
+                ModelScope.server(), {selector: None for selector in updates}
+            )
+
+        expected = [
+            {_GEMINI_EMBEDDING},
+            {_GEMINI_EMBEDDING, _ANTHROPIC_EMBEDDING},
+            {_GEMINI_EMBEDDING},
+        ]
+        assert resolved == expected
+        assert actual == expected
+
+
+class Test_that_agent_embedding_overrides_preserve_reachable_fallbacks(_PricingSDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.overridden = await server.create_agent(
+            id="embedding-override", name="Embedding override", instructions=""
+        )
+        self.fallback = await server.create_agent(
+            id="embedding-fallback", name="Embedding fallback", instructions=""
+        )
+        self.deleted = await server.create_agent(
+            id="deleted-embedding", name="Deleted embedding", instructions=""
+        )
+
+    async def run(self, ctx: Context) -> None:
+        configuration = ctx.container[ModelConfigurationService]
+        await configuration.configure(
+            ModelScope.server(),
+            {"*": "anthropic", "embedding": p.ModelConfig(_GEMINI_EMBEDDING)},
+        )
+        await configuration.configure(
+            ModelScope.agent(self.overridden.id),
+            {
+                "*": "anthropic",
+                "embedding": p.ModelConfig("gemini:agent-embedding"),
+            },
+        )
+        await configuration.configure(
+            ModelScope.agent(self.deleted.id),
+            {"embedding": p.ModelConfig("gemini:deleted-embedding")},
+        )
+        await ctx.container[AgentStore].delete_agent(self.deleted.id)
+
+        assert await resolved_embedding_models(ctx, agent_id=self.overridden.id) == {
+            "gemini:agent-embedding"
+        }
+        assert await resolved_embedding_models(ctx, agent_id=self.fallback.id) == {
+            _GEMINI_EMBEDDING
+        }
+        before = await health(ctx)
+        before_keys = {row["key"] for row in before["pricing"]["models"]}
+
+        # One other active agent can genuinely use Voyage. Its price must now
+        # appear, even though the first agent's embeddings stay on Gemini.
+        await self.fallback.update(models={"embedding": p.ModelConfig(_ANTHROPIC_EMBEDDING)})
+        assert await resolved_embedding_models(ctx, agent_id=self.fallback.id) == {
+            _ANTHROPIC_EMBEDDING
+        }
+        during = await health(ctx)
+        during_keys = {row["key"] for row in during["pricing"]["models"]}
+        await self.fallback.update(models={"embedding": None})
+        after = await health(ctx)
+        after_keys = {row["key"] for row in after["pricing"]["models"]}
+
+        for keys in (before_keys, during_keys, after_keys):
+            assert {_GEMINI_EMBEDDING, "gemini:agent-embedding"} <= keys
+            assert "gemini:deleted-embedding" not in keys
+        assert [
+            _ANTHROPIC_EMBEDDING in keys for keys in (before_keys, during_keys, after_keys)
+        ] == [False, True, False]
+
+
+class Test_that_observed_overridden_models_remain_in_pricing_coverage(_PricingSDKTest):
+    async def run(self, ctx: Context) -> None:
+        await ctx.container[ModelConfigurationService].configure(
+            ModelScope.server(),
+            {"*": "anthropic", "embedding": p.ModelConfig(_GEMINI_EMBEDDING)},
+        )
+        before = await health(ctx)
+        before_entries = {row["key"]: row for row in before["pricing"]["models"]}
+        registry = ctx.container[PricingRegistry]
+        registry.report_usage(
+            "actually-observed-voyage",
+            _ANTHROPIC_EMBEDDING,
+            UsageInfo(input_tokens=10, output_tokens=0),
+        )
+        registry.clear_trace("actually-observed-voyage")
+        after = await health(ctx)
+        after_entries = {row["key"]: row for row in after["pricing"]["models"]}
+        assert (
+            before_entries.get(_ANTHROPIC_EMBEDDING),
+            after_entries.get(_ANTHROPIC_EMBEDDING),
+        ) == (
+            None,
+            {"key": _ANTHROPIC_EMBEDDING, "price": "missing", "source": "observed"},
+        )
+
+
+class Test_that_removing_embedding_overrides_restores_provider_default_pricing(_PricingSDKTest):
+    async def run(self, ctx: Context) -> None:
+        configuration = ctx.container[ModelConfigurationService]
+        await configuration.configure(
+            ModelScope.server(),
+            {"*": "anthropic", "embedding": p.ModelConfig(_GEMINI_EMBEDDING)},
+        )
+        reports = [await health(ctx)]
+        resolved = [await resolved_embedding_models(ctx)]
+        await configuration.configure(ModelScope.server(), {"embedding": None})
+        reports.append(await health(ctx))
+        resolved.append(await resolved_embedding_models(ctx))
+        await configuration.configure(
+            ModelScope.server(), {"embedding": p.ModelConfig(_GEMINI_EMBEDDING)}
+        )
+        reports.append(await health(ctx))
+        resolved.append(await resolved_embedding_models(ctx))
+
+        assert resolved == [{_GEMINI_EMBEDDING}, {_ANTHROPIC_EMBEDDING}, {_GEMINI_EMBEDDING}]
+        assert all(body["status"] == "healthy" for body in reports)
+        assert [
+            _ANTHROPIC_EMBEDDING in {row["key"] for row in body["pricing"]["models"]}
+            for body in reports
+        ] == [False, True, False]
 
 
 class Test_that_observed_keys_and_provider_reported_costs_need_no_price_table(_PricingSDKTest):

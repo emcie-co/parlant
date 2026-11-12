@@ -41,6 +41,6 @@ jobs:
         with:
           python-version: '3.12'
           enable-cache: true
-      - run: uv sync --frozen --extra gemini
+      - run: uv sync --frozen --extra gemini --extra anthropic
       - name: Real SDK pricing coverage and health isolation
-        run: uv run --frozen --extra gemini pytest --noconftest tests/sdk/test_pricing_health.py tests/core/stable/test_pricing.py tests/core/stable/test_health_reporter.py -q
+        run: uv run --frozen --extra gemini --extra anthropic pytest --noconftest tests/sdk/test_pricing_health.py tests/core/stable/test_pricing.py tests/core/stable/test_health_reporter.py -q

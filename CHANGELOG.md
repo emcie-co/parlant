@@ -57,6 +57,11 @@ Each entry says what changed and what it means for you, under `Added`,
   responds to what the message means, and when the customer is answering the
   agent's own question, the agent goes straight to its next step. The prompt no
   longer bans stock acknowledgments such as "makes sense" by name.
+- Agents created by `parlant init` no longer learn to repeat the visitor's words
+  back. The warm-host and upbeat personalities now react to what a message
+  means, and the warm host goes straight to its next step when the visitor is
+  answering its question. Existing projects keep their own text; copy the new
+  wording from a fresh `parlant init` if your agent echoes.
 
 ### Fixed
 

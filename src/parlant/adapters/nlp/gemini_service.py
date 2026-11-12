@@ -24,6 +24,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import cachetools
+import httpx
 from parlant.adapters.nlp import gemini_interactions
 from parlant.core.container import Container
 from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
@@ -47,7 +48,7 @@ from typing_extensions import get_args, get_origin, override
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
 
-from parlant.core.common import DefaultBaseModel
+from parlant.core.common import DefaultBaseModel, JSONSerializable, to_prompt_json
 from parlant.adapters.nlp.common import (
     parlant_client_headers,
     parlant_user_agent_token,
@@ -66,6 +67,20 @@ from parlant.core.nlp.model_routing import (
     ModelCapability,
     ModelConfig,
     ModelImplementationRegistry,
+)
+from parlant.core.nlp.decision import (
+    Answer,
+    Choice,
+    ChoiceAnswer,
+    Criterion,
+    DecisionError,
+    DecisionMaker,
+    DecisionResult,
+    Proposition,
+    PropositionAnswer,
+    Question,
+    Scale,
+    ScaleAnswer,
 )
 from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
 from parlant.core.nlp.generation import (
@@ -1963,6 +1978,286 @@ class GeminiTextEmbedding_001(GeminiEmbedder):
         return 3072
 
 
+# ── The Decisions API ─────────────────────────────────────────────────────────
+#
+# Gemini Decision 1 is not a chat model, so it does not ride generateContent or
+# the google-genai client: it has its own v1beta endpoint, and only google-genai
+# 3.2 and later wrap it. One request carries a shared input plus many named
+# questions and comes back with one typed answer each, which is the whole reason
+# to reach for it — N judgments cost one round trip instead of N.
+#
+# The endpoint is stricter than the DecisionMaker port in four ways that this
+# adapter absorbs so callers never have to:
+#
+#   - Question names must match [A-Za-z0-9_-]{1,64}, and the ranker names its
+#     questions by rule id. Questions go out under positional names and their
+#     answers come back under the caller's.
+#   - `input`, instructions and criteria are text, while a state or a Criterion
+#     is any JSON value. Structured values are rendered as JSON text.
+#   - A choice takes 2 to 255 options, where the port allows one.
+#   - Errors come back as a status plus a code (e.g. `safety`), never as an answer.
+
+_GEMINI_DECISIONS_URL = "https://generativelanguage.googleapis.com/v1beta/decisions"
+
+DEFAULT_DECISION_MODEL = "gemini-decision-1"
+
+# Gemini Decision 1's documented context window, shared by the input and every
+# question in the request. Pass `max_tokens` for a model with a different one.
+DEFAULT_DECISION_MAX_TOKENS = 262_144
+
+_GEMINI_DECISION_MIN_CHOICE_OPTIONS = 2
+
+
+class _GeminiDecisionUnavailable(DecisionError):
+    """A rate limit or server error: worth sending again, unlike a rejection."""
+
+
+def _render_decision_text(value: Criterion) -> str:
+    """A Criterion as text, since every text field here is a string.
+
+    A string passes through untouched so authored prose is never mangled into
+    JSON; anything structured is rendered the same way prompts render it."""
+    return value if isinstance(value, str) else to_prompt_json(value)
+
+
+def _encode_gemini_question(name: str, question: Question) -> dict[str, Any]:
+    match question:
+        case Proposition():
+            # "noul" is the endpoint's name for the primitive, short for Bernoulli.
+            encoded: dict[str, Any] = {
+                "type": "noul",
+                "instructions": _render_decision_text(question.instructions),
+            }
+            if question.criteria is not None:
+                encoded["criteria"] = {
+                    "true_description": _render_decision_text(question.criteria.true),
+                    "false_description": _render_decision_text(question.criteria.false),
+                }
+            return encoded
+        case Choice():
+            if len(question.criteria) < _GEMINI_DECISION_MIN_CHOICE_OPTIONS:
+                raise DecisionError(
+                    f"Question '{name}' is a choice with {len(question.criteria)} option, "
+                    f"and Gemini decisions need at least {_GEMINI_DECISION_MIN_CHOICE_OPTIONS}. "
+                    "Add an option, or ask it as a Proposition instead."
+                )
+            return {
+                "type": "choice",
+                "instructions": _render_decision_text(question.instructions),
+                # An empty description is how the endpoint takes an option whose
+                # id speaks for itself, which is what a None criterion means.
+                "criteria": {
+                    option: _render_decision_text(criterion) if criterion is not None else ""
+                    for option, criterion in question.criteria.items()
+                },
+            }
+        case Scale():
+            return {
+                "type": "score",
+                "instructions": _render_decision_text(question.instructions),
+                "criteria": [_render_decision_text(c) for c in question.criteria],
+            }
+
+    raise DecisionError(f"Unsupported question type: {type(question).__name__}")
+
+
+def _decode_gemini_answer(name: str, answer: Any) -> Answer:
+    if not isinstance(answer, dict):
+        raise DecisionError(f"The answer to '{name}' is not an object")
+
+    try:
+        match answer.get("type"):
+            case "noul":
+                return PropositionAnswer(probability=float(answer["noul"]))
+            case "choice":
+                return ChoiceAnswer(
+                    option=str(answer["choice"]),
+                    probabilities={
+                        str(k): float(v) for k, v in (answer.get("probabilities") or {}).items()
+                    },
+                    confidence=float(answer.get("confidence", 0.0)),
+                )
+            case "score":
+                # Levels are keyed "0" to "N-1", so an N-level scale never reaches N.
+                return ScaleAnswer(
+                    score=float(answer["score"]),
+                    legend={int(k): str(v) for k, v in (answer.get("legend") or {}).items()},
+                    probabilities={
+                        int(k): float(v) for k, v in (answer.get("probabilities") or {}).items()
+                    },
+                    confidence=float(answer.get("confidence", 0.0)),
+                )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DecisionError(f"The answer to '{name}' could not be read: {exc}") from exc
+
+    # A judgment the caller is waiting on must never be silently dropped, even if
+    # the endpoint grows a primitive this adapter doesn't know.
+    raise DecisionError(
+        f"Question '{name}' came back with an unrecognized answer type: {answer.get('type')!r}"
+    )
+
+
+def _decode_gemini_decision_usage(usage: Mapping[str, Any]) -> UsageInfo:
+    """Tokens only: Gemini reports no cost, so a decision is priced from the
+    server's pricing table, which needs a `gemini-decision-1` entry for it.
+    ``requests`` stays at 1 however many questions the batch carried — that is
+    what makes the batching saving visible in usage reports."""
+    input_tokens = usage.get("total_input_tokens", 0)
+    output_tokens = usage.get("total_output_tokens", 0)
+
+    return UsageInfo(
+        input_tokens=int(input_tokens) if isinstance(input_tokens, (int, float)) else 0,
+        output_tokens=int(output_tokens) if isinstance(output_tokens, (int, float)) else 0,
+        requests=1,
+    )
+
+
+def _gemini_decision_error(response: httpx.Response) -> str:
+    """Google's own code and message, which say what to fix (or that a safety
+    filter blocked the input), rather than just the status."""
+    try:
+        error = response.json().get("error") or {}
+    except ValueError:
+        return f"The Gemini Decisions API returned {response.status_code}: {response.text[:500]}"
+
+    code = error.get("code") if isinstance(error, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    return (
+        f"The Gemini Decisions API returned {response.status_code}"
+        f"{f' ({code})' if code is not None else ''}: {message or response.text[:500]}"
+    )
+
+
+class GeminiDecisionMaker(DecisionMaker):
+    """Typed decisions from a model on Gemini's Decisions endpoint."""
+
+    def __init__(
+        self,
+        model_name: str = DEFAULT_DECISION_MODEL,
+        logger: Logger | None = None,
+        tracer: Tracer | None = None,
+        meter: Meter | None = None,
+        api_key: str | None = None,
+        http: httpx.AsyncClient | None = None,
+        max_tokens: int = DEFAULT_DECISION_MAX_TOKENS,
+        usage_reporter: UsageReporter | None = None,
+        provider_name: str | None = None,
+    ) -> None:
+        assert logger is not None
+        assert tracer is not None
+
+        self.model_name = model_name
+        self._logger = logger
+        self._tracer = tracer
+        self._meter = meter
+        self._provider_name = provider_name or "gemini"
+        # Resolved eagerly so a missing key is reported when the component is
+        # built, not on the first turn that needs a decision.
+        self._api_key = require_api_key("Gemini", "GEMINI_API_KEY", api_key)
+        self._http = http or httpx.AsyncClient(timeout=_GEMINI_REQUEST_TIMEOUT_MS / 1000)
+        self._max_tokens = max_tokens
+        self._usage_reporter = usage_reporter
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"gemini/{self.model_name}"
+
+    @property
+    def provider_name(self) -> str:
+        """The provider this decision maker reports usage under."""
+        return self._provider_name
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return self._max_tokens
+
+    @override
+    async def decide(
+        self,
+        state: JSONSerializable,
+        questions: Mapping[str, Question],
+        hints: Mapping[str, Any] = {},
+    ) -> DecisionResult:
+        # Positional names are always valid and never collide, whatever the
+        # caller named its questions; answers are mapped back to the caller's.
+        sent_names = {name: f"q{index}" for index, name in enumerate(questions)}
+
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "input": state if isinstance(state, str) else to_prompt_json(state),
+            "questions": {
+                sent_names[name]: _encode_gemini_question(name, question)
+                for name, question in questions.items()
+            },
+        }
+
+        with self._tracer.span("gemini.decisions"):
+            t_start = time.time()
+            body = await self._post(payload)
+            t_end = time.time()
+
+        raw_answers = body.get("answers")
+        if not isinstance(raw_answers, dict):
+            raise DecisionError("The Gemini Decisions API response carried no answers")
+
+        answers: dict[str, Answer] = {}
+        for name in questions:
+            if sent_names[name] not in raw_answers:
+                raise DecisionError(f"No answer came back for question '{name}'")
+            answers[name] = _decode_gemini_answer(name, raw_answers[sent_names[name]])
+
+        info = GenerationInfo(
+            schema_name="Decision",
+            model=str(body.get("model") or self.model_name),
+            duration=t_end - t_start,
+            usage=_decode_gemini_decision_usage(body.get("usage") or {}),
+        )
+
+        # Report here, as every other port implementation does: nothing downstream
+        # reports an evaluator's generation info, so a decision that stayed quiet
+        # would be free as far as pricing, budgets and cost control can tell.
+        if self._usage_reporter is not None:
+            self._usage_reporter.report_usage(
+                info.model,
+                info.usage,
+                provider_name=self.provider_name,
+            )
+
+        return DecisionResult(answers=answers, info=info)
+
+    @policy(retry(_GeminiDecisionUnavailable, max_exceptions=3, wait_times=(1.0, 5.0)))
+    async def _post(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        try:
+            response = await self._http.post(
+                _GEMINI_DECISIONS_URL,
+                json=payload,
+                headers={
+                    "x-goog-api-key": self._api_key,
+                    "Content-Type": "application/json",
+                    **_gemini_identity_headers(),
+                },
+            )
+        except httpx.HTTPError as exc:
+            raise DecisionError(f"Gemini Decisions request failed: {exc}") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise _GeminiDecisionUnavailable(_gemini_decision_error(response))
+        if response.status_code != 200:
+            raise DecisionError(_gemini_decision_error(response))
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise DecisionError("The Gemini Decisions API returned a non-JSON response") from exc
+
+        if not isinstance(body, dict):
+            raise DecisionError("The Gemini Decisions API returned a non-object response")
+
+        return body
+
+
 def convert_type_annotation_to_gemini_compatible_schema(annotation: Any) -> Any:
     origin = get_origin(annotation)
 
@@ -2135,6 +2430,20 @@ def register_gemini_models(
         client = google.genai.Client(api_key=cast(str | None, args.get("api_key")))
         return GeminiEstimatingTokenizer(client, model)
 
+    async def decision(
+        model: str,
+        raw_args: Mapping[str, Any],
+    ) -> GeminiDecisionMaker:
+        args = validate_model_arguments("gemini", raw_args, {"api_key", "max_tokens"})
+        return GeminiDecisionMaker(
+            model_name=model,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            usage_reporter=usage,
+            **args,
+        )
+
     registry.register_schematic(
         "gemini",
         schematic,
@@ -2157,6 +2466,15 @@ def register_gemini_models(
         ModelCapability.TOKENIZER,
         tokenizer,
         default="gemini-3.1-flash-lite",
+    )
+    # Registering a decision default is what opts Gemini into decisions: a bare
+    # `{"*": "gemini"}` route then serves decisions (e.g. for rule ranking) with
+    # this model, instead of the caller keeping to its own schematic path.
+    registry.register(
+        "gemini",
+        ModelCapability.DECISION,
+        decision,
+        default=DEFAULT_DECISION_MODEL,
     )
 
 

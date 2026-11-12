@@ -2439,7 +2439,9 @@ class SessionMetadata:
 
     def _get_store(self) -> SessionStore:
         server = self._server if self._server is not None else Server.current
-        return server._store_provider.get_store(SessionStore, StoreProviderHints(call_site="sdk"))
+        return server._store_provider.get_store(
+            SessionStore, StoreProviderHints(call_site="engine")
+        )
 
     # -- sync reads ----------------------------------------------------------
 
@@ -2774,7 +2776,7 @@ class Session:
         """
         server = self._server if self._server is not None else Server.current
         session_store = server._store_provider.get_store(
-            SessionStore, StoreProviderHints(call_site="sdk")
+            SessionStore, StoreProviderHints(call_site="engine")
         )
 
         params: _SessionUpdateParams = {}
@@ -4270,7 +4272,7 @@ class Server:
     async def get_session(self, *, id: SessionId | str) -> Session:
         session_id = SessionId(id)
         core_session = await self._store_provider.get_store(
-            SessionStore, StoreProviderHints(call_site="sdk")
+            SessionStore, StoreProviderHints(call_site="engine")
         ).read_session(session_id)
         agent = await self.get_agent(id=core_session.agent_id)
         customer = await self.get_customer(id=core_session.customer_id)

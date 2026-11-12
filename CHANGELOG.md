@@ -51,6 +51,13 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- On managed (Dashboard-hosted) servers, `session.metadata.get()`, `.set()`
+  and `.delete()`, `session.update()` and `server.get_session()` failed with
+  "Session not found" for live conversations, because they looked in the store
+  that holds startup declarations instead of the one that holds sessions. They
+  now use the same session store as the engine and the API, as
+  `session.labels` already did, so a retriever or tool that reads or writes
+  session metadata works the same hosted as it does locally.
 - Pricing checks no longer warn about unused provider-default models when a
   more specific model route overrides them, such as Gemini embeddings on an
   Anthropic server. Models still reachable through other routes, and models

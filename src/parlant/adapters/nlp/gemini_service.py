@@ -14,10 +14,13 @@
 
 import asyncio
 import base64
+import concurrent.futures
 import enum
 import hashlib
 import inspect
 import json
+import logging
+import threading
 import time
 import types
 import uuid
@@ -225,10 +228,95 @@ SYSTEM_UPDATE_MESSAGE = (
 )
 
 
+def _load_gemma_3_counter() -> Callable[[str], int]:
+    import warnings
+
+    from google.genai.local_tokenizer import LocalTokenizer
+
+    # The SDK maps model names to tokenizers and doesn't list current models
+    # (gemini-embedding-2, gemini-3.8-flash...). Gemini 2.5 Flash's name selects
+    # the Gemma 3 tokenizer, which counts within a token or two of their API.
+    tokenizer = LocalTokenizer(model_name="gemini-2.5-flash")
+
+    def count(text: str) -> int:
+        with warnings.catch_warnings():
+            # The SDK flags its local tokenizer as experimental on first use.
+            warnings.simplefilter("ignore")
+            return int(tokenizer.count_tokens(text).total_tokens or 0)
+
+    return count
+
+
+class GemmaTokenCounter:
+    """Counts Gemini tokens offline, with the open Gemma 3 tokenizer.
+
+    A `count_tokens` API call is a network round trip of about 300ms, and turns
+    count tokens several times. The tokenizer loads once, in a background thread,
+    on first use: the google-genai SDK downloads its model file (about 3s, then
+    cached in the system temp directory, hash-checked). `count` returns None
+    until it's loaded, or for good if it can't load (no network, `sentencepiece`
+    not installed), so callers fall back to the API and never wait on the download.
+    """
+
+    def __init__(self, load: Callable[[], Callable[[str], int]] = _load_gemma_3_counter) -> None:
+        self._load = load
+        self._lock = threading.Lock()
+        self._future: concurrent.futures.Future[Callable[[str], int]] | None = None
+
+    def _start(self) -> concurrent.futures.Future[Callable[[str], int]]:
+        with self._lock:
+            if self._future is None:
+                self._future = concurrent.futures.Future()
+                threading.Thread(
+                    target=self._run, args=(self._future,), name="gemma-tokenizer", daemon=True
+                ).start()
+            return self._future
+
+    def _run(self, future: concurrent.futures.Future[Callable[[str], int]]) -> None:
+        try:
+            future.set_result(self._load())
+        except BaseException as exc:
+            logging.getLogger("parlant").warning(
+                "Couldn't load the local Gemini tokenizer; counting tokens with the Gemini API "
+                f"instead, which adds a network round trip per count. Install `sentencepiece` "
+                f"and allow downloads from raw.githubusercontent.com to count offline. ({exc!r})"
+            )
+            future.set_exception(exc)
+
+    async def load(self) -> bool:
+        """Start loading if needed and wait for it. True when local counting works."""
+        try:
+            await asyncio.wrap_future(self._start())
+            return True
+        except Exception:
+            return False
+
+    def count(self, text: str) -> int | None:
+        future = self._start()
+        if not future.done() or future.exception() is not None:
+            return None
+        return future.result()(text)
+
+
+_GEMMA_3_TOKEN_COUNTER = GemmaTokenCounter()
+
+
 class GeminiEstimatingTokenizer(EstimatingTokenizer):
-    def __init__(self, client: google.genai.Client, model_name: str) -> None:
+    def __init__(
+        self,
+        client: google.genai.Client,
+        model_name: str,
+        local_counter: GemmaTokenCounter = _GEMMA_3_TOKEN_COUNTER,
+    ) -> None:
         self._client = client
         self._model_name = model_name
+        self._local_counter = local_counter
+
+    @override
+    async def estimate_token_count(self, prompt: str) -> int:
+        if (count := self._local_counter.count(prompt)) is not None:
+            return count
+        return await self._count_with_api(prompt)
 
     @policy(
         [
@@ -239,8 +327,7 @@ class GeminiEstimatingTokenizer(EstimatingTokenizer):
             retry((ServerError, GenaiServerError), max_exceptions=3, wait_times=(1.0, 5.0, 10.0)),
         ]
     )
-    @override
-    async def estimate_token_count(self, prompt: str) -> int:
+    async def _count_with_api(self, prompt: str) -> int:
         # Every Gemini model counts its own tokens, embedding models included.
         # Never substitute another model here: Google retires models for new
         # users, and the count would then fail every turn that needs it.

@@ -49,7 +49,11 @@ from parlant.adapters.nlp.litellm_service import (
 from parlant.core.common import DefaultBaseModel
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
-from parlant.core.nlp.model_routing import ModelImplementationRegistry, NullSecretLoader
+from parlant.core.nlp.model_routing import (
+    ModelCapability,
+    ModelImplementationRegistry,
+    NullSecretLoader,
+)
 from parlant.core.nlp.react import (
     FinishReason,
     Message,
@@ -180,6 +184,24 @@ def test_that_registration_exposes_the_litellm_provider(container: Container) ->
     register_litellm_models(registry, container)
 
     assert "litellm" in registry.providers
+
+
+@pytest.mark.parametrize("route", ["review.message", "review.tools"])
+def test_that_the_litellm_review_default_is_gemini_4_hydrogen(
+    container: Container,
+    route: str,
+) -> None:
+    registry = ModelImplementationRegistry(NullSecretLoader())
+    register_litellm_models(registry, container)
+
+    config = registry.default_config(
+        "litellm",
+        ModelCapability.SCHEMATIC,
+        route=route,
+        qualifiers={},
+    )
+
+    assert config.model == "litellm:gemini/gemini-4-hydrogen"
 
 
 # ════════════════════════ 2. LIVE INTEGRATION (COST) ════════════════════════

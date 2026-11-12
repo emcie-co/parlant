@@ -125,3 +125,40 @@ describe("direction of a reply", () => {
     expect(paragraphs(container)).toEqual(["rtl"]);
   });
 });
+
+describe("tables in a reply", () => {
+  const TABLE = "| Plan | Price |\n| --- | ---: |\n| Starter | Free |\n| Basic | $79 |";
+  const cells = (container: HTMLElement, tag: string) =>
+    [...container.querySelectorAll(`.parlant-md-table ${tag}`)].map((cell) => cell.textContent);
+
+  it("renders a Markdown table as a table", () => {
+    const { container } = render(bubble(reply({ text: `Our plans:\n\n${TABLE}` }), "instant"));
+
+    expect(cells(container, "th")).toEqual(["Plan", "Price"]);
+    expect(cells(container, "td")).toEqual(["Starter", "Free", "Basic", "$79"]);
+    expect(container.querySelector(".parlant-md-table td:nth-child(2)")?.getAttribute("style")).toContain(
+      "text-align: right",
+    );
+    expect(container.querySelector(".parlant-md")?.textContent).not.toContain("|");
+  });
+
+  it("builds the table up as a streaming reply arrives", () => {
+    const streaming = (text: string) => bubble(reply({ text, streaming: true }), "instant");
+    const { container, rerender } = render(streaming("| Plan | Price |\n| --"));
+    expect(cells(container, "th")).toEqual(["Plan", "Price"]);
+
+    rerender(streaming(`${TABLE.split("\n").slice(0, 3).join("\n")}\n| `));
+    expect(container.querySelectorAll(".parlant-md-table tbody tr")).toHaveLength(1);
+
+    rerender(streaming(`${TABLE.split("\n").slice(0, 3).join("\n")}\n| Basic | $7`));
+
+    expect(cells(container, "td")).toEqual(["Starter", "Free", "Basic", "$7"]);
+  });
+
+  it("reveals a fresh table's cells in full", async () => {
+    const { container } = render(bubble(reply({ text: TABLE, fresh: true })));
+
+    await waitFor(() => expect(cells(container, "td")).toEqual(["Starter", "Free", "Basic", "$79"]));
+    expect(cells(container, "th")).toEqual(["Plan", "Price"]);
+  });
+});

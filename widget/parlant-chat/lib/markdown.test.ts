@@ -115,3 +115,73 @@ describe("bare URLs", () => {
     ]);
   });
 });
+
+describe("tables", () => {
+  const text = (value: string): Inline[] => (value ? [{ type: "text", value }] : []);
+
+  it("parses a table with a header, a delimiter row and body rows", () => {
+    expect(
+      parseMarkdown("| Plan | Price |\n| --- | ---: |\n| Starter | Free |\n| Basic | $79 |"),
+    ).toEqual([
+      {
+        type: "table",
+        align: [null, "right"],
+        header: [text("Plan"), text("Price")],
+        rows: [
+          [text("Starter"), text("Free")],
+          [text("Basic"), text("$79")],
+        ],
+      },
+    ]);
+  });
+
+  it("reads each column's alignment from its delimiter cell", () => {
+    const [table] = parseMarkdown("a | b | c | d\n:-- | :-: | --: | ---\n1 | 2 | 3 | 4");
+    expect(table).toMatchObject({ align: ["left", "center", "right", null] });
+  });
+
+  it("accepts rows without outer pipes", () => {
+    const [table] = parseMarkdown("Plan | Price\n--- | ---\nBasic | $79");
+    expect(table).toMatchObject({ header: [text("Plan"), text("Price")], rows: [[text("Basic"), text("$79")]] });
+  });
+
+  it("parses inline Markdown in cells, and keeps escaped pipes and pipes in code in their cell", () => {
+    const [table] = parseMarkdown("| Name | Note |\n|---|---|\n| **Plus** | `a|b` or a \\| b |");
+    expect(table).toMatchObject({
+      rows: [
+        [
+          [{ type: "strong", children: text("Plus") }],
+          [{ type: "code", value: "a|b" }, { type: "text", value: " or a | b" }],
+        ],
+      ],
+    });
+  });
+
+  it("pads short rows and drops extra cells, so every row has the header's columns", () => {
+    const [table] = parseMarkdown("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |");
+    expect(table).toMatchObject({ rows: [[text("1"), []], [text("1"), text("2")]] });
+  });
+
+  it("ends at a blank line, and keeps the text around it as paragraphs", () => {
+    const blocks = parseMarkdown("Our plans:\n| Plan | Price |\n|---|---|\n| Basic | $79 |\n\nAsk me anything.");
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph", "table", "paragraph"]);
+  });
+
+  it("ends at a line without a pipe", () => {
+    const blocks = parseMarkdown("| Plan | Price |\n|---|---|\n| Basic | $79 |\nThat's per month.");
+    expect(blocks.map((b) => b.type)).toEqual(["table", "paragraph"]);
+  });
+
+  it("shows a streaming table as a table once its delimiter row starts", () => {
+    expect(parseMarkdown("| Plan | Price |\n| --")).toEqual([
+      { type: "table", align: [null, null], header: [text("Plan"), text("Price")], rows: [] },
+    ]);
+    const [table] = parseMarkdown("| Plan | Price |\n|---|---|\n| Basic | $7");
+    expect(table).toMatchObject({ rows: [[text("Basic"), text("$7")]] });
+  });
+
+  it("leaves a pipe in a sentence, and a lone dashed line, as text", () => {
+    expect(parseMarkdown("Pick one | or the other").map((b) => b.type)).toEqual(["paragraph"]);
+    expect(parseMarkdown("Title\n---").map((b) => b.type)).toEqual(["paragraph"]);
+  });
+});

@@ -17,6 +17,7 @@ import {
   completeIncompleteMarkdown,
   parseMarkdown,
   splitUnits,
+  type Align,
   type Block,
   type Inline,
 } from "../lib/markdown";
@@ -264,6 +265,13 @@ function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string, prose: Prose
         }
         break;
       }
+      case "table": {
+        const table = renderTable(block, leaf, key);
+        for (const row of [block.header, ...block.rows])
+          for (const cell of row) prose.above += ` ${inlineText(cell)}`;
+        if (table) out.push(table);
+        break;
+      }
       case "blockquote": {
         const kids = renderBlocks(block.children, leaf, key, prose);
         if (kids.length)
@@ -277,6 +285,40 @@ function renderBlocks(blocks: Block[], leaf: Leaf, keyBase: string, prose: Prose
     }
   });
   return out;
+}
+
+/** A table, revealed cell by cell in reading order. A row shows once its first words do;
+ *  its later cells stay empty until theirs arrive, so the columns hold still. A row with
+ *  nothing in it yet (a streaming `| `) waits. It scrolls sideways when wider than the
+ *  bubble. */
+function renderTable(block: Extract<Block, { type: "table" }>, leaf: Leaf, key: string): ReactNode {
+  const row = (cells: Inline[][], tag: "th" | "td", rowKey: string): ReactNode => {
+    if (leaf.done()) return null;
+    const kids = cells.map((cell, k) => renderInline(cell, leaf, `${rowKey}.${k}`));
+    if (kids.every((cell) => cell.length === 0)) return null;
+    return (
+      <tr key={rowKey}>
+        {kids.map((cell, k) =>
+          createElement(
+            tag,
+            { key: k, style: block.align[k] ? { textAlign: block.align[k] as Exclude<Align, null> } : undefined },
+            cell,
+          ),
+        )}
+      </tr>
+    );
+  };
+  const head = row(block.header, "th", `${key}.h`);
+  if (!head) return null;
+  const body = block.rows.map((cells, j) => row(cells, "td", `${key}.${j}`)).filter(Boolean);
+  return (
+    <div key={key} className="parlant-md-table-wrap">
+      <table className="parlant-md-table">
+        <thead>{head}</thead>
+        {body.length > 0 && <tbody>{body}</tbody>}
+      </table>
+    </div>
+  );
 }
 
 function renderInline(nodes: Inline[], leaf: Leaf, keyBase: string): ReactNode[] {
@@ -397,6 +439,9 @@ function flattenUnitLens(blocks: Block[], letter: boolean): number[] {
           break;
         case "list":
           for (const item of b.items) inline(item);
+          break;
+        case "table":
+          for (const row of [b.header, ...b.rows]) for (const cell of row) inline(cell);
           break;
         case "blockquote":
           walk(b.children);

@@ -27,6 +27,15 @@ Each entry says what changed and what it means for you, under `Added`,
   interval can be set with `PARLANT_SSE_RETRY_MS` and
   `PARLANT_SSE_HEARTBEAT_SECONDS`; `0` disables the keep-alive, and `0` for the
   delay omits the `retry:` line.
+- Gemini serves Google's Gemini Decision 1 (`gemini-decision-1`), which answers
+  many yes/no, choice and scale questions about one conversation in a single
+  request. A `{"*": "gemini"}` route now uses it for rule ranking at the
+  efforts that rank rules in one batch, as OpenAI and OpenRouter routes already
+  do with their decision models. Name it on a route with
+  `"matching.rank[capability=decision]": "gemini:gemini-decision-1"`. It uses
+  your existing `GEMINI_API_KEY`. Gemini reports no cost for it, so add a
+  `gemini-decision-1` entry to `server.set_pricing(...)` (Google lists $0.10 per
+  million input tokens and nothing for output) to have it priced.
 
 ### Fixed
 

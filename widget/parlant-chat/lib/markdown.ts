@@ -1,6 +1,6 @@
 // A tiny, zero-dependency Markdown parser scoped to what chat agents actually emit:
-// bold, italic, inline code, links, headings, bullet/ordered lists, blockquotes, and
-// fenced code blocks. It exists so the widget can render Markdown *and* still reveal it
+// bold, italic, inline code, links, headings, bullet/ordered lists, blockquotes, tables,
+// and fenced code blocks. It exists so the widget can render Markdown *and* still reveal it
 // token-by-token through our own animation engine (see streaming-text.tsx) — something a
 // React-Markdown/Streamdown tree can't do, because it owns its DOM.
 //
@@ -22,12 +22,20 @@ export type Block =
   | { type: "heading"; level: number; children: Inline[] }
   | { type: "code"; value: string }
   | { type: "list"; ordered: boolean; items: Inline[][] }
-  | { type: "blockquote"; children: Block[] };
+  | { type: "blockquote"; children: Block[] }
+  | { type: "table"; align: Align[]; header: Inline[][]; rows: Inline[][][] };
+
+/** A table column's alignment, from its delimiter cell (`:--`, `:-:`, `--:`); null when unset. */
+export type Align = "left" | "center" | "right" | null;
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 const BLOCKQUOTE = /^>\s?(.*)$/;
 const FENCE = /^[ \t]*```/;
+// A table's delimiter row, under its header: dashes, colons and pipes only, with at least
+// one pipe (so a lone `---` stays text). A half-typed one counts, so a streaming table
+// shows as a table from its second line.
+const TABLE_DELIMITER = /^[\s|:]*-[\s|:-]*$/;
 
 /** Parse a Markdown string into a block AST. Safe to call every frame while streaming. */
 export function parseMarkdown(src: string): Block[] {
@@ -77,6 +85,33 @@ export function parseMarkdown(src: string): Block[] {
       continue;
     }
 
+    if (isTableStart(lines, i)) {
+      const header = tableCells(line);
+      const align = tableCells(lines[i + 1]).map(alignment);
+      const width = header.length;
+      i += 2;
+      const rows: Inline[][][] = [];
+      // Rows run until a blank line, another block, or a line with no pipe.
+      while (
+        i < lines.length &&
+        lines[i].includes("|") &&
+        !FENCE.test(lines[i]) &&
+        !HEADING.test(lines[i]) &&
+        !BLOCKQUOTE.test(lines[i])
+      ) {
+        const cells = tableCells(lines[i]);
+        rows.push(Array.from({ length: width }, (_, k) => parseInline(cells[k] ?? "")));
+        i++;
+      }
+      blocks.push({
+        type: "table",
+        align: Array.from({ length: width }, (_, k) => align[k] ?? null),
+        header: header.map((cell) => parseInline(cell)),
+        rows,
+      });
+      continue;
+    }
+
     if (BLOCKQUOTE.test(line)) {
       const inner: string[] = [];
       while (i < lines.length && BLOCKQUOTE.test(lines[i])) {
@@ -95,7 +130,8 @@ export function parseMarkdown(src: string): Block[] {
       !FENCE.test(lines[i]) &&
       !HEADING.test(lines[i]) &&
       !LIST_ITEM.test(lines[i]) &&
-      !BLOCKQUOTE.test(lines[i])
+      !BLOCKQUOTE.test(lines[i]) &&
+      !isTableStart(lines, i)
     ) {
       para.push(lines[i]);
       i++;
@@ -104,6 +140,52 @@ export function parseMarkdown(src: string): Block[] {
   }
 
   return blocks;
+}
+
+/** Whether a table starts at line `i`: a header row with a pipe, then a delimiter row. */
+function isTableStart(lines: string[], i: number): boolean {
+  const next = lines[i + 1];
+  return (
+    next !== undefined &&
+    lines[i].includes("|") &&
+    next.includes("|") &&
+    TABLE_DELIMITER.test(next)
+  );
+}
+
+/** A table row's cells, trimmed, without the optional outer pipes. A pipe inside inline
+ *  code or escaped as `\|` stays in its cell. */
+function tableCells(line: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let inCode = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "\\" && line[i + 1] === "|") {
+      cell += "\\|";
+      i++;
+    } else if (c === "`") {
+      inCode = !inCode;
+      cell += c;
+    } else if (c === "|" && !inCode) {
+      cells.push(cell);
+      cell = "";
+    } else cell += c;
+  }
+  cells.push(cell);
+  const trimmed = cells.map((value) => value.trim());
+  if (/^\s*\|/.test(line)) trimmed.shift();
+  if (trimmed.length > 1 && trimmed.at(-1) === "" && /\|\s*$/.test(line)) trimmed.pop();
+  return trimmed;
+}
+
+function alignment(cell: string): Align {
+  const left = cell.startsWith(":");
+  const right = cell.length > 1 && cell.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  if (left) return "left";
+  return null;
 }
 
 /** Inline parse across paragraph lines, turning single newlines into hard breaks. */

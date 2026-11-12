@@ -39,6 +39,10 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- Pricing checks no longer warn about unused provider-default models when a
+  more specific model route overrides them, such as Gemini embeddings on an
+  Anthropic server. Models still reachable through other routes, and models
+  actually observed in use, remain included in pricing coverage.
 - MCP tools that return structured results, such as a pydantic model, now give
   the agent the result as plain JSON. Before, the call ran but the agent was
   told "Tool call error", so it could retry a call that had already taken

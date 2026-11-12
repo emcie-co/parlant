@@ -1686,67 +1686,85 @@ class ModelRouter:
     ) -> tuple[ModelScope, _ModelRouteSelector, ModelRouteBinding] | None:
         scopes = [ModelScope.agent(agent_id)] if agent_id else []
         scopes.append(ModelScope.server())
-        candidates = [*self._route_candidates(route), "*"]
-
         for scope in scopes:
             runtime_routes, durable_routes = await asyncio.gather(
                 self._runtime_source.read_routes(scope),
                 self._route_store.read_routes(scope),
             )
             routes = {**durable_routes, **runtime_routes}
-            matches: list[tuple[tuple[int, int], _ModelRouteSelector, ModelRouteBinding]] = []
-            for raw_selector, binding in routes.items():
-                selector = self.parse_route_selector(raw_selector)
-                if selector.route not in candidates or not selector.matches(effort):
-                    continue
-                # Capability is a filter, never a tiebreaker: a decision binding
-                # must not out-specify its way into serving a schematic request.
-                if not selector.serves(capability, self.primary_capability(selector.route)):
-                    continue
-                # A bare provider wildcard serves decisions only when that provider
-                # registered a decision default; otherwise decisions stay off and the
-                # caller (e.g. the ranker) keeps its own schematic path. An explicit
-                # [capability=decision] selector, or a specific model, is unaffected.
-                if (
-                    capability == ModelCapability.DECISION
-                    and selector.capability is None
-                    and not (
-                        isinstance(binding.target, str)
-                        and self._implementations.has_default(
-                            binding.target, ModelCapability.DECISION
-                        )
-                    )
-                ):
-                    continue
-                matches.append(
-                    (
-                        (
-                            candidates.index(selector.route),
-                            selector.qualifier_specificity,
-                        ),
-                        selector,
-                        binding,
-                    )
-                )
-
-            if not matches:
-                continue
-
-            matches.sort(key=lambda item: item[0])
-            best_specificity = matches[0][0]
-            best = [match for match in matches if match[0] == best_specificity]
-            if len(best) > 1:
-                selectors = ", ".join(f"'{match[1].canonical}'" for match in best)
-                raise InvalidModelRouteError(
-                    f"Model route selectors {selectors} are ambiguous for route '{route}'",
-                    route=route,
-                    scope=(
-                        scope.kind.value if scope.id is None else f"{scope.kind.value}:{scope.id}"
-                    ),
-                )
-            return scope, best[0][1], best[0][2]
+            selected = self.select_route(
+                scope=scope,
+                routes={name: binding.target for name, binding in routes.items()},
+                route=route,
+                effort=effort,
+                capability=capability,
+            )
+            if selected is not None:
+                return scope, self.parse_route_selector(selected), routes[selected]
 
         return None
+
+    def select_route(
+        self,
+        *,
+        scope: ModelScope,
+        routes: ModelRoutes,
+        route: str,
+        capability: ModelCapability,
+        effort: Effort | None,
+    ) -> str | None:
+        """Select one scope's winning route from already-read configuration.
+
+        Live routing and informational discovery share this choice. No stores,
+        model factories, secret loaders or provider requests are involved. The
+        returned key indexes ``routes``; callers retain the original binding
+        and its revision, or read its configured target from a bulk snapshot.
+        """
+        candidates = [*self._route_candidates(route), "*"]
+        matches: list[tuple[tuple[int, int], _ModelRouteSelector, str]] = []
+        for raw_selector, target in routes.items():
+            selector = self.parse_route_selector(raw_selector)
+            if selector.route not in candidates or not selector.matches(effort):
+                continue
+            # Capability is a filter, never a tiebreaker: a decision binding
+            # must not out-specify its way into serving a schematic request.
+            if not selector.serves(capability, self.primary_capability(selector.route)):
+                continue
+            # A bare provider wildcard serves decisions only when that provider
+            # registered a decision default; otherwise decisions stay off and the
+            # caller (e.g. the ranker) keeps its own schematic path. An explicit
+            # [capability=decision] selector, or a specific model, is unaffected.
+            if (
+                capability == ModelCapability.DECISION
+                and selector.capability is None
+                and not (
+                    isinstance(target, str)
+                    and self._implementations.has_default(target, ModelCapability.DECISION)
+                )
+            ):
+                continue
+            matches.append(
+                (
+                    (candidates.index(selector.route), selector.qualifier_specificity),
+                    selector,
+                    raw_selector,
+                )
+            )
+
+        if not matches:
+            return None
+
+        matches.sort(key=lambda item: item[0])
+        best_specificity = matches[0][0]
+        best = [match for match in matches if match[0] == best_specificity]
+        if len(best) > 1:
+            selectors = ", ".join(f"'{match[1].canonical}'" for match in best)
+            raise InvalidModelRouteError(
+                f"Model route selectors {selectors} are ambiguous for route '{route}'",
+                route=route,
+                scope=scope.kind.value if scope.id is None else f"{scope.kind.value}:{scope.id}",
+            )
+        return best[0][2]
 
     @classmethod
     def _parse_requested_effort(

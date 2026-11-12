@@ -46,15 +46,15 @@ from parlant.api.common import (
     sort_direction_dto_to_sort_direction,
 )
 from parlant.api.sse import (
-    ChunkDelta,
     SSE_HEADERS,
     SSE_HEARTBEAT_FRAME,
-    SSE_HEARTBEAT_SECONDS,
     SSE_MEDIA_TYPE,
     encode_event_cursor,
     format_sse_frame,
     format_sse_retry_frame,
     parse_event_cursor,
+    sse_heartbeat_seconds,
+    sse_retry_milliseconds,
 )
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.app_modules.sessions import (
@@ -2079,10 +2079,11 @@ def create_router(
             - Continuously sends events as they arrive
             - wait_for_data is used as the timeout between events before closing the stream
             - Every frame carries the offset it belongs to as its id, so a client that
-              reconnects with Last-Event-ID resumes right after it. An explicit
-              min_offset takes precedence over that header.
+              reconnects with Last-Event-ID resumes right after it. When a request
+              carries both min_offset and that header, the later of the two wins, so a
+              reconnect moves forward even though its URL still says min_offset.
             - A keep-alive comment frame is sent whenever the stream has been idle for
-              SSE_HEARTBEAT_SECONDS, so intermediaries don't drop it as dead
+              a heartbeat, so intermediaries don't drop it as dead
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
 
@@ -2107,13 +2108,16 @@ def create_router(
 
             # Return SSE stream
             async def event_stream() -> AsyncIterator[str]:
-                # An explicit min_offset is the caller saying where to begin, so it
-                # wins over Last-Event-ID, which only says where it left off.
-                current_offset = (
-                    min_offset
-                    if min_offset is not None
-                    else (resume_cursor.offset + 1 if resume_cursor else 0)
+                # The header says where an earlier stream stopped; min_offset says
+                # where the caller wants to start. Take the later of the two: a
+                # reconnect that carries min_offset in its URL still moves forward,
+                # and an explicit min_offset still wins when it is ahead.
+                current_offset = max(
+                    min_offset or 0,
+                    resume_cursor.offset + 1 if resume_cursor else 0,
                 )
+                heartbeat_seconds = sse_heartbeat_seconds()
+                retry_frame = format_sse_retry_frame(sse_retry_milliseconds())
                 deadline = asyncio.get_running_loop().time() + wait_for_data
 
                 async def wait_for_events(seconds: float) -> bool:
@@ -2126,7 +2130,8 @@ def create_router(
                         timeout=Timeout(seconds),
                     )
 
-                yield format_sse_retry_frame()
+                if retry_frame:
+                    yield retry_frame
 
                 try:
                     while True:
@@ -2136,10 +2141,10 @@ def create_router(
                             # Waiting the whole wait_for_data in one go leaves the
                             # connection silent long enough for proxies to drop it,
                             # so wait a heartbeat at a time and say something between.
-                            if remaining > SSE_HEARTBEAT_SECONDS:
+                            if heartbeat_seconds > 0 and remaining > heartbeat_seconds:
                                 has_events = await asyncio.wait_for(
                                     wait_for_events(remaining),
-                                    timeout=SSE_HEARTBEAT_SECONDS,
+                                    timeout=heartbeat_seconds,
                                 )
                             else:
                                 has_events = await wait_for_events(remaining)
@@ -2240,7 +2245,6 @@ def create_router(
         wait_for_completion: bool = False,
         wait_for_data: int = 60,
         sse: bool = False,
-        delta: bool = False,
     ) -> Union[EventDTO, Response]:
         """Reads a single event from a session.
 
@@ -2252,9 +2256,6 @@ def create_router(
                 this means waiting until chunks contains None terminator)
             wait_for_data: Timeout in seconds for wait_for_completion
             sse: If true, stream event updates via Server-Sent Events until completion
-            delta: If true, stream only the chunks added since the previous frame, instead
-                of the whole event each time. The first frame of a connection always
-                carries the whole event, so a client resuming mid-stream still has its base.
 
         Notes:
             For streaming message events (events with 'chunks' property):
@@ -2298,10 +2299,13 @@ def create_router(
                         timeout=Timeout(seconds),
                     )
 
+                heartbeat_seconds = sse_heartbeat_seconds()
+                retry_frame = format_sse_retry_frame(sse_retry_milliseconds())
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + wait_for_data
 
-                yield format_sse_retry_frame()
+                if retry_frame:
+                    yield retry_frame
 
                 while True:
                     event = await app.sessions.read_event(
@@ -2345,21 +2349,8 @@ def create_router(
                     if chunk_count > sent_chunk_count or (
                         not sent_any_frame and sent_chunk_count == 0
                     ):
-                        if delta and sent_any_frame:
-                            # Only what was added, so a long message isn't re-sent whole
-                            # on every frame.
-                            payload = ChunkDelta(
-                                event_id=event.id,
-                                offset=event.offset,
-                                chunk_index=sent_chunk_count,
-                                chunks=[c for c in chunks[sent_chunk_count:] if c is not None],
-                                is_complete=is_complete,
-                            ).to_json()
-                        else:
-                            payload = event_dto.model_dump_json()
-
                         yield format_sse_frame(
-                            payload,
+                            event_dto.model_dump_json(),
                             event_id=encode_event_cursor(event.offset, chunk_count),
                         )
                         sent_any_frame = True
@@ -2373,10 +2364,10 @@ def create_router(
                     try:
                         # Wait a heartbeat at a time, so an interrupted stream is kept
                         # alive instead of going silent for the whole wait_for_data.
-                        if remaining > SSE_HEARTBEAT_SECONDS:
+                        if heartbeat_seconds > 0 and remaining > heartbeat_seconds:
                             has_new_chunks = await asyncio.wait_for(
                                 wait_for_chunks(chunk_count, remaining),
-                                timeout=SSE_HEARTBEAT_SECONDS,
+                                timeout=heartbeat_seconds,
                             )
                         else:
                             # Wait for new chunks (not full completion)

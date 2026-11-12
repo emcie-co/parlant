@@ -20,12 +20,13 @@ Each entry says what changed and what it means for you, under `Added`,
   last saw, instead of replaying the session from the beginning. Streams ask a
   reconnecting browser to wait three seconds (`retry: 3000`), and an idle
   stream sends a keep-alive comment every 15 seconds, so a proxy no longer
-  closes a quiet connection before `wait_for_data` expires. When a request carries both
-  `min_offset` and `Last-Event-ID`, `min_offset` still wins.
-- `GET /sessions/{id}/events/{event_id}?sse=true&delta=true` sends only the
-  chunks added since the previous frame. Before, each frame repeated every chunk
-  of the event so far, so a long stream grew quadratically in bytes. The first
-  frame is still the complete event, so existing clients are unaffected.
+  closes a quiet connection before `wait_for_data` expires. When a request
+  carries both `min_offset` and `Last-Event-ID`, the later of the two wins: a
+  reconnecting client usually still has the original `min_offset` in its URL,
+  and honoring it would replay the session. The delay and the keep-alive
+  interval can be set with `PARLANT_SSE_RETRY_MS` and
+  `PARLANT_SSE_HEARTBEAT_SECONDS`; `0` disables the keep-alive, and `0` for the
+  delay omits the `retry:` line.
 
 ### Fixed
 

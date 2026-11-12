@@ -16,25 +16,31 @@
 
 The streams send bare `data:` frames, so a client that loses its connection has
 no way to say where it stopped and has to replay from the beginning. Everything
-here is pure text handling: a frame that carries a resume id, and a cursor that
-turns that id back into a position.
+here is pure text handling: a frame that carries a resume id, a cursor that
+turns that id back into a position, and the two timings an operator may need to
+change without a restart.
 """
 
-import json
+import logging
+import os
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping
+
+logger = logging.getLogger("parlant")
 
 SSE_MEDIA_TYPE = "text/event-stream"
 
-# Told to the client once per stream, so a dropped connection comes back within
-# seconds instead of after the browser's default retry delay.
-SSE_RETRY_MILLISECONDS = 3000
+DEFAULT_SSE_RETRY_MILLISECONDS = 3000
+"""Told to the client once per stream, so a dropped connection comes back within
+seconds instead of after the browser's default retry delay. `0` omits the
+`retry:` line entirely and leaves the client on its own default."""
 
-# An idle stream looks dead to proxies, which tend to cut connections around the
-# same delay `wait_for_data` defaults to (60 seconds). A comment frame is valid
-# SSE that EventSource ignores, so it keeps the connection warm without waking
-# the client up with an event it would have to filter out.
-SSE_HEARTBEAT_SECONDS = 15.0
+DEFAULT_SSE_HEARTBEAT_SECONDS = 15.0
+"""An idle stream looks dead to proxies, which tend to cut connections around the
+same delay `wait_for_data` defaults to (60 seconds). A comment frame is valid
+SSE that EventSource ignores, so it keeps the connection warm without waking
+the client up with an event it would have to filter out. `0` disables it."""
+
 SSE_HEARTBEAT_FRAME = ": keep-alive\n\n"
 
 SSE_HEADERS: Mapping[str, str] = {
@@ -43,6 +49,64 @@ SSE_HEADERS: Mapping[str, str] = {
     # Without this, nginx buffers the response and streams arrive in bursts.
     "X-Accel-Buffering": "no",
 }
+
+
+def sse_heartbeat_seconds() -> float:
+    """Seconds of silence before a keep-alive frame is sent.
+
+    Read from `PARLANT_SSE_HEARTBEAT_SECONDS` when a stream starts, so an
+    operator can change it without a restart. `0` disables the heartbeat. An
+    unreadable or negative value is reported and replaced by the default rather
+    than breaking the stream: a bad setting should not cost a working endpoint.
+    """
+
+    return _env_seconds("PARLANT_SSE_HEARTBEAT_SECONDS", DEFAULT_SSE_HEARTBEAT_SECONDS)
+
+
+def sse_retry_milliseconds() -> int:
+    """Reconnect delay announced to the client, from `PARLANT_SSE_RETRY_MS`.
+
+    `0` omits the `retry:` line, leaving the browser on its own default. As with
+    the heartbeat, an unreadable or negative value is reported and ignored.
+    """
+
+    raw = os.environ.get("PARLANT_SSE_RETRY_MS")
+    if not raw:
+        return DEFAULT_SSE_RETRY_MILLISECONDS
+
+    try:
+        value = int(raw)
+    except ValueError:
+        _warn_invalid("PARLANT_SSE_RETRY_MS", raw, DEFAULT_SSE_RETRY_MILLISECONDS)
+        return DEFAULT_SSE_RETRY_MILLISECONDS
+
+    if value < 0:
+        _warn_invalid("PARLANT_SSE_RETRY_MS", raw, DEFAULT_SSE_RETRY_MILLISECONDS)
+        return DEFAULT_SSE_RETRY_MILLISECONDS
+
+    return value
+
+
+def _env_seconds(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+
+    try:
+        value = float(raw)
+    except ValueError:
+        _warn_invalid(name, raw, default)
+        return default
+
+    if value < 0:
+        _warn_invalid(name, raw, default)
+        return default
+
+    return value
+
+
+def _warn_invalid(name: str, raw: str, default: float) -> None:
+    logger.warning(f"Invalid {name}={raw!r}; using default {default}")
 
 
 @dataclass(frozen=True)
@@ -109,37 +173,14 @@ def format_sse_frame(payload: str, *, event_id: str | None = None) -> str:
     return frame + "\n"
 
 
-def format_sse_retry_frame() -> str:
-    """Render the `retry:` frame a stream sends before any event."""
+def format_sse_retry_frame(milliseconds: int) -> str:
+    """Render the `retry:` frame a stream sends before any event.
 
-    return f"retry: {SSE_RETRY_MILLISECONDS}\n\n"
-
-
-@dataclass(frozen=True)
-class ChunkDelta:
-    """The part of a streaming event that a delta frame carries.
-
-    Only sent when the client asked for `delta=true`, and only from the second
-    frame onwards: the first frame is always the whole event, so a client that
-    reconnects mid-stream still gets a base to append the deltas to.
+    A non-positive value renders nothing, so a caller can skip the frame and
+    leave the client on its own reconnect delay.
     """
 
-    event_id: str
-    offset: int
-    chunk_index: int
-    chunks: Sequence[str]
-    is_complete: bool
+    if milliseconds <= 0:
+        return ""
 
-    def to_json(self) -> str:
-        """Render the delta as the JSON body of a `data:` frame."""
-
-        return json.dumps(
-            {
-                "id": self.event_id,
-                "offset": self.offset,
-                "chunk_index": self.chunk_index,
-                "chunks": list(self.chunks),
-                "is_complete": self.is_complete,
-            },
-            ensure_ascii=False,
-        )
+    return f"retry: {milliseconds}\n\n"

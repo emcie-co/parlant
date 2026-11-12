@@ -12,22 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import json
-from typing import Any, Mapping
+import logging
+from typing import Any, AsyncIterator, Mapping
 
 import httpx
-from fastapi import status
-from pytest import MonkeyPatch
+from fastapi import Request, status
+from pytest import LogCaptureFixture, MonkeyPatch, fixture
 
+from parlant.api.app import create_api_app
+from parlant.api.authorization import (
+    AuthorizationPolicy,
+    DevelopmentAuthorizationPolicy,
+    Operation,
+)
+from parlant.api.sessions import REDACTED_REASONING_LABEL
 from parlant.api.sse import (
-    ChunkDelta,
     SSE_HEARTBEAT_FRAME,
     encode_event_cursor,
     format_sse_frame,
     format_sse_retry_frame,
     parse_event_cursor,
+    sse_heartbeat_seconds,
+    sse_retry_milliseconds,
 )
+from parlant.core import metadata as metadata_utils
 from parlant.core.common import generate_id
 from parlant.core.container import Container
 from parlant.core.sessions import (
@@ -38,21 +47,23 @@ from parlant.core.sessions import (
     SessionStore,
 )
 
-import parlant.api.sessions as sessions_api
-
 
 async def create_event(
     container: Container,
     session_id: SessionId,
     data: dict[str, Any] | None = None,
+    *,
+    kind: EventKind = EventKind.CUSTOM,
+    source: EventSource = EventSource.CUSTOMER,
+    metadata: Mapping[str, Any] | None = None,
 ) -> EventId:
     event = await container[SessionStore].create_event(
         session_id=session_id,
-        source=EventSource.CUSTOMER,
-        kind=EventKind.CUSTOM,
+        source=source,
+        kind=kind,
         trace_id=generate_id(),
         data=data or {},
-        metadata={},
+        metadata=dict(metadata or {}),
     )
 
     return event.id
@@ -67,13 +78,15 @@ def frames_of(stream_text: str) -> list[dict[str, Any]]:
         if not block.strip():
             continue
 
-        frame: dict[str, Any] = {"id": None, "data": [], "comments": []}
+        frame: dict[str, Any] = {"id": None, "data": [], "comments": [], "retry": None}
 
         for line in block.splitlines():
             if line.startswith(":"):
                 frame["comments"].append(line)
             elif line.startswith("id: "):
                 frame["id"] = line[len("id: ") :]
+            elif line.startswith("retry: "):
+                frame["retry"] = line[len("retry: ") :]
             elif line.startswith("data: "):
                 frame["data"].append(line[len("data: ") :])
 
@@ -111,8 +124,8 @@ def list_events_params(wait_for_data: int = 0) -> dict[str, Any]:
     return {"sse": "true", "wait_for_data": wait_for_data}
 
 
-def read_event_params(wait_for_data: int = 5, delta: bool = False) -> dict[str, Any]:
-    return {"sse": "true", "wait_for_data": wait_for_data, "delta": "true" if delta else "false"}
+def read_event_params(wait_for_data: int = 5) -> dict[str, Any]:
+    return {"sse": "true", "wait_for_data": wait_for_data}
 
 
 def test_that_a_cursor_is_read_only_from_a_well_formed_header() -> None:
@@ -147,29 +160,43 @@ def test_that_a_multi_line_payload_becomes_several_data_lines() -> None:
     assert format_sse_frame("a\nb") == "data: a\ndata: b\n\n"
 
 
-def test_that_the_retry_frame_announces_the_reconnect_delay() -> None:
-    assert format_sse_retry_frame().startswith("retry: ")
+def test_that_the_retry_frame_announces_the_delay_it_is_given() -> None:
+    assert format_sse_retry_frame(1500) == "retry: 1500\n\n"
+    assert format_sse_retry_frame(0) == ""
     assert SSE_HEARTBEAT_FRAME.startswith(":")
 
 
-def test_that_a_delta_describes_only_the_chunks_it_carries() -> None:
-    delta = json.loads(
-        ChunkDelta(
-            event_id="evt_1",
-            offset=4,
-            chunk_index=2,
-            chunks=["new"],
-            is_complete=True,
-        ).to_json()
-    )
+def test_that_the_timings_default_when_the_environment_says_nothing(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PARLANT_SSE_HEARTBEAT_SECONDS", raising=False)
+    monkeypatch.delenv("PARLANT_SSE_RETRY_MS", raising=False)
 
-    assert delta == {
-        "id": "evt_1",
-        "offset": 4,
-        "chunk_index": 2,
-        "chunks": ["new"],
-        "is_complete": True,
-    }
+    assert sse_heartbeat_seconds() == 15.0
+    assert sse_retry_milliseconds() == 3000
+
+
+def test_that_the_timings_are_read_from_the_environment(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("PARLANT_SSE_HEARTBEAT_SECONDS", "0.5")
+    monkeypatch.setenv("PARLANT_SSE_RETRY_MS", "1500")
+
+    assert sse_heartbeat_seconds() == 0.5
+    assert sse_retry_milliseconds() == 1500
+
+
+def test_that_an_invalid_timing_is_reported_and_replaced_by_the_default(
+    monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv("PARLANT_SSE_RETRY_MS", "soon")
+    monkeypatch.setenv("PARLANT_SSE_HEARTBEAT_SECONDS", "-1")
+
+    with caplog.at_level(logging.WARNING, logger="parlant"):
+        assert sse_retry_milliseconds() == 3000
+        assert sse_heartbeat_seconds() == 15.0
+
+    assert "Invalid PARLANT_SSE_RETRY_MS='soon'" in caplog.text
+    assert "Invalid PARLANT_SSE_HEARTBEAT_SECONDS='-1'" in caplog.text
 
 
 async def test_that_streamed_events_carry_their_offset_as_the_frame_id(
@@ -208,24 +235,37 @@ async def test_that_a_stream_resumes_after_the_event_named_by_last_event_id(
     assert [payload_of(f)["offset"] for f in frames] == [2]
 
 
-async def test_that_an_explicit_min_offset_beats_last_event_id(
+async def test_that_the_later_of_min_offset_and_last_event_id_wins(
     async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
 ) -> None:
-    for _ in range(3):
+    for _ in range(4):
         await create_event(container, session_id)
 
+    # min_offset is behind the header, so the reconnect still moves forward.
     frames = data_frames(
         await collect_stream(
             async_client,
             f"/sessions/{session_id}/events",
-            {**list_events_params(), "min_offset": 2},
-            headers={"Last-Event-ID": "0"},
+            {**list_events_params(), "min_offset": 1},
+            headers={"Last-Event-ID": "2"},
         )
     )
 
-    assert [payload_of(f)["offset"] for f in frames] == [2]
+    assert [payload_of(f)["offset"] for f in frames] == [3]
+
+    # min_offset is ahead of the header, so the explicit request wins.
+    frames = data_frames(
+        await collect_stream(
+            async_client,
+            f"/sessions/{session_id}/events",
+            {**list_events_params(), "min_offset": 3},
+            headers={"Last-Event-ID": "1"},
+        )
+    )
+
+    assert [payload_of(f)["offset"] for f in frames] == [3]
 
 
 async def test_that_an_unreadable_last_event_id_replays_from_the_first_event(
@@ -248,13 +288,55 @@ async def test_that_an_unreadable_last_event_id_replays_from_the_first_event(
     assert [payload_of(f)["offset"] for f in frames] == [0, 1]
 
 
+async def test_that_the_stream_announces_the_configured_retry_delay(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PARLANT_SSE_RETRY_MS", "1500")
+
+    await create_event(container, session_id)
+
+    frames = frames_of(
+        await collect_stream(
+            async_client,
+            f"/sessions/{session_id}/events",
+            list_events_params(),
+        )
+    )
+
+    assert frames[0]["retry"] == "1500"
+
+
+async def test_that_a_retry_delay_of_zero_omits_the_retry_line(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PARLANT_SSE_RETRY_MS", "0")
+
+    await create_event(container, session_id)
+
+    frames = frames_of(
+        await collect_stream(
+            async_client,
+            f"/sessions/{session_id}/events",
+            list_events_params(),
+        )
+    )
+
+    assert all(f["retry"] is None for f in frames)
+
+
 async def test_that_an_idle_stream_is_kept_alive(
     async_client: httpx.AsyncClient,
     container: Container,
     session_id: SessionId,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(sessions_api, "SSE_HEARTBEAT_SECONDS", 0.05)
+    monkeypatch.setenv("PARLANT_SSE_HEARTBEAT_SECONDS", "0.05")
 
     await create_event(container, session_id)
 
@@ -269,6 +351,27 @@ async def test_that_an_idle_stream_is_kept_alive(
     assert any(f["comments"] == [SSE_HEARTBEAT_FRAME.strip()] for f in frames)
     # The stream still delivers the event itself, and still closes on its own.
     assert [payload_of(f)["offset"] for f in frames if f["data"]] == [0]
+
+
+async def test_that_a_heartbeat_of_zero_disables_the_keep_alive(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PARLANT_SSE_HEARTBEAT_SECONDS", "0")
+
+    await create_event(container, session_id)
+
+    frames = frames_of(
+        await collect_stream(
+            async_client,
+            f"/sessions/{session_id}/events",
+            list_events_params(wait_for_data=1),
+        )
+    )
+
+    assert not any(f["comments"] for f in frames)
 
 
 async def test_that_a_single_event_stream_carries_its_offset_and_chunk_count(
@@ -318,50 +421,6 @@ async def test_that_a_resumed_chunk_cursor_does_not_replay_chunks_it_already_has
     assert payload_of(frames[0])["data"]["chunks"] == ["a", "b", "c", None]
 
 
-async def test_that_delta_frames_carry_only_the_chunks_added_since_the_previous_frame(
-    async_client: httpx.AsyncClient,
-    container: Container,
-    session_id: SessionId,
-) -> None:
-    store = container[SessionStore]
-    event_id = await create_event(container, session_id, data={"chunks": ["hello"]})
-
-    async def complete_the_event() -> None:
-        # The test client hands the body over only once it is complete, so the
-        # second chunk has to be written while the stream is still open.
-        await asyncio.sleep(0.1)
-
-        await store.update_event(
-            session_id,
-            event_id,
-            {"data": {"chunks": ["hello", " world", None]}},
-        )
-
-    completing = asyncio.create_task(complete_the_event())
-
-    frames = data_frames(
-        await collect_stream(
-            async_client,
-            f"/sessions/{session_id}/events/{event_id}",
-            read_event_params(delta=True),
-        )
-    )
-
-    await completing
-
-    # The first frame is always the whole event, so a client has a base to
-    # append the deltas to.
-    assert [f["id"] for f in frames] == ["0:1", "0:3"]
-    assert payload_of(frames[0])["data"]["chunks"] == ["hello"]
-    assert payload_of(frames[1]) == {
-        "id": event_id,
-        "offset": 0,
-        "chunk_index": 1,
-        "chunks": [" world"],
-        "is_complete": True,
-    }
-
-
 async def test_that_a_non_streaming_event_is_sent_once_and_then_closes(
     async_client: httpx.AsyncClient,
     container: Container,
@@ -396,3 +455,58 @@ async def test_that_streaming_still_ends_when_no_event_arrives_in_time(
     )
 
     assert frames == []
+
+
+class _NoReasoningPolicy(DevelopmentAuthorizationPolicy):
+    async def check_permission(self, request: Request, operation: Operation) -> bool:
+        if operation is Operation.READ_EVENT_REASONING:
+            return False
+        return await super().check_permission(request, operation)
+
+
+@fixture
+async def no_reasoning_client(container: Container) -> AsyncIterator[httpx.AsyncClient]:
+    restricted = container.clone()
+    restricted[AuthorizationPolicy] = _NoReasoningPolicy()
+
+    app = await create_api_app(restricted)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        yield client
+
+
+async def test_that_a_streamed_frame_hides_reasoning_from_a_caller_without_the_permission(
+    no_reasoning_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    await create_event(
+        container,
+        session_id,
+        data={
+            "status": "processing",
+            "message": "The customer is asking about order 123; I should check the warehouse.",
+            "chunks": ["The customer is asking", " about order 123;", None],
+        },
+        kind=EventKind.STATUS,
+        source=EventSource.AI_AGENT,
+        metadata=metadata_utils.set_internal_value({}, ("internal_reasoning",), True),
+    )
+
+    frames = data_frames(
+        await collect_stream(
+            no_reasoning_client,
+            f"/sessions/{session_id}/events",
+            list_events_params(),
+        )
+    )
+
+    assert len(frames) == 1
+
+    data = payload_of(frames[0])["data"]
+    assert data["message"] == REDACTED_REASONING_LABEL
+    assert "chunks" not in data
+    assert "warehouse" not in json.dumps(data)

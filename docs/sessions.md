@@ -868,15 +868,27 @@ curl -N -H "Last-Event-ID: 12" \
   "$PARLANT_URL/sessions/$SESSION_ID/events?sse=true&wait_for_data=60"
 ```
 
-When a request carries both `min_offset` and `Last-Event-ID`, `min_offset` wins:
-it is the explicit request, and the header only says where an earlier stream got
-to.
+When a request carries both `min_offset` and `Last-Event-ID`, the later of the
+two wins. A reconnecting client usually keeps the original `min_offset` in the
+URL, so letting it override the header would replay every event since the stream
+first opened, which is the one thing resumption exists to prevent. A `min_offset`
+that is ahead of the header still wins, because it is the narrower request.
 
 The stream opens with `retry: 3000`, so a browser waits three seconds before
 reconnecting. While it is idle it sends a comment frame (`: keep-alive`) every
 15 seconds, so a proxy does not close a quiet connection before `wait_for_data`
 expires. The stream closes when no matching event arrives within `wait_for_data`
 seconds; reconnect to continue.
+
+Both timings are configurable, and are read when the stream starts:
+
+| Environment variable | Default | Effect |
+|---|---|---|
+| `PARLANT_SSE_HEARTBEAT_SECONDS` | `15` | Seconds between keep-alive frames. `0` turns them off. |
+| `PARLANT_SSE_RETRY_MS` | `3000` | Reconnect delay sent as `retry:`. `0` omits the line. |
+
+An invalid value is logged and replaced by the default, the same way
+`PARLANT_TOOL_TIMEOUT` is handled.
 
 #### Filtering Examples
 
@@ -919,7 +931,6 @@ Optional query parameters:
 | `wait_for_completion=true` | Wait until a streaming event completes before returning. |
 | `wait_for_data` | Timeout in seconds for completion or streaming updates. |
 | `sse=true` | Stream updates to this event until it completes. |
-| `delta=true` | With `sse=true`, send only the chunks added since the previous frame. |
 
 Streaming events use `data.chunks`. Completion is represented by a final
 `null` chunk:
@@ -963,16 +974,10 @@ curl -N -H "Last-Event-ID: 0:3" \
   "$PARLANT_URL/sessions/$SESSION_ID/events/$EVENT_ID?sse=true&wait_for_data=60"
 ```
 
-With `delta=true`, the frames after the first carry only the chunks added since
-the previous one:
-
-```text
-id: 0:3
-data: {"id": "evt_123", "offset": 0, "chunk_index": 1, "chunks": [" there"], "is_complete": false}
-```
-
-The first frame is always the complete event, so a client that starts from zero,
-or that resumes before any chunk, needs no special handling.
+Every frame carries the whole event as it stands, never a delta, so a frame means
+the same thing whether the client has been connected from the start or resumed in
+the middle. A client that starts from zero, or that resumes before any chunk,
+needs no special handling.
 
 ### Update Event Metadata
 

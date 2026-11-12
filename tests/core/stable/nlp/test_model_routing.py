@@ -266,6 +266,155 @@ def _context(agent_id: str = "agent-1") -> EngineContext[Any, Any]:
     )
 
 
+@pytest.mark.asyncio
+async def test_that_snapshot_route_selection_matches_live_resolution() -> None:
+    store = TransientModelRouteStore()
+    runtime = RuntimeModelRouteSource()
+    implementations = ModelImplementationRegistry(MappingSecretLoader({}))
+    configuration = ModelConfigurationService(store, runtime, implementations)
+    router = ModelRouter(store, runtime, implementations, TransientRateLimiter())
+
+    async def no_model_construction(model: str, args: Mapping[str, Any]) -> Any:
+        raise AssertionError("Selecting configuration must not construct a model")
+
+    async def no_schematic_construction(
+        model: str, schema: type[Any], args: Mapping[str, Any]
+    ) -> Any:
+        raise AssertionError("Selecting configuration must not construct a model")
+
+    implementations.register(
+        "stub", ModelCapability.EMBEDDING, no_model_construction, default="default-embedding"
+    )
+    implementations.register(
+        "stub", ModelCapability.DECISION, no_model_construction, default="default-decision"
+    )
+    implementations.register_schematic(
+        "stub", no_schematic_construction, default="default-schematic"
+    )
+    await configuration.configure(
+        ModelScope.server(),
+        {
+            "*": "stub",
+            "embedding": ModelConfig("stub:server-embedding"),
+            "matching.rank[capability=schematic]": ModelConfig("stub:server-schematic"),
+            "matching.rank[capability=decision]": ModelConfig("stub:server-decision"),
+        },
+    )
+    await configuration.configure(
+        ModelScope.agent("agent-1"),
+        {
+            "embedding[effort>=high]": ModelConfig("stub:durable-high-embedding"),
+            "matching.rank[capability=schematic]": ModelConfig("stub:agent-schematic"),
+        },
+    )
+    await runtime.update_routes(
+        ModelScope.agent("agent-1"),
+        {"embedding[effort>=high]": ModelRouteBinding(ModelConfig("stub:runtime-high-embedding"))},
+    )
+    snapshot = await configuration.read_all()
+    cases = (
+        (None, "embedding.rules", ModelCapability.EMBEDDING, Effort.LOW, "stub:server-embedding"),
+        (
+            AgentId("agent-1"),
+            "embedding.tools",
+            ModelCapability.EMBEDDING,
+            Effort.LOW,
+            "stub:server-embedding",
+        ),
+        (
+            AgentId("agent-1"),
+            "embedding.tag",
+            ModelCapability.EMBEDDING,
+            Effort.HIGH,
+            "stub:runtime-high-embedding",
+        ),
+        (
+            AgentId("agent-1"),
+            "matching.rank",
+            ModelCapability.SCHEMATIC,
+            Effort.LOW,
+            "stub:agent-schematic",
+        ),
+        (
+            AgentId("agent-1"),
+            "matching.rank",
+            ModelCapability.DECISION,
+            Effort.LOW,
+            "stub:server-decision",
+        ),
+        (None, "indexing.create", ModelCapability.SCHEMATIC, Effort.LOW, "stub:default-schematic"),
+    )
+    for agent_id, route, capability, effort, expected in cases:
+        live, _, _, _ = await router._resolve_config(
+            context=None,
+            agent_id=agent_id,
+            route=route,
+            capability=capability,
+            qualifiers={"effort": effort.value},
+        )
+        assert live.model == expected
+
+    for agent_id, route, capability, effort, expected in cases:
+        scopes = [ModelScope.agent(agent_id)] if agent_id else []
+        scopes.append(ModelScope.server())
+        selected: ModelConfig | str | None = None
+        for scope in scopes:
+            routes = snapshot.get(scope, {})
+            selector = router.select_route(
+                scope=scope, routes=routes, route=route, capability=capability, effort=effort
+            )
+            if selector is not None:
+                selected = routes[selector]
+                break
+        if isinstance(selected, str):
+            selected = implementations.default_config(
+                selected, capability, route, {"effort": effort.value}
+            )
+        assert isinstance(selected, ModelConfig)
+        assert selected.model == expected
+
+    # Selecting an absent capability remains a missing binding, rather than
+    # borrowing a schematic/embedding model. Equal-specificity ambiguity must
+    # report the same routing error as live reads.
+    assert (
+        router.select_route(
+            scope=ModelScope.server(),
+            routes={},
+            route="matching.rank",
+            capability=ModelCapability.DECISION,
+            effort=Effort.LOW,
+        )
+        is None
+    )
+    ambiguous = {
+        "matching.rank[capability=schematic,effort<=max]": ModelConfig("stub:first"),
+        "matching.rank[capability=schematic,effort>=min]": ModelConfig("stub:second"),
+    }
+    # Both selectors cover all efforts and therefore have equal specificity.
+    # Use raw stores because normal configuration refuses ambiguity earlier.
+    await store.update_routes(
+        ModelScope.agent("ambiguous"),
+        {selector: ModelRouteBinding(target) for selector, target in ambiguous.items()},
+    )
+    with pytest.raises(InvalidModelRouteError) as live_error:
+        await router._resolve_config(
+            context=None,
+            agent_id=AgentId("ambiguous"),
+            route="matching.rank",
+            capability=ModelCapability.SCHEMATIC,
+            qualifiers={"effort": Effort.LOW.value},
+        )
+    with pytest.raises(InvalidModelRouteError) as snapshot_error:
+        router.select_route(
+            scope=ModelScope.agent("ambiguous"),
+            routes=ambiguous,
+            route="matching.rank",
+            capability=ModelCapability.SCHEMATIC,
+            effort=Effort.LOW,
+        )
+    assert str(snapshot_error.value) == str(live_error.value)
+
+
 def _provider(
     generator: SchematicGenerator[_Schema],
     reasoning: Any = None,

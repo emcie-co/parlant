@@ -29,6 +29,7 @@ import asyncio
 import json
 import os
 import re
+import threading
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -54,6 +55,7 @@ from parlant.adapters.nlp.gemini_service import (
     GeminiEmbedder,
     GeminiEstimatingTokenizer,
     GeminiTextEmbedding_001,
+    GemmaTokenCounter,
     RoutedGeminiEmbedder,
     register_gemini_models,
 )
@@ -296,6 +298,15 @@ async def test_that_the_gemini_provider_resolves_embedding_routes_to_gemini_embe
     assert embedder.dimensions == 3072
 
 
+def _api_only() -> GemmaTokenCounter:
+    """A local counter that never loads, so counts take the API path under test."""
+
+    def unavailable() -> Callable[[str], int]:
+        raise ImportError("sentencepiece")
+
+    return GemmaTokenCounter(load=unavailable)
+
+
 @pytest.mark.parametrize("model", ["gemini-embedding-001", "gemini-embedding-2"])
 async def test_that_an_embedding_tokenizer_counts_tokens_with_its_own_model(model: str) -> None:
     # Gemini embedding models count their own tokens. Substituting a generation
@@ -314,6 +325,7 @@ async def test_that_an_embedding_tokenizer_counts_tokens_with_its_own_model(mode
     tokenizer = GeminiEstimatingTokenizer(
         client=cast(google.genai.Client, client),
         model_name=model,
+        local_counter=_api_only(),
     )
 
     assert await tokenizer.estimate_token_count("hello world") == 3
@@ -343,16 +355,109 @@ async def test_that_a_transient_server_error_while_counting_tokens_is_retried(
     tokenizer = GeminiEstimatingTokenizer(
         client=cast(google.genai.Client, client),
         model_name="gemini-embedding-2",
+        local_counter=_api_only(),
     )
 
     assert await tokenizer.estimate_token_count("hello world") == 5
     assert flaky.calls == 2
 
 
+class _CountingModels:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def count_tokens(self, *, model: str, contents: str) -> Any:
+        self.calls += 1
+        return SimpleNamespace(total_tokens=7)
+
+
+def _tokenizer_counting_api_calls(
+    local: GemmaTokenCounter,
+) -> tuple[GeminiEstimatingTokenizer, _CountingModels]:
+    models = _CountingModels()
+    tokenizer = GeminiEstimatingTokenizer(
+        client=cast(google.genai.Client, SimpleNamespace(aio=SimpleNamespace(models=models))),
+        model_name="gemini-embedding-2",
+        local_counter=local,
+    )
+    return tokenizer, models
+
+
+async def test_that_tokens_are_counted_locally_without_an_api_call_once_the_local_tokenizer_is_ready() -> (
+    None
+):
+    # Each count_tokens call is a network round trip (about 300ms), and a step
+    # after a tool call made two of them in a row while ranking canned responses
+    # (MCN-527).
+    local = GemmaTokenCounter(load=lambda: lambda text: len(text.split()))
+    tokenizer, models = _tokenizer_counting_api_calls(local)
+
+    assert await local.load()
+    assert await tokenizer.estimate_token_count("one two three") == 3
+    assert models.calls == 0
+
+
+async def test_that_tokens_are_counted_by_the_api_while_the_local_tokenizer_is_still_loading() -> (
+    None
+):
+    release = threading.Event()
+
+    def load() -> Callable[[str], int]:
+        release.wait(timeout=10)
+        return lambda text: len(text.split())
+
+    local = GemmaTokenCounter(load=load)
+    tokenizer, models = _tokenizer_counting_api_calls(local)
+
+    try:
+        assert await tokenizer.estimate_token_count("one two three") == 7
+        assert models.calls == 1
+    finally:
+        release.set()
+
+
+async def test_that_tokens_are_counted_by_the_api_when_the_local_tokenizer_cannot_load() -> None:
+    loads = 0
+
+    def load() -> Callable[[str], int]:
+        nonlocal loads
+        loads += 1
+        raise ConnectionError("raw.githubusercontent.com is unreachable")
+
+    local = GemmaTokenCounter(load=load)
+    tokenizer, models = _tokenizer_counting_api_calls(local)
+
+    assert not await local.load()
+    assert await tokenizer.estimate_token_count("one two three") == 7
+    assert await tokenizer.estimate_token_count("four five") == 7
+    assert models.calls == 2
+    assert loads == 1
+
+
 _GEMINI_LIVE = pytest.mark.skipif(
     not os.environ.get("GEMINI_API_KEY"),
     reason="GEMINI_API_KEY not set",
 )
+
+
+@_GEMINI_LIVE
+async def test_that_the_local_token_count_stays_close_to_the_api_count_live() -> None:
+    text = (
+        "user: Our support team handles about 4,000 tickets a week across email and "
+        "Zendesk. Can a Parlant agent draft the replies instead of answering in live chat?"
+    )
+    client = google.genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    api_count = (
+        await client.aio.models.count_tokens(model="gemini-embedding-2", contents=text)
+    ).total_tokens
+    local = GemmaTokenCounter()
+    tokenizer = GeminiEstimatingTokenizer(
+        client=client, model_name="gemini-embedding-2", local_counter=local
+    )
+
+    assert await local.load()
+    assert api_count is not None
+    assert abs(await tokenizer.estimate_token_count(text) - api_count) <= 2
 
 
 @_GEMINI_LIVE

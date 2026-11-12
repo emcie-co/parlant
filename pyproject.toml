@@ -93,7 +93,14 @@ mongo = ["pymongo>=4.11.1"]
 
 anthropic = ["anthropic>=1.0.0"]
 
-gemini = ["google-genai>=2.32.0", "google-api-core>=2.24.2"]
+# sentencepiece lets the Gemini adapter count tokens offline (google-genai's
+# LocalTokenizer). 0.2.3 is built against protobuf 7 and fails to load with
+# protobuf 6, which this lock resolves; 0.2.2 loads with both.
+gemini = [
+    "google-genai>=2.32.0",
+    "google-api-core>=2.24.2",
+    "sentencepiece>=0.2.1,<0.2.3",
+]
 
 # LiteLLM is a unified gateway over 100+ providers with built-in cost tracking;
 # the adapter uses its Python SDK (litellm.acompletion/aembedding) and reads the

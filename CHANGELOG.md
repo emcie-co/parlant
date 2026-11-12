@@ -37,6 +37,18 @@ Each entry says what changed and what it means for you, under `Added`,
   `gemini-decision-1` entry to `server.set_pricing(...)` (Google lists $0.10 per
   million input tokens and nothing for output) to have it priced.
 
+### Changed
+
+- Gemini models count tokens on your server instead of asking the Gemini API,
+  which took about 300ms per count. A step after a tool call made two such
+  calls in a row while choosing canned responses, so replies after a tool call
+  now start about 0.4–0.6s sooner. Counts use the open Gemma 3 tokenizer and
+  are within a token or two of Google's. The `gemini` extra now installs
+  `sentencepiece`. The tokenizer downloads once from raw.githubusercontent.com,
+  in the background, on the first count. Until it's ready, or if your server
+  can't reach GitHub, Parlant counts with the API as before and logs one warning
+  saying so.
+
 ### Fixed
 
 - Pricing checks no longer warn about unused provider-default models when a

@@ -11,14 +11,21 @@ in this repository's history — read it at the `v3.3.2` tag, or with
 Each entry says what changed and what it means for you, under `Added`,
 `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
 
-## [Unreleased]
+## [4.0.5] - 2026-11-12
 
 ### Added
 
 - Gemini 4 Hydrogen works through the Gemini provider, including streamed replies,
   tool calls, saved conversation replay and token accounting. Select it as
   `gemini:gemini-4-hydrogen`; existing default models are unchanged.
-
+- The chat widget shows Markdown tables in an agent's reply as tables. They
+  used to show as lines of pipes. Column alignment, inline Markdown in cells
+  and escaped pipes work. A streamed table appears once its header and divider
+  rows arrive and fills in cell by cell. A wide table scrolls sideways inside
+  the message, and your site's own table styles don't change it. Your project
+  keeps the copy `parlant widget init` made. To pick this up, run
+  `parlant widget init --force`, which replaces that copy and any changes you
+  made to it.
 - Event streams (`sse=true`) now carry an `id` on every frame and resume from
   it. A client that reconnects with `Last-Event-ID` picks up after the frame it
   last saw, instead of replaying the session from the beginning. Streams ask a

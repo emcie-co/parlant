@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -43,6 +44,17 @@ from parlant.api.common import (
     SortDirectionDTO,
     apigen_config,
     sort_direction_dto_to_sort_direction,
+)
+from parlant.api.sse import (
+    SSE_HEADERS,
+    SSE_HEARTBEAT_FRAME,
+    SSE_MEDIA_TYPE,
+    encode_event_cursor,
+    format_sse_frame,
+    format_sse_retry_frame,
+    parse_event_cursor,
+    sse_heartbeat_seconds,
+    sse_retry_milliseconds,
 )
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.app_modules.sessions import (
@@ -2066,6 +2078,12 @@ def create_router(
             - Returns a text/event-stream response
             - Continuously sends events as they arrive
             - wait_for_data is used as the timeout between events before closing the stream
+            - Every frame carries the offset it belongs to as its id, so a client that
+              reconnects with Last-Event-ID resumes right after it. When a request
+              carries both min_offset and that header, the later of the two wins, so a
+              reconnect moves forward even though its URL still says min_offset.
+            - A keep-alive comment frame is sent whenever the stream has been idle for
+              a heartbeat, so intermediaries don't drop it as dead
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
 
@@ -2086,20 +2104,53 @@ def create_router(
         event_source = _event_source_dto_to_event_source(source) if source else None
 
         if sse:
+            resume_cursor = parse_event_cursor(request.headers.get("last-event-id"))
+
             # Return SSE stream
             async def event_stream() -> AsyncIterator[str]:
-                current_offset = min_offset or 0
+                # The header says where an earlier stream stopped; min_offset says
+                # where the caller wants to start. Take the later of the two: a
+                # reconnect that carries min_offset in its URL still moves forward,
+                # and an explicit min_offset still wins when it is ahead.
+                current_offset = max(
+                    min_offset or 0,
+                    resume_cursor.offset + 1 if resume_cursor else 0,
+                )
+                heartbeat_seconds = sse_heartbeat_seconds()
+                retry_frame = format_sse_retry_frame(sse_retry_milliseconds())
+                deadline = asyncio.get_running_loop().time() + wait_for_data
+
+                async def wait_for_events(seconds: float) -> bool:
+                    return await app.sessions.wait_for_more_events(
+                        session_id=session_id,
+                        min_offset=current_offset,
+                        source=event_source,
+                        kinds=kind_list,
+                        trace_id=trace_id,
+                        timeout=Timeout(seconds),
+                    )
+
+                if retry_frame:
+                    yield retry_frame
+
                 try:
                     while True:
-                        # Wait for new events
-                        has_events = await app.sessions.wait_for_more_events(
-                            session_id=session_id,
-                            min_offset=current_offset,
-                            source=event_source,
-                            kinds=kind_list,
-                            trace_id=trace_id,
-                            timeout=Timeout(wait_for_data),
-                        )
+                        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+
+                        try:
+                            # Waiting the whole wait_for_data in one go leaves the
+                            # connection silent long enough for proxies to drop it,
+                            # so wait a heartbeat at a time and say something between.
+                            if heartbeat_seconds > 0 and remaining > heartbeat_seconds:
+                                has_events = await asyncio.wait_for(
+                                    wait_for_events(remaining),
+                                    timeout=heartbeat_seconds,
+                                )
+                            else:
+                                has_events = await wait_for_events(remaining)
+                        except asyncio.TimeoutError:
+                            yield SSE_HEARTBEAT_FRAME
+                            continue
 
                         if not has_events:
                             # Timeout - close the stream
@@ -2121,19 +2172,22 @@ def create_router(
                                 redact_tool_data=redact_tool_data,
                                 redact_internal_metadata=redact_internal_metadata,
                             )
-                            yield f"data: {event_dto.model_dump_json()}\n\n"
+                            yield format_sse_frame(
+                                event_dto.model_dump_json(),
+                                event_id=encode_event_cursor(e.offset),
+                            )
                             current_offset = max(current_offset, e.offset + 1)
+
+                        # The client is still being served, so start the timeout over.
+                        deadline = asyncio.get_running_loop().time() + wait_for_data
                 except ItemNotFoundError:
                     # Session was deleted or doesn't exist - gracefully close the stream
                     return
 
             return StreamingResponse(
                 event_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                },
+                media_type=SSE_MEDIA_TYPE,
+                headers=SSE_HEADERS,
             )
 
         # Standard long-polling behavior
@@ -2213,6 +2267,8 @@ def create_router(
             - Returns a text/event-stream response
             - Sends the event each time it's updated
             - Closes when the event is complete (chunks ends with None)
+            - Every frame carries "<offset>:<chunk count>" as its id, so a client that
+              reconnects with Last-Event-ID resumes from that chunk
         """
         await authorization_policy.authorize(request=request, operation=Operation.READ_EVENT)
 
@@ -2226,49 +2282,109 @@ def create_router(
         )
 
         if sse:
+            resume_cursor = parse_event_cursor(request.headers.get("last-event-id"))
+
             # Return SSE stream that sends event updates until completion
             async def event_stream() -> AsyncIterator[str]:
                 chunk_count = 0
+                sent_chunk_count = 0
+                sent_any_frame = False
+                cursor_applied = False
+
+                async def wait_for_chunks(known_chunk_count: int, seconds: float) -> bool:
+                    return await app.sessions.wait_for_new_streaming_chunks(
+                        session_id=session_id,
+                        event_id=event_id,
+                        last_known_chunk_count=known_chunk_count,
+                        timeout=Timeout(seconds),
+                    )
+
+                heartbeat_seconds = sse_heartbeat_seconds()
+                retry_frame = format_sse_retry_frame(sse_retry_milliseconds())
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + wait_for_data
+
+                if retry_frame:
+                    yield retry_frame
+
                 while True:
                     event = await app.sessions.read_event(
                         session_id=session_id,
                         event_id=event_id,
                     )
+
+                    # Check if event is complete (for streaming events)
+                    data = cast(dict[str, object], event.data)
+                    known_chunks = (
+                        cast(list[str | None], data["chunks"]) if "chunks" in data else []
+                    )
+
+                    if not cursor_applied:
+                        cursor_applied = True
+                        # A chunk count only means something next to the event it was
+                        # counted in, so ignore it if the client moved on to another one.
+                        if resume_cursor is not None and resume_cursor.offset == event.offset:
+                            sent_chunk_count = min(resume_cursor.chunk_count, len(known_chunks))
+
                     event_dto = event_to_dto(
                         event,
                         redact_reasoning=redact_reasoning,
                         redact_tool_data=redact_tool_data,
                         redact_internal_metadata=redact_internal_metadata,
                     )
-                    yield f"data: {event_dto.model_dump_json()}\n\n"
 
-                    # Check if event is complete (for streaming events)
-                    data = cast(dict[str, object], event.data)
-                    if "chunks" in data:
-                        chunks = cast(list[str | None], data["chunks"])
-                        chunk_count = len(chunks)
-                        if chunks and chunks[-1] is None:
-                            break
-                    else:
+                    if "chunks" not in data:
                         # Non-streaming event, just return it once
+                        yield format_sse_frame(
+                            event_dto.model_dump_json(),
+                            event_id=encode_event_cursor(event.offset),
+                        )
                         break
 
-                    # Wait for new chunks (not full completion)
-                    if not await app.sessions.wait_for_new_streaming_chunks(
-                        session_id=session_id,
-                        event_id=event_id,
-                        last_known_chunk_count=chunk_count,
-                        timeout=Timeout(wait_for_data),
+                    chunks = known_chunks
+                    chunk_count = len(chunks)
+                    is_complete = bool(chunks) and chunks[-1] is None
+
+                    # Skip the frame when a resuming client already has everything in it
+                    if chunk_count > sent_chunk_count or (
+                        not sent_any_frame and sent_chunk_count == 0
                     ):
+                        yield format_sse_frame(
+                            event_dto.model_dump_json(),
+                            event_id=encode_event_cursor(event.offset, chunk_count),
+                        )
+                        sent_any_frame = True
+                        sent_chunk_count = chunk_count
+
+                    if is_complete:
                         break
+
+                    remaining = max(0.0, deadline - loop.time())
+
+                    try:
+                        # Wait a heartbeat at a time, so an interrupted stream is kept
+                        # alive instead of going silent for the whole wait_for_data.
+                        if heartbeat_seconds > 0 and remaining > heartbeat_seconds:
+                            has_new_chunks = await asyncio.wait_for(
+                                wait_for_chunks(chunk_count, remaining),
+                                timeout=heartbeat_seconds,
+                            )
+                        else:
+                            # Wait for new chunks (not full completion)
+                            has_new_chunks = await wait_for_chunks(chunk_count, remaining)
+                    except asyncio.TimeoutError:
+                        yield SSE_HEARTBEAT_FRAME
+                        continue
+
+                    if not has_new_chunks:
+                        break
+
+                    deadline = loop.time() + wait_for_data
 
             return StreamingResponse(
                 event_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                },
+                media_type=SSE_MEDIA_TYPE,
+                headers=SSE_HEADERS,
             )
 
         # Standard read

@@ -15,6 +15,18 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- Event streams (`sse=true`) now carry an `id` on every frame and resume from
+  it. A client that reconnects with `Last-Event-ID` picks up after the frame it
+  last saw, instead of replaying the session from the beginning. Streams ask a
+  reconnecting browser to wait three seconds (`retry: 3000`), and an idle
+  stream sends a keep-alive comment every 15 seconds, so a proxy no longer
+  closes a quiet connection before `wait_for_data` expires. When a request
+  carries both `min_offset` and `Last-Event-ID`, the later of the two wins: a
+  reconnecting client usually still has the original `min_offset` in its URL,
+  and honoring it would replay the session. The delay and the keep-alive
+  interval can be set with `PARLANT_SSE_RETRY_MS` and
+  `PARLANT_SSE_HEARTBEAT_SECONDS`; `0` disables the keep-alive, and `0` for the
+  delay omits the `retry:` line.
 - Gemini serves Google's Gemini Decision 1 (`gemini-decision-1`), which answers
   many yes/no, choice and scale questions about one conversation in a single
   request. A `{"*": "gemini"}` route now uses it for rule ranking at the

@@ -852,11 +852,43 @@ source.onmessage = (message) => {
 The stream sends each matching event as:
 
 ```text
+id: 12
 data: {"id":"evt_123", ...}
 ```
 
-and closes when no matching event arrives within `wait_for_data` seconds.
-Reconnect with the next `min_offset` to continue.
+The `id` is the event's offset, and it is what makes the stream resumable: a
+client that reconnects with `Last-Event-ID` continues after the frame it last
+saw instead of replaying the session from the start.
+
+Browsers send that header on their own when `EventSource` reconnects. Other
+clients set it explicitly:
+
+```bash
+curl -N -H "Last-Event-ID: 12" \
+  "$PARLANT_URL/sessions/$SESSION_ID/events?sse=true&wait_for_data=60"
+```
+
+When a request carries both `min_offset` and `Last-Event-ID`, the later of the
+two wins. A reconnecting client usually keeps the original `min_offset` in the
+URL, so letting it override the header would replay every event since the stream
+first opened, which is the one thing resumption exists to prevent. A `min_offset`
+that is ahead of the header still wins, because it is the narrower request.
+
+The stream opens with `retry: 3000`, so a browser waits three seconds before
+reconnecting. While it is idle it sends a comment frame (`: keep-alive`) every
+15 seconds, so a proxy does not close a quiet connection before `wait_for_data`
+expires. The stream closes when no matching event arrives within `wait_for_data`
+seconds; reconnect to continue.
+
+Both timings are configurable, and are read when the stream starts:
+
+| Environment variable | Default | Effect |
+|---|---|---|
+| `PARLANT_SSE_HEARTBEAT_SECONDS` | `15` | Seconds between keep-alive frames. `0` turns them off. |
+| `PARLANT_SSE_RETRY_MS` | `3000` | Reconnect delay sent as `retry:`. `0` omits the line. |
+
+An invalid value is logged and replaced by the default, the same way
+`PARLANT_TOOL_TIMEOUT` is handled.
 
 #### Filtering Examples
 
@@ -932,6 +964,20 @@ source.onmessage = (message) => {
 ```
 
 For non-streaming events, `sse=true` sends the event once and closes.
+
+Every frame of a streaming event carries an `id` of the form
+`<offset>:<chunk_count>`, so a reconnecting client resumes at the chunk it last
+saw:
+
+```bash
+curl -N -H "Last-Event-ID: 0:3" \
+  "$PARLANT_URL/sessions/$SESSION_ID/events/$EVENT_ID?sse=true&wait_for_data=60"
+```
+
+Every frame carries the whole event as it stands, never a delta, so a frame means
+the same thing whether the client has been connected from the start or resumed in
+the middle. A client that starts from zero, or that resumes before any chunk,
+needs no special handling.
 
 ### Update Event Metadata
 

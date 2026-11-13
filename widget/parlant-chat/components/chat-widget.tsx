@@ -147,8 +147,9 @@ export interface ChatWidgetProps {
  *  - "logo": an image fitted inside the round avatar, such as your logo mark.
  *  - "photo": a portrait filling the round avatar. The floating launcher shows it too.
  *  - "video": a short muted loop in place of the avatar. It shows under the header, with the
- *    subtitle beside the name, keeps the size it opens at when the chat is expanded, and
- *    scrolls away with the conversation. `src` is an H.264 MP4 with its index at the start,
+ *    subtitle beside the name, and keeps the size it opens at when the chat is expanded. Once
+ *    the conversation scrolls, it fades and a round copy docks beside the name (phones show
+ *    only the circle). `src` is an H.264 MP4 with its index at the start,
  *    so it streams (iPhone Safari stalls on WebM); `poster` is its first frame, shown while
  *    it loads and with reduced motion. The launcher shows it cropped by `launcher`. Without
  *    `src`, it plays the widget's own video of an agent (assets/), poster and crop included.
@@ -648,6 +649,10 @@ function ChatPanel({
   const collapsed = Boolean(inputMode) && !inputOpened;
   const transcriptShown = !collapsed && Boolean(sessionId);
   const video = avatar?.type === "video" ? avatar : undefined;
+  // As soon as the transcript's video starts scrolling away, a round copy of it docks in the
+  // header beside the name (on phones it is always there, in place of the big video).
+  const [videoScrolledAway, setVideoScrolledAway] = useState(false);
+  const videoDocked = transcriptShown && videoScrolledAway;
   const hasActiveSession = Boolean(inputMode) && Boolean(transport.storedSessionId());
 
   // Lazy send: in input mode with no session yet, create it on the first send and flush the
@@ -750,9 +755,13 @@ function ChatPanel({
       {barMode && collapsed ? null : (
         <div className="parlant-cw-header">
           <div className="parlant-cw-header-id">
-            {!video && <Avatar name={name} avatar={avatar} offline={connectionIssue} />}
+            {video ? (
+              <HeaderVideo {...video} docked={videoDocked} instant={!transcriptShown} offline={connectionIssue} />
+            ) : (
+              <Avatar name={name} avatar={avatar} offline={connectionIssue} />
+            )}
             {subtitle ? (
-              <span className={cn("parlant-cw-header-text", video && "parlant-cw-header-text--inline")}>
+              <span className={cn("parlant-cw-header-text", video && !videoDocked && "parlant-cw-header-text--inline")}>
                 <span className="parlant-cw-header-name">{name}</span>
                 <span className="parlant-cw-header-subtitle">{subtitle}</span>
               </span>
@@ -876,7 +885,8 @@ function ChatPanel({
             reasoningStreaming={reasoningStreaming}
             reasoningByTrace={reasoningByTrace}
             reasoningMode={reasoningMode}
-            lead={video && <IntroVideo {...video} offline={connectionIssue} />}
+            lead={video && <IntroVideo {...video} offline={connectionIssue} faded={videoScrolledAway} />}
+            onLeadScrolled={video ? setVideoScrolledAway : undefined}
             preface={preface}
             streamStyle={streamStyle}
             streamSpeed={streamSpeed}
@@ -999,13 +1009,67 @@ function isEditable(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
-/** The intro video, spanning the card under the header, with the live dot in its corner. */
-function IntroVideo({ src, poster, live, offline = false }: { src: string; poster?: string; live?: boolean; offline?: boolean }) {
+/** The intro video, spanning the card under the header, with the live dot in its corner. It
+ *  fades out while `faded`: its round copy has docked in the header in its place. */
+function IntroVideo({
+  src,
+  poster,
+  live,
+  offline = false,
+  faded = false,
+}: {
+  src: string;
+  poster?: string;
+  live?: boolean;
+  offline?: boolean;
+  faded?: boolean;
+}) {
   return (
-    <div className="parlant-cw-video">
+    <div className="parlant-cw-video" data-faded={faded ? "true" : undefined}>
       <LoopingVideo src={src} poster={poster} />
       {live && <LiveDot offline={offline} />}
     </div>
+  );
+}
+
+/** The video as a small circle beside the name, cropped onto the face by `launcher`. It shows
+ *  while `docked` (the big video has started scrolling away), and always on phones (see styles.css). */
+function HeaderVideo({
+  src,
+  poster,
+  live,
+  launcher,
+  docked,
+  instant = false,
+  offline = false,
+}: {
+  src: string;
+  poster?: string;
+  live?: boolean;
+  launcher?: LauncherCrop;
+  docked: boolean;
+  /** Change without animating, such as when the chat is minimized. */
+  instant?: boolean;
+  offline?: boolean;
+}) {
+  const crop = launcher
+    ? ({
+        "--parlant-launcher-zoom": launcher.zoom,
+        "--parlant-launcher-x": launcher.x,
+        "--parlant-launcher-y": launcher.y,
+      } as CSSProperties)
+    : undefined;
+  return (
+    <span
+      className="parlant-cw-header-video"
+      data-docked={docked ? "true" : "false"}
+      data-instant={instant ? "true" : undefined}
+    >
+      <span className="parlant-cw-header-video-circle" style={crop}>
+        <LoopingVideo src={src} poster={poster} className="parlant-launcher-video" />
+      </span>
+      {live && <LiveDot offline={offline} />}
+    </span>
   );
 }
 

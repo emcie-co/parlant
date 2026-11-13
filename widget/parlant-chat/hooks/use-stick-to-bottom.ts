@@ -6,7 +6,7 @@
 // is observed too: when something takes its space, such as the reconnecting banner or a
 // chip coming back, the latest message would otherwise slip under the composer.
 
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 const NEAR_BOTTOM_PX = 80;
 
@@ -19,12 +19,16 @@ export interface StickToBottom {
   isPinned: boolean;
   /** Jump to the bottom; instant during streaming, smooth for a discrete new message. */
   scrollToBottom: (behavior?: ScrollBehavior) => void;
+  /** While true, the view is being moved on purpose (such as gliding past a faded lead):
+   *  growth doesn't re-pin it and its scroll position doesn't change the pinned state. */
+  holdRef: MutableRefObject<boolean>;
 }
 
 export function useStickToBottom(): StickToBottom {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
+  const holdRef = useRef(false);
   const [isPinned, setIsPinned] = useState(true);
 
   const setPinned = useCallback((value: boolean) => {
@@ -47,6 +51,7 @@ export function useStickToBottom(): StickToBottom {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
+      if (holdRef.current) return;
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       setPinned(distance <= NEAR_BOTTOM_PX);
     };
@@ -61,12 +66,12 @@ export function useStickToBottom(): StickToBottom {
     const el = scrollRef.current;
     if (!content || !el) return;
     const observer = new ResizeObserver(() => {
-      if (pinnedRef.current) el.scrollTop = el.scrollHeight;
+      if (pinnedRef.current && !holdRef.current) el.scrollTop = el.scrollHeight;
     });
     observer.observe(content);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  return { scrollRef, contentRef, isPinned, scrollToBottom };
+  return { scrollRef, contentRef, isPinned, scrollToBottom, holdRef };
 }

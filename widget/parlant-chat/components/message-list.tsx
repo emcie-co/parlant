@@ -2,7 +2,7 @@
 // collapsible mode, reasoning), the status line, and a "new messages" pill when the
 // user has scrolled up.
 
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import type {
   ChatMessage,
@@ -19,6 +19,9 @@ import { MessageBubble } from "./message-bubble";
 import { StatusBar } from "./status-bar";
 import { ToolWidgetView, type WidgetContext } from "./tool-widget";
 
+/** How long a scroll takes to glide past a faded lead; matches the header's transition. */
+const GLIDE_MS = 320;
+
 export interface MessageListProps {
   messages: ChatMessage[];
   toolWidgets: ToolWidget[];
@@ -34,6 +37,9 @@ export interface MessageListProps {
   reasoningMode: ReasoningMode;
   /** Shown first in the transcript, scrolling away with it, such as the agent's video. */
   lead?: ReactNode;
+  /** Called with true as soon as `lead` starts scrolling out of view, and false once it is
+   *  back in its resting place (and on unmount), so the header can stand in for it. */
+  onLeadScrolled?: (scrolled: boolean) => void;
   /** Muted intro shown above the first message. */
   preface?: string;
   streamStyle: StreamStyle;
@@ -152,6 +158,7 @@ export function MessageList({
   reasoningByTrace,
   reasoningMode,
   lead,
+  onLeadScrolled,
   preface,
   streamStyle,
   streamSpeed,
@@ -163,7 +170,110 @@ export function MessageList({
   signingIn = false,
   signIns = [],
 }: MessageListProps) {
-  const { scrollRef, contentRef, isPinned, scrollToBottom } = useStickToBottom();
+  const { scrollRef, contentRef, isPinned, scrollToBottom, holdRef } = useStickToBottom();
+  const hasLead = Boolean(lead);
+
+  const leadRef = useRef<HTMLDivElement>(null);
+
+  // Reports whether the lead (such as the agent's video) has started to scroll away. It leads
+  // the list, so it moves the moment the list is scrolled at all; measured on scroll, which
+  // also fires when the list pins itself to a new message.
+  //
+  // The header stands in for the lead once it moves, so the lead fades and its space is empty.
+  // A scroll that starts into that space glides on past it: down to just above the first
+  // message (the content's gap stays as a margin), or up to the top. The glide is driven frame
+  // by frame for GLIDE_MS, the same time the header takes to make room for the lead's stand-in
+  // (see styles.css), so the two move together. Re-pinning to the bottom is held meanwhile.
+  //
+  // Docking makes the header taller in one step, which shortens this list from the top and
+  // would push its content down. A ResizeObserver (it runs before the frame is painted) adds
+  // the same amount to the scroll, so the content stays where it was.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !hasLead || !onLeadScrolled) return;
+    let scrolled = false;
+    let last = el.scrollTop;
+    let frame = 0;
+    let gliding: { from: number; target: number; start: number } | null = null;
+    let height = el.clientHeight;
+    let compensateUntil = 0;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const report = (next: boolean) => {
+      if (next !== scrolled) {
+        scrolled = next;
+        compensateUntil = performance.now() + 600;
+        onLeadScrolled(next);
+      }
+    };
+    const leadEnd = () => {
+      const leadEl = leadRef.current;
+      if (!leadEl) return 0;
+      return el.scrollTop + leadEl.getBoundingClientRect().bottom - el.getBoundingClientRect().top;
+    };
+    const finish = () => {
+      frame = 0;
+      gliding = null;
+      holdRef.current = false;
+      last = el.scrollTop;
+      el.dispatchEvent(new Event("scroll"));
+    };
+    const glide = (target: number) => {
+      report(target > 0);
+      holdRef.current = true;
+      if (reduceMotion || typeof requestAnimationFrame === "undefined") {
+        el.scrollTo({ top: target, behavior: "auto" });
+        finish();
+        return;
+      }
+      const glideState = { from: el.scrollTop, target, start: performance.now() };
+      gliding = glideState;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - glideState.start) / GLIDE_MS);
+        const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const max = el.scrollHeight - el.clientHeight;
+        el.scrollTop = Math.min(max, glideState.from + (glideState.target - glideState.from) * eased);
+        if (t < 1) frame = requestAnimationFrame(step);
+        else finish();
+      };
+      frame = requestAnimationFrame(step);
+    };
+    // Keeps the content in place when the header docks or undocks (see above).
+    const resize =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            const next = el.clientHeight;
+            const shrunk = height - next;
+            height = next;
+            if (!shrunk || performance.now() > compensateUntil || el.scrollTop <= 0) return;
+            el.scrollTop += shrunk;
+            if (gliding) gliding.from += shrunk;
+          });
+    resize?.observe(el);
+    const onScroll = () => {
+      if (frame) return;
+      const top = el.scrollTop;
+      const end = leadEnd();
+      // At the bottom, this is the list pinning itself to a new message (or a short chat that
+      // can't scroll further): that never glides.
+      const atBottom = el.scrollHeight - el.clientHeight - top <= 1;
+      if (top > 0 && top < end - 1 && top !== last && !atBottom) {
+        glide(top > last ? end : 0);
+        return;
+      }
+      report(top > 0);
+      last = top;
+    };
+    report(el.scrollTop > 0);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      resize?.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      holdRef.current = false;
+      if (scrolled) onLeadScrolled(false);
+    };
+  }, [scrollRef, hasLead, onLeadScrolled, holdRef]);
 
   // Group tool widgets by trace so each turn's output renders under its agent reply.
   const widgetsByTrace = new Map<string, ToolWidget[]>();
@@ -190,7 +300,11 @@ export function MessageList({
     <div className="parlant-list">
       <div ref={scrollRef} className="parlant-hide-scrollbar parlant-mlist-scroll">
         <div ref={contentRef} className="parlant-mlist-content">
-          {lead}
+          {lead && (
+            <div ref={leadRef} className="parlant-mlist-lead">
+              {lead}
+            </div>
+          )}
           {preface && (
             <p className="parlant-mlist-preface">
               {preface}

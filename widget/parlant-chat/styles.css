@@ -648,7 +648,8 @@
   min-width: 0;
   flex-direction: column;
 }
-/* With the video below and no avatar beside it, the subtitle follows the name on one line. */
+/* With the big video below and no avatar beside it, the subtitle follows the name on one line.
+ * Once the video's circle docks beside the name, the subtitle goes back under it. */
 .parlant-widget .parlant-cw-header-text--inline {
   flex-direction: row;
   align-items: baseline;
@@ -717,7 +718,7 @@
 @media (prefers-reduced-motion: reduce) {
   .parlant-widget .parlant-cw-live::after { animation: none; opacity: 0; }
 }
-/* The intro video spans the card under the header, almost square-cornered. */
+/* The intro video spans the card under the header, with rounded corners. */
 .parlant-widget .parlant-cw-video {
   position: relative;
   flex-shrink: 0;
@@ -725,8 +726,14 @@
   margin: 0.375rem auto 0.25rem;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: 0.875rem;
   background: hsl(var(--muted));
+}
+/* Once its round copy docks in the header, the big video fades out as it scrolls away. */
+.parlant-widget .parlant-cw-video { transition: opacity 240ms ease; }
+.parlant-widget .parlant-cw-video[data-faded="true"] { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .parlant-widget .parlant-cw-video { transition: none; }
 }
 .parlant-widget .parlant-cw-video video {
   display: block;
@@ -744,11 +751,57 @@
   height: 0.75rem;
   width: 0.75rem;
 }
+/* The video's round copy in the header, beside the name. It stays folded away (no size, so the
+ * header keeps its usual height, and no gap after it) until the big video starts scrolling out
+ * of the transcript, then grows in. */
+.parlant-widget .parlant-cw-header-video {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  margin-right: -0.625rem;
+  opacity: 0;
+  transform: scale(0.6);
+  /* 320ms, in step with the transcript's glide past the big video (message-list.tsx). The
+   * height is never animated: docking and undocking change it in one step, and the transcript
+   * offsets its scroll by the same amount in that frame, so nothing moves up or down. */
+  transition: width 320ms cubic-bezier(0.65, 0, 0.35, 1), margin-right 320ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 320ms ease, transform 320ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+/* Minimizing back to the input box drops straight into its state, with no animation. */
+.parlant-widget .parlant-cw-header-video[data-instant="true"] { transition: none; }
+.parlant-widget .parlant-cw-header-video[data-docked="true"] {
+  width: 4rem;
+  height: 4rem;
+  margin-right: 0;
+  opacity: 1;
+  transform: none;
+}
+.parlant-widget .parlant-cw-header-video-circle {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: hsl(var(--muted));
+}
+.parlant-widget .parlant-cw-header-video .parlant-cw-live,
+.parlant-widget .parlant-input--open .parlant-cw-header-video .parlant-cw-live {
+  right: 0.125rem;
+  bottom: 0.125rem;
+  height: 0.75rem;
+  width: 0.75rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .parlant-widget .parlant-cw-header-video,
+  .parlant-widget .parlant-cw-header-video[data-docked="true"] { transition: none; }
+}
 /* The closed bar stays a slim input; the video shows once it opens. */
 .parlant-widget .parlant-bar:not(.parlant-bar--open) .parlant-cw-video { display: none; }
 /* Once the transcript shows, the video leads it and scrolls away with it, keeping its gap
  * under the header. */
-.parlant-widget .parlant-mlist-content > .parlant-cw-video { width: 100%; margin: -0.375rem auto 0; }
+.parlant-widget .parlant-mlist-lead > .parlant-cw-video { width: 100%; margin: -0.375rem auto 0; }
 /* Expanding the chat doesn't enlarge the video: it keeps the width it has in the standard
  * 380px panel, centered. An inline widget's size is the page's, and phones fill the screen. */
 @media (min-width: 641px) {
@@ -1290,6 +1343,23 @@
 @media (max-width: 640px) {
   /* Full-screen already; the expand/shrink size toggle is meaningless — leave only minimize. */
   .parlant-widget .parlant-cw-size-toggle { display: none; }
+
+  /* A video avatar is only the small circle in the header: the big video would take most of
+   * the screen. */
+  .parlant-widget .parlant-cw-video { display: none; }
+  .parlant-widget .parlant-cw-header-video {
+    width: 4rem;
+    height: 4rem;
+    margin-right: 0;
+    opacity: 1;
+    transform: none;
+  }
+  /* The circle is always beside the name here, so the subtitle sits under it. */
+  .parlant-widget .parlant-cw-header-text--inline {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
 
   /* Input mode — collapsed bar: full-width with a margin, sized/anchored to the *visual*
    * viewport (so it clears the scrollbar/keyboard). See chat-widget.tsx for the vars. */

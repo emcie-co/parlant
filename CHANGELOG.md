@@ -15,6 +15,16 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- A chat widget with a video avatar now docks the video as a circle beside the
+  agent's name once the conversation scrolls. The big video fades out, the
+  subtitle moves under the name, and a scroll that starts into the video's
+  space glides past it, so visitors don't scroll through empty space. On
+  phones the widget only shows the circle, which is cropped onto the face by
+  the avatar's `launcher` setting. Your project keeps the copy
+  `parlant widget init` made. To pick this up, run
+  `parlant widget init --force`, which replaces that copy and any changes you
+  made to it.
+
 - With Gemini as your provider, replies at medium, high and max effort and both
   review checks now run on Gemini 4 Hydrogen instead of Gemini 3.8 Flash. Medium
   effort keeps low reasoning. On a website agent this cut replies from 15–30

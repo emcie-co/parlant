@@ -1681,16 +1681,19 @@ describe("avatar", () => {
     await waitFor(() => expect(container.querySelector(".parlant-cw-avatar--photo img")?.getAttribute("src")).toBe("/dana.jpg"));
   });
 
-  it("shows a video under the header in place of the avatar, with the subtitle beside the name", async () => {
+  it("draws the video over its slot under the header, in place of the avatar, with the subtitle beside the name", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" avatar={video} />,
     );
 
-    await waitFor(() => expect(container.querySelector(".parlant-cw-video video")).not.toBeNull());
-    const el = container.querySelector(".parlant-cw-video video") as HTMLVideoElement;
+    await waitFor(() => expect(container.querySelector(".parlant-cw-dock video")).not.toBeNull());
+    const el = container.querySelector(".parlant-cw-dock video") as HTMLVideoElement;
     expect(el.getAttribute("src")).toBe("/shira.mp4");
     expect(el.getAttribute("poster")).toBe("/shira.jpg");
+    expect(container.querySelector(".parlant-cw-video--slot")).not.toBeNull();
+    // Laid out from the first render, before any message.
+    expect((container.querySelector(".parlant-cw-dock") as HTMLElement).style.width).not.toBe("");
     expect(container.querySelector(".parlant-cw-avatar")).toBeNull();
     expect(container.querySelector(".parlant-cw-header-text--inline")).not.toBeNull();
   });
@@ -1698,138 +1701,96 @@ describe("avatar", () => {
   it("puts the live dot in the video's corner, only when it's live", async () => {
     server();
     const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={video} />);
-    await waitFor(() => expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).not.toBeNull());
+    await waitFor(() => expect(view.container.querySelector(".parlant-cw-dock .parlant-cw-live")).not.toBeNull());
 
     view.rerender(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={{ ...video, live: false }} />);
-    expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).toBeNull();
+    expect(view.container.querySelector(".parlant-cw-dock .parlant-cw-live")).toBeNull();
   });
 
-  it("moves the video into the transcript once the conversation starts, so it scrolls away", async () => {
+  it("moves the video's slot into the transcript once the conversation starts, keeping the same video playing", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} avatar={video} />,
     );
 
-    await waitFor(() => expect(container.querySelector(".parlant-cw-video")).not.toBeNull());
-    expect(container.querySelector(".parlant-mlist-content .parlant-cw-video")).toBeNull();
+    await waitFor(() => expect(container.querySelector(".parlant-cw-dock video")).not.toBeNull());
+    const before = container.querySelector(".parlant-cw-dock video");
+    expect(container.querySelector(".parlant-mlist-content .parlant-cw-video--slot")).toBeNull();
 
     const input = container.querySelector("textarea")!;
     fireEvent.change(input, { target: { value: "Hi" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(container.querySelector(".parlant-mlist-lead > .parlant-cw-video")).not.toBeNull());
-    expect(container.querySelectorAll(".parlant-cw-video")).toHaveLength(1);
+    await waitFor(() => expect(container.querySelector(".parlant-mlist-lead > .parlant-cw-video--slot")).not.toBeNull());
+    expect(container.querySelectorAll(".parlant-cw-video--slot")).toHaveLength(1);
+    expect(container.querySelectorAll("video")).toHaveLength(1);
+    expect(container.querySelector(".parlant-cw-dock video")).toBe(before);
   });
 
-  it("docks a round copy of the video beside the name as soon as the big one starts scrolling, cropped onto the face", async () => {
+  it("shrinks the video into a circle beside the name in step with the scroll, its bottom edge staying with the transcript and the name fading out while it moves", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" customerSound={false} agentSound={false} avatar={video} />,
-    );
-    const docked = () => container.querySelector(".parlant-cw-header-video")?.getAttribute("data-docked");
-
-    await waitFor(() => expect(container.querySelector(".parlant-cw-header-video video")).not.toBeNull());
-    expect(container.querySelector(".parlant-cw-header-video video")?.getAttribute("src")).toBe("/shira.mp4");
-    const crop = container.querySelector(".parlant-cw-header-video-circle") as HTMLElement;
-    expect(crop.style.getPropertyValue("--parlant-launcher-zoom")).toBe("1.6");
-    expect(crop.style.getPropertyValue("--parlant-launcher-y")).toBe("35%");
-    expect(docked()).toBe("false");
-
-    const input = container.querySelector("textarea")!;
-    fireEvent.change(input, { target: { value: "Hi" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(container.querySelector(".parlant-mlist-lead")).not.toBeNull());
-    expect(docked()).toBe("false");
-
-    // The video leads the list, so it docks the moment the list scrolls at all.
-    const scroller = container.querySelector(".parlant-mlist-scroll") as HTMLElement;
-    scroller.scrollTop = 1;
-    fireEvent.scroll(scroller);
-    await waitFor(() => expect(docked()).toBe("true"));
-    // The subtitle moves under the name, and the big video fades out in its place.
-    expect(container.querySelector(".parlant-cw-header-text--inline")).toBeNull();
-    expect(container.querySelector(".parlant-mlist-lead > .parlant-cw-video")?.getAttribute("data-faded")).toBe("true");
-
-    scroller.scrollTop = 0;
-    fireEvent.scroll(scroller);
-    await waitFor(() => expect(docked()).toBe("false"));
-    expect(container.querySelector(".parlant-mlist-lead > .parlant-cw-video")?.hasAttribute("data-faded")).toBe(false);
-    expect(container.querySelector(".parlant-cw-header-text--inline")).not.toBeNull();
-  });
-
-  it("carries a scroll that starts into the faded video's space past it, to just above the first message", async () => {
-    // With reduced motion the glide is a jump, so where it lands can be read straight away.
-    const matchMedia = window.matchMedia;
-    window.matchMedia = ((query: string) => ({ matches: query.includes("reduce"), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
-    try {
-      server();
-      const { container } = render(
-        <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} avatar={video} />,
-      );
-      const input = await waitFor(() => container.querySelector("textarea")!);
-      fireEvent.change(input, { target: { value: "Hi" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-      await waitFor(() => expect(container.querySelector(".parlant-mlist-lead")).not.toBeNull());
-
-      const scroller = container.querySelector(".parlant-mlist-scroll") as HTMLElement;
-      const lead = container.querySelector(".parlant-mlist-lead") as HTMLElement;
-      const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect;
-      const scrollTo = vi.fn((options: ScrollToOptions) => { scroller.scrollTop = options.top ?? 0; });
-      scroller.scrollTo = scrollTo as unknown as typeof scroller.scrollTo;
-      // The list starts at 100px; the 200px video ends at 300px before scrolling.
-      scroller.getBoundingClientRect = () => rect(100, 600);
-      lead.getBoundingClientRect = () => rect(100 - scroller.scrollTop, 300 - scroller.scrollTop);
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 2000 });
-      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 500 });
-
-      scroller.scrollTop = 20;
-      fireEvent.scroll(scroller);
-      expect(scrollTo).toHaveBeenLastCalledWith({ top: 200, behavior: "auto" });
-      expect(scroller.scrollTop).toBe(200);
-
-      // A scroll back up into the video's space carries on to the top.
-      scroller.scrollTop = 180;
-      fireEvent.scroll(scroller);
-      expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
-
-      // Scrolling below the video leaves the scroll alone.
-      scrollTo.mockClear();
-      scroller.scrollTop = 260;
-      fireEvent.scroll(scroller);
-      scroller.scrollTop = 320;
-      fireEvent.scroll(scroller);
-      expect(scrollTo).not.toHaveBeenCalled();
-    } finally {
-      window.matchMedia = matchMedia;
-    }
-  });
-
-  it("never glides when the list pins itself to a new message near the video", async () => {
-    server();
-    const { container } = render(
-      <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} avatar={video} />,
     );
     const input = await waitFor(() => container.querySelector("textarea")!);
     fireEvent.change(input, { target: { value: "Hi" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(container.querySelector(".parlant-mlist-lead")).not.toBeNull());
 
+    const card = container.querySelector(".parlant-chat") as HTMLElement;
+    const header = container.querySelector(".parlant-cw-header") as HTMLElement;
     const scroller = container.querySelector(".parlant-mlist-scroll") as HTMLElement;
-    const lead = container.querySelector(".parlant-mlist-lead") as HTMLElement;
-    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect;
-    const scrollTo = vi.fn();
-    scroller.scrollTo = scrollTo as unknown as typeof scroller.scrollTo;
-    scroller.getBoundingClientRect = () => rect(100, 600);
-    lead.getBoundingClientRect = () => rect(100 - scroller.scrollTop, 300 - scroller.scrollTop);
-    // A short chat: the bottom is 50px down, inside the video's space.
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 550 });
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 500 });
+    const slot = container.querySelector(".parlant-cw-video--slot") as HTMLElement;
+    const dock = container.querySelector(".parlant-cw-dock") as HTMLElement;
+    const shelf = container.querySelector(".parlant-cw-shelf") as HTMLElement;
+    // Lay out a 380px card: a 48px header, and the 200px slot resting 60px down, in the card's
+    // own coordinates (offsets ignore the transcript's scroll).
+    const place = (el: HTMLElement, left: number, top: number, width: number, height: number) => {
+      const define = (key: string, value: unknown) => Object.defineProperty(el, key, { configurable: true, get: () => value });
+      define("offsetParent", card);
+      define("offsetLeft", left);
+      define("offsetTop", top);
+      define("offsetWidth", width);
+      define("offsetHeight", height);
+    };
+    place(header, 0, 0, 380, 48);
+    place(slot, 12, 60, 356, 200);
+    const at = (scrollTop: number) => {
+      scroller.scrollTop = scrollTop;
+      fireEvent.scroll(scroller);
+      const [x, y] = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(dock.style.transform)!.slice(1).map(Number);
+      return { x, y, width: parseFloat(dock.style.width), height: parseFloat(dock.style.height) };
+    };
 
-    scroller.scrollTop = 50;
-    fireEvent.scroll(scroller);
-    expect(scrollTo).not.toHaveBeenCalled();
-    expect(scroller.scrollTop).toBe(50);
-    await waitFor(() => expect(container.querySelector(".parlant-cw-header-video")?.getAttribute("data-docked")).toBe("true"));
+    expect(at(0)).toEqual({ x: 12, y: 60, width: 356, height: 200 });
+    expect(shelf.style.height).toBe("0px");
+
+    // Halfway, its bottom edge is where the slot's is: 260 - 93.
+    const half = at(93);
+    expect(half.y + half.height).toBeCloseTo(167);
+    expect(half.width).toBeGreaterThan(64);
+    expect(half.width).toBeLessThan(356);
+    // Rounder than at rest, and the name and subtitle are faded out while it moves, where they
+    // last showed.
+    expect(parseFloat(dock.style.borderRadius)).toBeGreaterThan(14);
+    const text = container.querySelector(".parlant-cw-header-text") as HTMLElement;
+    expect(text.dataset.dock).toBe("moving");
+    expect(text.style.transform).toBe("");
+
+    // Past the slot, it is the circle, and the shelf fills what it reaches below the header,
+    // with the header's padding under it: 10 + 64 + 10 - 48.
+    expect(at(300)).toEqual({ x: 12, y: 10, width: 64, height: 64 });
+    expect(dock.style.borderRadius).toBe("32px");
+    // Docked, the name and subtitle fade back in beside the circle.
+    expect(text.dataset.dock).toBe("docked");
+    expect(text.style.transform).toMatch(/^translate\(/);
+    expect(shelf.style.height).toBe("36px");
+    expect((container.querySelector(".parlant-cw-dock video") as HTMLElement).style.transform).toContain("scale(1.6)");
+
+    // And back.
+    expect(at(0)).toEqual({ x: 12, y: 60, width: 356, height: 200 });
+    expect(text.dataset.dock).toBe("rest");
+    expect(text.style.transform).toBe("");
   });
 
   it("shows the video on the launcher, cropped onto the face, with its live dot", async () => {

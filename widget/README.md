@@ -231,10 +231,10 @@ order. Duplicate text appears only once. Set the limit to 0 to hide chips.
 - **Video avatar** — `avatar={{ type: "video", src, poster }}` shows a short muted loop under the
   header in place of the avatar, with the subtitle beside the name and, with `live: true`, the
   live dot in its bottom-right corner. Once the conversation starts, it leads the transcript.
-  As soon as the transcript scrolls, the video fades out and a round copy of it, cropped by
-  `launcher`, docks beside the name, with the subtitle under the name. A scroll that starts into
-  the video's space glides past it, to just above the first message or back to the top, and
-  nothing jumps as the header makes room for the circle. On phones the widget only shows the
+  As the transcript scrolls, the video shrinks into a circle beside the name, cropped by
+  `launcher`, in step with the scroll, and grows back as it scrolls up. The header keeps its
+  height, and the name and subtitle fade out while the video moves, then fade back in beside the
+  circle, the subtitle under the name. On phones the widget only shows the
   circle. Expanding the chat keeps the video at its opened size. Use an H.264 MP4 with its index at the start (`ffmpeg -movflags +faststart`), so
   it streams; iPhone Safari stalls on WebM. `poster` is its first frame, shown while it loads and
   with reduced motion. It plays only while on screen. Leave out `src` (`avatar={{ type: "video" }}`)

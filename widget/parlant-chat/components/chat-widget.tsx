@@ -2,7 +2,7 @@
 // inline surface that fills its container. Composed from the hooks and primitives —
 // copy this file and rearrange it however you like.
 
-import { type CSSProperties, type MutableRefObject, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MutableRefObject, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import "../styles.css";
 import type { AttachmentRef, ReasoningMode, StreamSpeed, StreamStyle } from "../lib/events";
@@ -147,9 +147,9 @@ export interface ChatWidgetProps {
  *  - "logo": an image fitted inside the round avatar, such as your logo mark.
  *  - "photo": a portrait filling the round avatar. The floating launcher shows it too.
  *  - "video": a short muted loop in place of the avatar. It shows under the header, with the
- *    subtitle beside the name, and keeps the size it opens at when the chat is expanded. Once
- *    the conversation scrolls, it fades and a round copy docks beside the name (phones show
- *    only the circle). `src` is an H.264 MP4 with its index at the start,
+ *    subtitle beside the name, and keeps the size it opens at when the chat is expanded. As
+ *    the conversation scrolls, it shrinks into a circle beside the name, in step with the
+ *    scroll (phones show only the circle). `src` is an H.264 MP4 with its index at the start,
  *    so it streams (iPhone Safari stalls on WebM); `poster` is its first frame, shown while
  *    it loads and with reduced motion. The launcher shows it cropped by `launcher`. Without
  *    `src`, it plays the widget's own video of an agent (assets/), poster and crop included.
@@ -649,10 +649,6 @@ function ChatPanel({
   const collapsed = Boolean(inputMode) && !inputOpened;
   const transcriptShown = !collapsed && Boolean(sessionId);
   const video = avatar?.type === "video" ? avatar : undefined;
-  // As soon as the transcript's video starts scrolling away, a round copy of it docks in the
-  // header beside the name (on phones it is always there, in place of the big video).
-  const [videoScrolledAway, setVideoScrolledAway] = useState(false);
-  const videoDocked = transcriptShown && videoScrolledAway;
   const hasActiveSession = Boolean(inputMode) && Boolean(transport.storedSessionId());
 
   // Lazy send: in input mode with no session yet, create it on the first send and flush the
@@ -755,13 +751,10 @@ function ChatPanel({
       {barMode && collapsed ? null : (
         <div className="parlant-cw-header">
           <div className="parlant-cw-header-id">
-            {video ? (
-              <HeaderVideo {...video} docked={videoDocked} instant={!transcriptShown} offline={connectionIssue} />
-            ) : (
-              <Avatar name={name} avatar={avatar} offline={connectionIssue} />
-            )}
+            {/* A video avatar has no avatar here: the video itself docks beside the name. */}
+            {!video && <Avatar name={name} avatar={avatar} offline={connectionIssue} />}
             {subtitle ? (
-              <span className={cn("parlant-cw-header-text", video && !videoDocked && "parlant-cw-header-text--inline")}>
+              <span className={cn("parlant-cw-header-text", video && "parlant-cw-header-text--inline")}>
                 <span className="parlant-cw-header-name">{name}</span>
                 <span className="parlant-cw-header-subtitle">{subtitle}</span>
               </span>
@@ -842,9 +835,10 @@ function ChatPanel({
         </div>
       )}
 
-      {/* Before the transcript shows, the video sits under the header; once it shows, the
-          video leads the transcript, so it scrolls away with the conversation. */}
-      {video && !transcriptShown && <IntroVideo {...video} offline={connectionIssue} />}
+      {/* The video rests in a slot: under the header before the transcript shows, then leading
+          the transcript. VideoDock draws the one video over its slot, and docks it beside the
+          name as the transcript scrolls. */}
+      {video && !transcriptShown && <div className="parlant-cw-video parlant-cw-video--slot" />}
 
       {statusBanner && (
         <div className="parlant-cw-banner">
@@ -885,8 +879,7 @@ function ChatPanel({
             reasoningStreaming={reasoningStreaming}
             reasoningByTrace={reasoningByTrace}
             reasoningMode={reasoningMode}
-            lead={video && <IntroVideo {...video} offline={connectionIssue} faded={videoScrolledAway} />}
-            onLeadScrolled={video ? setVideoScrolledAway : undefined}
+            lead={video && <div className="parlant-cw-video parlant-cw-video--slot" />}
             preface={preface}
             streamStyle={streamStyle}
             streamSpeed={streamSpeed}
@@ -963,6 +956,14 @@ function ChatPanel({
           </div>
         </div>
       )}
+
+      {video && !(barMode && collapsed) && (
+        <VideoDock
+          {...video}
+          offline={connectionIssue}
+          layoutKey={`${collapsed}:${transcriptShown}:${expanded}:${sessionId ?? ""}`}
+        />
+      )}
     </div>
   );
 }
@@ -1009,67 +1010,177 @@ function isEditable(el: Element | null): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
-/** The intro video, spanning the card under the header, with the live dot in its corner. It
- *  fades out while `faded`: its round copy has docked in the header in its place. */
-function IntroVideo({
-  src,
-  poster,
-  live,
-  offline = false,
-  faded = false,
-}: {
-  src: string;
-  poster?: string;
-  live?: boolean;
-  offline?: boolean;
-  faded?: boolean;
-}) {
-  return (
-    <div className="parlant-cw-video" data-faded={faded ? "true" : undefined}>
-      <LoopingVideo src={src} poster={poster} />
-      {live && <LiveDot offline={offline} />}
-    </div>
-  );
-}
+/** The docked circle's size, and the gap between it and the name. */
+const DOCK_REM = 4;
+const DOCK_GAP_PX = 10;
 
-/** The video as a small circle beside the name, cropped onto the face by `launcher`. It shows
- *  while `docked` (the big video has started scrolling away), and always on phones (see styles.css). */
-function HeaderVideo({
+const lerp = (from: number, to: number, p: number) => from + (to - from) * p;
+
+/**
+ * The agent's video, drawn over the card. It rests in its slot (`.parlant-cw-video--slot`):
+ * under the header before the transcript shows, then leading the transcript. As the transcript
+ * scrolls, it shrinks into a circle beside the name, driven by the scroll position itself, not
+ * by a timed animation: its bottom edge stays with the slot's (so with the first message), and
+ * it arrives at the circle exactly when the slot's bottom does. Scrolling back reverses it the
+ * same way, and it never takes over the scroll, so momentum and the scroll bar behave as usual.
+ *
+ * The header never changes height. As the circle docks, a strip of header background (the
+ * shelf) grows under it, so messages scroll beneath the circle; the name and subtitle fade
+ * out while it moves and back in beside it once it has docked. Phones always show the circle, in a header tall enough for it.
+ */
+function VideoDock({
   src,
   poster,
   live,
   launcher,
-  docked,
-  instant = false,
   offline = false,
+  layoutKey,
 }: {
   src: string;
   poster?: string;
   live?: boolean;
   launcher?: LauncherCrop;
-  docked: boolean;
-  /** Change without animating, such as when the chat is minimized. */
-  instant?: boolean;
   offline?: boolean;
+  /** Changes whenever the card's layout does (opening, minimizing, a new chat). */
+  layoutKey: string;
 }) {
-  const crop = launcher
-    ? ({
-        "--parlant-launcher-zoom": launcher.zoom,
-        "--parlant-launcher-x": launcher.x,
-        "--parlant-launcher-y": launcher.y,
-      } as CSSProperties)
-    : undefined;
+  const dockRef = useRef<HTMLDivElement>(null);
+  const shelfRef = useRef<HTMLDivElement>(null);
+  const zoom = launcher?.zoom ?? 1;
+  const faceX = parseFloat(launcher?.x ?? "50%");
+  const faceY = parseFloat(launcher?.y ?? "50%");
+
+  useLayoutEffect(() => {
+    // The dock is the card's own child, so the card is its parent: the card's ref isn't
+    // attached yet when this first runs (children's layout effects run first).
+    const dock = dockRef.current;
+    const shelf = shelfRef.current;
+    const card = dock?.parentElement;
+    if (!card || !dock || !shelf) return;
+    const header = card.querySelector<HTMLElement>(".parlant-cw-header");
+    const slot = card.querySelector<HTMLElement>(".parlant-cw-video--slot");
+    const scroller = card.querySelector<HTMLElement>(".parlant-mlist-scroll");
+    const text = header?.querySelector<HTMLElement>(".parlant-cw-header-text") ?? null;
+    const nameEl = header?.querySelector<HTMLElement>(".parlant-cw-header-name") ?? null;
+    const caption = header?.querySelector<HTMLElement>(".parlant-cw-header-subtitle") ?? null;
+    const videoEl = dock.querySelector("video");
+    const phone = window.matchMedia?.("(max-width: 640px)");
+
+    // An element's box in the card's own layout: offsets ignore transforms (the card scales as
+    // it opens) and the transcript's scroll, so this is where the element rests.
+    const boxIn = (el: HTMLElement) => {
+      let x = 0;
+      let y = 0;
+      let node: HTMLElement | null = el;
+      while (node && node !== card) {
+        x += node.offsetLeft;
+        y += node.offsetTop;
+        node = node.offsetParent as HTMLElement | null;
+      }
+      return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+    };
+
+    const layout = () => {
+      if (!header) return;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const size = DOCK_REM * rem;
+      const headerStyle = getComputedStyle(header);
+      // Computed lengths are in px in browsers; some environments keep rem.
+      const px = (value: string) => (parseFloat(value) || 0) * (value.endsWith("rem") ? rem : 1);
+      const padLeft = px(headerStyle.paddingLeft);
+      const padTop = px(headerStyle.paddingTop);
+      const head = boxIn(header);
+      const headerBottom = head.y + head.h;
+      const circle = { x: head.x + padLeft, y: head.y + padTop };
+
+      // Where the video rests, and how far into the scroll it reaches the circle.
+      const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
+      let p = 1;
+      let rest = { x: circle.x, y: circle.y, w: size, h: size };
+      if (slot && slotShown) {
+        const scrolled = scroller && scroller.contains(slot) ? scroller.scrollTop : 0;
+        rest = boxIn(slot);
+        const reach = rest.y + rest.h - (circle.y + size);
+        p = reach > 0 ? Math.min(1, Math.max(0, scrolled / reach)) : 1;
+      }
+
+      // The bottom edge follows the slot's, the width narrows as it goes, and the top rises
+      // late (cubed), so the video stays below the name until it is nearly a circle.
+      const width = lerp(rest.w, size, p);
+      const left = lerp(rest.x, circle.x, p);
+      const bottom = lerp(rest.y + rest.h, circle.y + size, p);
+      const top = lerp(rest.y, circle.y, p * p * p);
+      dock.style.transform = "translate(" + left + "px, " + top + "px)";
+      dock.style.width = width + "px";
+      dock.style.height = bottom - top + "px";
+      // The corners round off with the scroll: from the resting 14px to half the box's shorter
+      // side, so it is a full circle when it docks.
+      dock.style.borderRadius = lerp(14, Math.min(width, bottom - top) / 2, p) + "px";
+      if (videoEl) {
+        // Zooms onto the face (the avatar's `launcher` crop) as it becomes the circle.
+        const z = lerp(1, zoom, p);
+        videoEl.style.transform =
+          "scale(" + z + ") translate(" + (50 - faceX) * p + "%, " + (50 - faceY) * p + "%)";
+      }
+
+      // The shelf: header background under the circle, as far as the circle reaches.
+      const reachBelow = Math.max(0, circle.y + size + padTop - headerBottom);
+      shelf.style.transform = "translateY(" + headerBottom + "px)";
+      shelf.style.height = reachBelow * p + "px";
+
+      // The name and subtitle don't travel with the video: they fade out as it starts to move
+      // and fade back in once it has docked, already beside the circle with the subtitle under
+      // the name. While the video moves they stay where they last showed, faded out.
+      if (text && nameEl) {
+        const state = p <= 0 ? "rest" : p >= 1 ? "docked" : "moving";
+        text.dataset.dock = state;
+        if (state !== "moving") {
+          const docked = state === "docked";
+          const nameH = nameEl.offsetHeight;
+          const stacked = nameH + (caption?.offsetHeight ?? 0);
+          const dx = padLeft + size + DOCK_GAP_PX - text.offsetLeft;
+          const dy = padTop + size / 2 - stacked / 2 - text.offsetTop;
+          text.style.transform = docked ? "translate(" + dx + "px, " + dy + "px)" : "";
+          if (caption) {
+            const cx = caption.offsetLeft - nameEl.offsetLeft;
+            const cy = caption.offsetTop - nameEl.offsetTop;
+            caption.style.transform = docked ? "translate(" + -cx + "px, " + (nameH - cy) + "px)" : "";
+          }
+        }
+      }
+    };
+
+    layout();
+    // Scroll and resize events arrive before the frame is painted, so the dock never lags.
+    scroller?.addEventListener("scroll", layout, { passive: true });
+    window.addEventListener("resize", layout);
+    phone?.addEventListener?.("change", layout);
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(layout);
+    resize?.observe(card);
+    if (scroller) resize?.observe(scroller);
+    const content = scroller?.firstElementChild;
+    if (content) resize?.observe(content);
+    return () => {
+      scroller?.removeEventListener("scroll", layout);
+      window.removeEventListener("resize", layout);
+      phone?.removeEventListener?.("change", layout);
+      resize?.disconnect();
+      if (text) {
+        text.style.transform = "";
+        delete text.dataset.dock;
+      }
+      if (caption) caption.style.transform = "";
+    };
+  }, [layoutKey, zoom, faceX, faceY]);
+
   return (
-    <span
-      className="parlant-cw-header-video"
-      data-docked={docked ? "true" : "false"}
-      data-instant={instant ? "true" : undefined}
-    >
-      <span className="parlant-cw-header-video-circle" style={crop}>
-        <LoopingVideo src={src} poster={poster} className="parlant-launcher-video" />
-      </span>
-      {live && <LiveDot offline={offline} />}
-    </span>
+    <>
+      <div ref={shelfRef} className="parlant-cw-shelf" aria-hidden />
+      <div ref={dockRef} className="parlant-cw-dock">
+        <LoopingVideo src={src} poster={poster} />
+        {live && <LiveDot offline={offline} />}
+      </div>
+    </>
   );
 }
 

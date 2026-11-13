@@ -15,12 +15,12 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
-- A chat widget with a video avatar now docks the video as a circle beside the
-  agent's name once the conversation scrolls. The big video fades out, the
-  subtitle moves under the name, and a scroll that starts into the video's
-  space glides past it, so visitors don't scroll through empty space. On
-  phones the widget only shows the circle, which is cropped onto the face by
-  the avatar's `launcher` setting. Your project keeps the copy
+- A chat widget with a video avatar now shrinks the video into a circle beside
+  the agent's name as the conversation scrolls, in step with the scroll, and
+  grows it back as you scroll up. The header keeps its height, and the name
+  and subtitle fade out while the video moves and back in beside the circle.
+  On phones the widget only shows the circle, which is cropped onto the face
+  by the avatar's `launcher` setting. Your project keeps the copy
   `parlant widget init` made. To pick this up, run
   `parlant widget init --force`, which replaces that copy and any changes you
   made to it.

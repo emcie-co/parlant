@@ -3,6 +3,7 @@
 // user has scrolled up.
 
 import { type ReactNode, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 
 import type {
   ChatMessage,
@@ -186,8 +187,9 @@ export function MessageList({
   // (see styles.css), so the two move together. Re-pinning to the bottom is held meanwhile.
   //
   // Docking makes the header taller in one step, which shortens this list from the top and
-  // would push its content down. A ResizeObserver (it runs before the frame is painted) adds
-  // the same amount to the scroll, so the content stays where it was.
+  // would push its content down (undocking, up). So the header's change is committed at once
+  // (flushSync) and the scroll moves by the same amount in the same task, before anything is
+  // painted: the content stays exactly where it was.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !hasLead || !onLeadScrolled) return;
@@ -195,14 +197,20 @@ export function MessageList({
     let last = el.scrollTop;
     let frame = 0;
     let gliding: { from: number; target: number; start: number } | null = null;
-    let height = el.clientHeight;
-    let compensateUntil = 0;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const report = (next: boolean) => {
-      if (next !== scrolled) {
-        scrolled = next;
-        compensateUntil = performance.now() + 600;
+    const report = (next: boolean, keepInPlace = true) => {
+      if (next === scrolled) return;
+      scrolled = next;
+      if (!keepInPlace) {
         onLeadScrolled(next);
+        return;
+      }
+      const before = el.clientHeight;
+      flushSync(() => onLeadScrolled(next));
+      const shrunk = before - el.clientHeight;
+      if (shrunk && el.scrollTop > 0) {
+        el.scrollTop += shrunk;
+        if (gliding) gliding.from += shrunk;
       }
     };
     const leadEnd = () => {
@@ -218,16 +226,20 @@ export function MessageList({
       el.dispatchEvent(new Event("scroll"));
     };
     const glide = (target: number) => {
-      report(target > 0);
       holdRef.current = true;
+      report(target > 0);
       if (reduceMotion || typeof requestAnimationFrame === "undefined") {
         el.scrollTo({ top: target, behavior: "auto" });
         finish();
         return;
       }
-      const glideState = { from: el.scrollTop, target, start: performance.now() };
+      // The clock starts at the glide's first frame, so a slow first frame doesn't skip ahead.
+      const glideState = { from: el.scrollTop, target, start: -1 };
       gliding = glideState;
+      // Docking or undocking moved the scroll to keep the content in place; start from there.
+      glideState.from = el.scrollTop;
       const step = (now: number) => {
+        if (glideState.start < 0) glideState.start = now;
         const t = Math.min(1, (now - glideState.start) / GLIDE_MS);
         const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
         const max = el.scrollHeight - el.clientHeight;
@@ -237,19 +249,6 @@ export function MessageList({
       };
       frame = requestAnimationFrame(step);
     };
-    // Keeps the content in place when the header docks or undocks (see above).
-    const resize =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => {
-            const next = el.clientHeight;
-            const shrunk = height - next;
-            height = next;
-            if (!shrunk || performance.now() > compensateUntil || el.scrollTop <= 0) return;
-            el.scrollTop += shrunk;
-            if (gliding) gliding.from += shrunk;
-          });
-    resize?.observe(el);
     const onScroll = () => {
       if (frame) return;
       const top = el.scrollTop;
@@ -264,11 +263,19 @@ export function MessageList({
       report(top > 0);
       last = top;
     };
-    report(el.scrollTop > 0);
+    // While gliding, the glide owns the scroll: a trackpad's momentum would otherwise nudge
+    // the list between its frames, so it shakes. Momentum after the glide scrolls as usual.
+    const holdInput = (event: Event) => {
+      if (frame) event.preventDefault();
+    };
+    report(el.scrollTop > 0, false);
     el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("wheel", holdInput, { passive: false });
+    el.addEventListener("touchmove", holdInput, { passive: false });
     return () => {
       el.removeEventListener("scroll", onScroll);
-      resize?.disconnect();
+      el.removeEventListener("wheel", holdInput);
+      el.removeEventListener("touchmove", holdInput);
       if (frame) cancelAnimationFrame(frame);
       holdRef.current = false;
       if (scrolled) onLeadScrolled(false);

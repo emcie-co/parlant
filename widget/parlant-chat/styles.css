@@ -1148,7 +1148,10 @@
   color: hsl(var(--muted-foreground));
 }
 .parlant-widget .parlant-list { position: relative; min-height: 0; flex: 1 1 0%; }
-.parlant-widget .parlant-mlist-scroll { height: 100%; overflow-y: auto; }
+/* No rubber-band bounce: a glide past the agent's video can land at the top with a trackpad's
+ * momentum still going, and the bounce then stretches the space above the video. It also
+ * keeps a scroll that reaches the end of the transcript from scrolling the page. */
+.parlant-widget .parlant-mlist-scroll { height: 100%; overflow-y: auto; overscroll-behavior-y: none; }
 .parlant-widget .parlant-mlist-content { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; }
 .parlant-widget .parlant-mlist-preface { padding: 1rem 1.5rem; text-align: center; font-size: 0.75rem; line-height: 1.625; color: hsl(var(--muted-foreground)); }
 .parlant-widget .parlant-mlist-widget { align-self: flex-start; }

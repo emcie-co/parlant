@@ -1016,6 +1016,8 @@ const DOCK_GAP_PX = 10;
 /** How far the transcript scrolls before the video docks, and how long the move takes. */
 const DOCK_SCROLL_PX = 2;
 const DOCK_MS = 320;
+/** How far under the docked circle the header fades out over the transcript (styles.css). */
+const SHELF_FADE_PX = 20;
 
 const lerp = (from: number, to: number, p: number) => from + (to - from) * p;
 
@@ -1069,7 +1071,6 @@ function VideoDock({
     const scroller = card.querySelector<HTMLElement>(".parlant-mlist-scroll");
     const text = header?.querySelector<HTMLElement>(".parlant-cw-header-text") ?? null;
     const nameEl = header?.querySelector<HTMLElement>(".parlant-cw-header-name") ?? null;
-    const caption = header?.querySelector<HTMLElement>(".parlant-cw-header-subtitle") ?? null;
     const videoEl = dock.querySelector("video");
     const phone = window.matchMedia?.("(max-width: 640px)");
 
@@ -1121,7 +1122,7 @@ function VideoDock({
         if (!slot.style.height) naturalH = slot.offsetHeight;
         else if (!naturalH) naturalH = (slot.offsetWidth * 9) / 16;
         const slotTop = boxIn(slot).y - boxIn(scroller).y;
-        const closed = Math.max(0, headerBottom + reachBelow - boxIn(slot).y);
+        const closed = Math.max(0, headerBottom + reachBelow + SHELF_FADE_PX - boxIn(slot).y);
         const oldH = slot.style.height ? parseFloat(slot.style.height) : naturalH;
         const newH = lerp(naturalH, closed, e);
         if (e <= 0) slot.style.height = "";
@@ -1158,9 +1159,10 @@ function VideoDock({
           "scale(" + z + ") translate(" + (50 - faceX) * e + "%, " + (50 - faceY) * e + "%)";
       }
 
-      // The shelf: header background under the circle, as far as the circle reaches.
+      // The shelf: header background under the circle, as far as the circle reaches, then
+      // fading out over the transcript.
       shelf.style.transform = "translateY(" + headerBottom + "px)";
-      shelf.style.height = reachBelow * e + "px";
+      shelf.style.height = (reachBelow + SHELF_FADE_PX) * e + "px";
 
       // The name and subtitle don't travel with the video: they fade out while it moves and
       // back in where it settles, beside the circle with the subtitle under the name. While it
@@ -1169,17 +1171,14 @@ function VideoDock({
         const state = t !== target ? "moving" : t >= 1 ? "docked" : "rest";
         text.dataset.dock = state;
         if (state !== "moving") {
+          // Docked, the subtitle goes under the name (styles.css), and the two are centred
+          // beside the circle. The layout changes only while they are faded out.
           const docked = state === "docked";
-          const nameH = nameEl.offsetHeight;
-          const stacked = nameH + (caption?.offsetHeight ?? 0);
+          if (docked) text.dataset.layout = "stacked";
+          else delete text.dataset.layout;
           const dx = padLeft + size + DOCK_GAP_PX - text.offsetLeft;
-          const dy = padTop + size / 2 - stacked / 2 - text.offsetTop;
+          const dy = padTop + size / 2 - text.offsetHeight / 2 - text.offsetTop;
           text.style.transform = docked ? "translate(" + dx + "px, " + dy + "px)" : "";
-          if (caption) {
-            const cx = caption.offsetLeft - nameEl.offsetLeft;
-            const cy = caption.offsetTop - nameEl.offsetTop;
-            caption.style.transform = docked ? "translate(" + -cx + "px, " + (nameH - cy) + "px)" : "";
-          }
         }
       }
     };
@@ -1272,8 +1271,8 @@ function VideoDock({
       if (text) {
         text.style.transform = "";
         delete text.dataset.dock;
+        delete text.dataset.layout;
       }
-      if (caption) caption.style.transform = "";
     };
   }, [layoutKey, zoom, faceX, faceY]);
 

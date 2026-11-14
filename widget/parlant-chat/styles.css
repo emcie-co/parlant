@@ -650,12 +650,22 @@
   min-width: 0;
   flex-direction: column;
 }
-/* With a video avatar, the subtitle follows the name on one line; as the video docks beside the
- * name, VideoDock moves it under the name (chat-widget.tsx). */
+/* With a video avatar, the subtitle follows the name on one line; once the video has docked
+ * beside the name, it goes under the name (VideoDock sets data-layout, chat-widget.tsx). */
 .parlant-widget .parlant-cw-header-text--inline {
   flex-direction: row;
   align-items: baseline;
   gap: 0.375rem;
+}
+.parlant-widget .parlant-cw-header-text--inline[data-layout="stacked"] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+/* Beside the docked circle, the name is 2px larger. */
+.parlant-widget .parlant-cw-header-text[data-layout="stacked"] .parlant-cw-header-name {
+  font-size: calc(0.875rem + 2px);
+  line-height: 1.375rem;
 }
 /* The open panel's expand/shrink arrows, a little under the 16px icon size. */
 .parlant-widget .parlant-cw-size-toggle svg { width: 14px; height: 14px; }
@@ -765,7 +775,9 @@
   right: 0;
   z-index: 2;
   height: 0;
-  background: hsl(var(--background));
+  /* Solid as far as the circle reaches, then fading out over its last 20px
+   * (SHELF_FADE_PX in chat-widget.tsx), so messages fade as they scroll under the header. */
+  background: linear-gradient(to bottom, hsl(var(--background)) calc(100% - 20px), hsl(var(--background) / 0));
   pointer-events: none;
 }
 /* The header's text stays above the shelf and the dock (VideoDock keeps it clear of the video). */

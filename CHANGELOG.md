@@ -17,8 +17,10 @@ Each entry says what changed and what it means for you, under `Added`,
 
 - A chat widget with a video avatar now moves the video into a circle beside
   the agent's name once the conversation scrolls, and the space it leaves
-  closes up. Scrolling up past the top brings it back. The header keeps its height, and the name and subtitle
-  fade out while the video moves and back in beside the circle.
+  closes up. Scrolling up past the top brings it back. The header keeps its
+  height and fades out over the messages below the circle. The name and
+  subtitle fade out while the video moves and back in beside the circle, the
+  subtitle under the name.
   On phones the widget only shows the circle, which is cropped onto the face
   by the avatar's `launcher` setting. Your project keeps the copy
   `parlant widget init` made. To pick this up, run

@@ -1781,14 +1781,16 @@ describe("avatar", () => {
     await waitFor(() => expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 }));
     expect(dock.style.borderRadius).toBe("32px");
     // The shelf fills what the circle reaches below the header, with the header's padding
-    // under it: 10 + 64 + 10 - 48.
-    expect(shelf.style.height).toBe("36px");
+    // under it, then fades out over 20px: 10 + 64 + 10 - 48 + 20.
+    expect(shelf.style.height).toBe("56px");
     expect((container.querySelector(".parlant-cw-dock video") as HTMLElement).style.transform).toContain("scale(1.6)");
     // Docked, the name fades back in beside the circle.
     expect(text.dataset.dock).toBe("docked");
     expect(text.style.transform).toMatch(/^translate\(/);
-    // The slot has closed up behind it, to just below the circle: 48 + 36 - 60.
-    expect(slot.style.height).toBe("24px");
+    // With the subtitle under the name.
+    expect(text.dataset.layout).toBe("stacked");
+    // The slot has closed up behind it, to just below the shelf's fade: 48 + 36 + 20 - 60.
+    expect(slot.style.height).toBe("44px");
 
     // Scrolling anywhere, the top included, leaves it docked.
     scrollTo(300);
@@ -1801,6 +1803,7 @@ describe("avatar", () => {
     await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
     expect(slot.style.height).toBe("");
     expect(text.dataset.dock).toBe("rest");
+    expect(text.dataset.layout).toBeUndefined();
     expect(text.style.transform).toBe("");
   });
 

@@ -1099,6 +1099,10 @@ function VideoDock({
     // visitor scrolls back up), where the scroll last was, and the scroll position this
     // effect itself set (so its own scroll isn't taken for the visitor's).
     let collapsed = false;
+    // The slot's height when it starts closing: its part already scrolled out of view is cut
+    // off at once (with the scroll moved by as much), so only what's in view closes visibly.
+    let startH = 0;
+    let closedH = 0;
     let lastTop = scroller?.scrollTop ?? 0;
     let ownTop: number | null = null;
 
@@ -1130,10 +1134,11 @@ function VideoDock({
         else if (!naturalH) naturalH = (slot.offsetWidth * 9) / 16;
         const slotTop = boxIn(slot).y - boxIn(scroller).y;
         const closed = Math.max(0, headerBottom + reachBelow + SHELF_FADE_PX - boxIn(slot).y);
+        closedH = closed;
         const oldH = slot.style.height ? parseFloat(slot.style.height) : naturalH;
         const c = collapsed ? e : 0;
-        const newH = lerp(naturalH, closed, c);
-        if (c <= 0) slot.style.height = "";
+        const newH = lerp(startH || naturalH, closed, c);
+        if (!collapsed) slot.style.height = "";
         else if (newH !== oldH) slot.style.height = newH + "px";
         if (newH !== oldH) {
           const scrolled = scroller.scrollTop;
@@ -1165,6 +1170,11 @@ function VideoDock({
       const width = lerp(rest.w, size, e);
       const height = lerp(rest.h, size, e);
       dock.style.transform = "translate(" + left + "px, " + top + "px)";
+      // At rest it scrolls under the header like the messages: clipped at the transcript's
+      // top. The clip lets go as it moves up into the header.
+      const viewTop = scroller && inTranscript ? boxIn(scroller).y : -Infinity;
+      const clip = Math.max(0, viewTop - top) * (1 - e);
+      dock.style.clipPath = clip > 0 ? "inset(" + clip + "px 0 0 0)" : "";
       dock.style.width = width + "px";
       dock.style.height = height + "px";
       // The corners round off as it goes, to a full circle.
@@ -1229,6 +1239,7 @@ function VideoDock({
       if (slot.offsetParent === null || phone?.matches) return;
       if (collapsed) {
         collapsed = false;
+        startH = 0;
         draw();
       }
       const slotTop = boxIn(slot).y - boxIn(scroller).y;
@@ -1257,19 +1268,30 @@ function VideoDock({
         collapsed = target === 1;
       } else if (dir > 0 && target === 0 && top > DOCK_SCROLL_PX) {
         collapsed = true;
+        startH = naturalH;
+        if (slot && scroller && naturalH) {
+          const slotTop = boxIn(slot).y - boxIn(scroller).y;
+          const hidden = Math.max(0, Math.min(naturalH - closedH, top - slotTop));
+          if (hidden > 0.5) {
+            startH = naturalH - hidden;
+            slot.style.height = startH + "px";
+            scroller.scrollTop = top - hidden;
+            ownTop = scroller.scrollTop;
+            lastTop = ownTop;
+          }
+        }
         go(1, animate);
-      } else if (dir < 0) {
+      } else if (dir < 0 && target === 1 && !collapsed) {
+        // Scrolling on up into the reopened slot: the video comes back once it is in view.
         scrollUp();
         return;
       }
       draw();
     };
 
-    // Scrolling up where the transcript can't scroll (at its top) shows no scroll at all.
-    const atTop = () => (scroller?.scrollTop ?? 1) <= 0;
-    const undock = () => {
-      if (atTop()) scrollUp();
-    };
+    // Scrolling up is told by the visitor's own gestures, not by the scroll moving up: the
+    // browser moves the scroll up itself when the slot closes near the bottom.
+    const undock = () => scrollUp();
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) undock();
     };

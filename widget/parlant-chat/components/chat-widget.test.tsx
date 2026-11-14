@@ -1796,12 +1796,18 @@ describe("avatar", () => {
     scrollTo(300);
     expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
 
+    // The browser moving the scroll up (as when the slot closes near the bottom) changes
+    // nothing: scrolling up is told by the visitor's gestures.
+    scrollTo(290);
+    expect(slot.style.height).toBe("44px");
+    scrollTo(300);
+
     // Scrolling back up reopens the slot at once, growing it upward with the scroll moved by
     // as much (200 - 44), so nothing in view moves. The slot is still above the view, so the
     // video stays docked.
-    scrollTo(290);
+    fireEvent.wheel(scroller, { deltaY: -40 });
     expect(slot.style.height).toBe("");
-    expect(scroller.scrollTop).toBe(446);
+    expect(scroller.scrollTop).toBe(456);
     expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
 
     // Once the slot comes into view (its bottom is at 60 + 200), the video moves back into it,
@@ -1810,11 +1816,16 @@ describe("avatar", () => {
     expect(text.dataset.dock).toBe("moving");
     await waitFor(() => expect(box()).toEqual({ x: 12, y: -190, width: 356, height: 200 }));
     expect(text.dataset.dock).toBe("rest");
+    // Scrolled partway, it is clipped at the transcript's top, under the header.
+    expect(dock.style.clipPath).not.toBe("");
     expect(text.dataset.layout).toBeUndefined();
     expect(text.style.transform).toBe("");
 
-    // Scrolling down again docks it and closes the slot.
+    // Scrolling down again docks it. The part of the slot already out of view is cut at once,
+    // down to its closed height, with the scroll moved by as much (190 - 156 = 34 is left).
     scrollTo(260);
+    expect(slot.style.height).toBe("44px");
+    expect(scroller.scrollTop).toBe(104);
     await waitFor(() => expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 }));
     expect(slot.style.height).toBe("44px");
   });

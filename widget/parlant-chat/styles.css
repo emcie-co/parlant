@@ -974,16 +974,33 @@
   height: 60%;
   object-fit: contain;
 }
+/* A photo is the size of a docked video avatar's circle (DOCK_REM in chat-widget.tsx), with
+ * the live dot inset on its corner. */
 .parlant-widget .parlant-cw-avatar--photo {
-  height: 2.5rem;
-  width: 2.5rem;
+  height: 4rem;
+  width: 4rem;
   border-radius: 9999px;
 }
-/* The opened widget gives the portrait more presence than the collapsed bar does. */
-.parlant-widget .parlant-input--open .parlant-cw-avatar--photo {
-  height: 3.75rem;
-  width: 3.75rem;
+.parlant-widget .parlant-cw-avatar-frame .parlant-cw-live {
+  right: 0.125rem;
+  bottom: 0.125rem;
+  height: 0.875rem;
+  width: 0.875rem;
 }
+/* Under a photo's header, as under a docked video's, the header fades out over the transcript,
+ * and the transcript starts below the fade. */
+.parlant-widget .parlant-chat:has(.parlant-cw-avatar--photo):has(.parlant-mlist-scroll) .parlant-cw-header { z-index: 2; }
+.parlant-widget .parlant-chat:has(.parlant-cw-avatar--photo):has(.parlant-mlist-scroll) .parlant-cw-header::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--background) / 0));
+  pointer-events: none;
+}
+.parlant-widget .parlant-chat:has(.parlant-cw-avatar--photo) .parlant-mlist-content { padding-top: 20px; }
 .parlant-widget .parlant-cw-avatar--photo img {
   width: 100%;
   height: 100%;

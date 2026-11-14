@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Mapping
 
 import click
@@ -146,12 +147,114 @@ def agents_view(ctx: click.Context, agent_id: str) -> None:
             ("A2A", a2a.summary),
             ("A2A ADDRESS", a2a.address),
             ("AGENT CARD", a2a.card),
+            ("POPPY ADDRESS", a2a.poppy_address),
         ]
+    )
+
+
+# The file each Poppy document is served as, by protocol version: the preferred version
+# at the well-known path, and every other where the preferred document names it.
+POPPY_PREFERRED_VERSION = "1.0"
+
+
+def _poppy_file_name(version: str) -> str:
+    return "poppy.json" if version == POPPY_PREFERRED_VERSION else f"poppy-{version}.json"
+
+
+@agent.command(
+    "cards",
+    epilog=examples(
+        "parlant dashboard agent cards AGENT_ID public",
+        "parlant dashboard agent cards AGENT_ID public --no-poppy",
+        "parlant dashboard agent cards AGENT_ID ./site --project PROJECT_ID",
+    ),
+)
+@click.argument("agent_id")
+@click.argument("destination", type=click.Path(file_okay=False, path_type=Path))
+@click.option(
+    "--no-a2a",
+    "skip_a2a",
+    is_flag=True,
+    help="Leave out the A2A agent card (agent-card.json).",
+)
+@click.option(
+    "--no-poppy",
+    "skip_poppy",
+    is_flag=True,
+    help="Leave out the Poppy documents (poppy.json and poppy-0.4.json).",
+)
+@click.pass_context
+def agents_cards(
+    ctx: click.Context,
+    agent_id: str,
+    destination: Path,
+    skip_a2a: bool,
+    skip_poppy: bool,
+) -> None:
+    """Write every file your site serves so personal AI agents find the agent.
+
+    AGENT_ID is the agent's id, as `agent list` prints it. DESTINATION is your site's
+    public directory; the files go into its .well-known folder, where personal agents
+    look: agent-card.json for A2A, and poppy.json and poppy-0.4.json for Poppy, the
+    Personal Agent Protocol. Serve them as files from your own host; Poppy's rules
+    don't allow a redirect for its documents. Run this again whenever the agent's
+    settings change.
+
+    The Poppy documents need the agent's site set, since Poppy identifies your business
+    by its domain: `parlant dashboard agent a2a set AGENT_ID --site acme.com`.
+    """
+    runtime = runtime_for(ctx)
+    project = require_project(runtime)
+    access_token = authenticate(runtime)
+
+    settings = require_mapping(
+        require_ok(request(runtime, "GET", a2a_endpoints_path(project), access_token=access_token)),
+        "A2A settings",
+    )
+    state = a2a_state(settings, agent_id)
+    if state.card == "-" or a2a_entry(settings, agent_id) is None:
+        raise no_address(agent_id)
+
+    # Every document is public: the agents gateway serves them, not the Dashboard API.
+    documents: list[tuple[str, str]] = []
+    if not skip_a2a:
+        documents.append(("agent-card.json", state.card))
+    if not skip_poppy:
+        if state.poppy_documents:
+            documents.extend(
+                (_poppy_file_name(version), url)
+                for version, url in sorted(state.poppy_documents.items(), reverse=True)
+            )
+        else:
+            click.echo(
+                "Skipped the Poppy documents: Poppy identifies your business by its domain, "
+                "so they need the agent's site. Set it, then run this again:\n"
+                f"    parlant dashboard agent a2a set {agent_id} --site acme.com",
+                err=True,
+            )
+    if not documents:
+        raise DashboardError(
+            "Nothing to write: --no-a2a and --no-poppy together leave no document.",
+            code="NO_DOCUMENTS",
+        )
+
+    well_known = destination / ".well-known"
+    well_known.mkdir(parents=True, exist_ok=True)
+    for file_name, url in documents:
+        document = require_ok(request(runtime, "GET", url))
+        path = well_known / file_name
+        path.write_text(json.dumps(document, indent=2) + "\n")
+        click.echo(f"Wrote {path}")
+    click.echo("")
+    click.echo(
+        "Serve these as they are from your site's own host. Personal agents read them at "
+        "/.well-known/agent-card.json, /.well-known/poppy.json and /.well-known/poppy-0.4.json."
     )
 
 
 @agent.command(
     "card",
+    hidden=True,
     epilog=examples(
         "parlant dashboard agent card AGENT_ID",
         "parlant dashboard agent card AGENT_ID > public/.well-known/agent-card.json",
@@ -162,10 +265,10 @@ def agents_view(ctx: click.Context, agent_id: str) -> None:
 def agents_card(ctx: click.Context, agent_id: str) -> None:
     """Print the agent's A2A card, the JSON personal AI agents read.
 
-    AGENT_ID is the agent's id, as `agent list` prints it. Only the card is printed,
-    so redirecting it to a file gives one your site can serve at
-    /.well-known/agent-card.json, for hosts that can't redirect there instead.
-    Fetch it again whenever the agent's settings change.
+    Kept for instructions written before `agent cards`, which writes this card and
+    the Poppy documents together; prefer that. AGENT_ID is the agent's id, as
+    `agent list` prints it. Only the card is printed, so redirecting it to a file
+    gives one your site can serve at /.well-known/agent-card.json.
     """
     runtime = runtime_for(ctx)
     project = require_project(runtime)

@@ -110,18 +110,37 @@ BASIC_A2A_PLAN: dict[str, Any] = {
 }
 
 
+POPPY_BASE = "https://agents.parlant.io/poppy"
+
+
 def _a2a_endpoint(
-    slug: str, *, enabled: bool = True, callers: str = "verified-and-guests"
+    slug: str,
+    *,
+    enabled: bool = True,
+    callers: str = "verified-and-guests",
+    site: str | None = None,
 ) -> dict[str, Any]:
     base = f"{A2A_BASE}/{slug}"
+    poppy_base = f"{POPPY_BASE}/{slug}"
     return {
         "slug": slug,
         "enabled": enabled,
         "callers": callers,
+        "site": site,
         "urls": {
             "card": f"{base}/.well-known/agent-card.json",
             "interface": base,
             "howTo": f"{base}/how-to",
+            # The Dashboard adds the Poppy URLs once the agent has a site; null until then.
+            "poppy": {
+                "endpoint": poppy_base,
+                "documents": {
+                    "1.0": f"{poppy_base}/discovery/1.0.json",
+                    "0.4": f"{poppy_base}/discovery/0.4.json",
+                },
+            }
+            if site
+            else None,
         },
     }
 
@@ -339,6 +358,138 @@ def test_that_agent_card_says_how_to_turn_a2a_on_when_the_agent_has_no_address(
     assert result.exit_code != 0
     assert "has no A2A address" in result.output
     assert "Agent settings" in result.output
+
+
+# --- agent cards: every file a site serves for personal agents ------------------
+
+CARD = {"name": "Home", "supportedInterfaces": [{"url": f"{A2A_BASE}/acme-store-home"}]}
+POPPY_1_0 = {"protocol_version": "1.0", "organization": {"name": "Acme", "domain": "acme.com"}}
+POPPY_0_4 = {"protocol_version": "0.4", "organization": {"name": "Acme", "domain": "acme.com"}}
+
+
+def _cards_dashboard(site: str | None) -> Handler:
+    settings = _a2a_settings(
+        [_a2a_agent("home", "Home", _a2a_endpoint("acme-store-home", site=site))]
+    )
+
+    def respond(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/projects/p1/a2a/endpoints":
+            return httpx.Response(200, json=settings)
+        # The documents are public, served by the agents gateway rather than the Dashboard API.
+        if req.url.host == "agents.parlant.io":
+            if req.url.path == "/a2a/acme-store-home/.well-known/agent-card.json":
+                return httpx.Response(200, json=CARD)
+            if req.url.path == "/poppy/acme-store-home/discovery/1.0.json":
+                return httpx.Response(200, json=POPPY_1_0)
+            if req.url.path == "/poppy/acme-store-home/discovery/0.4.json":
+                return httpx.Response(200, json=POPPY_0_4)
+        return httpx.Response(500, json={"message": str(req.url)})
+
+    return respond
+
+
+def _cards(monkeypatch: pytest.MonkeyPatch, handler: Handler, *args: str) -> Any:
+    _no_auth(monkeypatch, "agents")
+    return CliRunner().invoke(cli, ["dashboard", "agent", "cards", *args], obj=runtime(handler))
+
+
+def _written(public: Path) -> dict[str, Any]:
+    well_known = public / ".well-known"
+    return {path.name: json.loads(path.read_text()) for path in sorted(well_known.glob("*.json"))}
+
+
+def test_that_agent_cards_writes_the_a2a_card_and_both_poppy_documents_into_the_destination(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    public = tmp_path / "public"
+
+    result = _cards(monkeypatch, _cards_dashboard("acme.com"), "home", str(public))
+
+    assert result.exit_code == 0, result.output
+    assert _written(public) == {
+        "agent-card.json": CARD,
+        "poppy.json": POPPY_1_0,
+        "poppy-0.4.json": POPPY_0_4,
+    }
+    # It says what it wrote and where personal agents will look for it.
+    for name in ("agent-card.json", "poppy.json", "poppy-0.4.json"):
+        assert f".well-known/{name}" in result.output
+
+
+def test_that_agent_cards_leaves_out_a_family_when_asked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    only_a2a = tmp_path / "a2a"
+    only_poppy = tmp_path / "poppy"
+
+    without_poppy = _cards(
+        monkeypatch, _cards_dashboard("acme.com"), "home", str(only_a2a), "--no-poppy"
+    )
+    without_a2a = _cards(
+        monkeypatch, _cards_dashboard("acme.com"), "home", str(only_poppy), "--no-a2a"
+    )
+
+    assert without_poppy.exit_code == 0, without_poppy.output
+    assert list(_written(only_a2a)) == ["agent-card.json"]
+    assert without_a2a.exit_code == 0, without_a2a.output
+    assert list(_written(only_poppy)) == ["poppy-0.4.json", "poppy.json"]
+
+
+def test_that_agent_cards_writes_only_the_a2a_card_and_says_why_when_the_site_is_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    public = tmp_path / "public"
+
+    result = _cards(monkeypatch, _cards_dashboard(None), "home", str(public))
+
+    assert result.exit_code == 0, result.output
+    assert list(_written(public)) == ["agent-card.json"]
+    # Poppy identifies the business by its domain, so the documents need the site setting.
+    assert "site" in result.output
+    assert "--site" in result.output
+
+
+def test_that_agent_cards_says_how_to_turn_ai_agents_on_when_the_agent_has_no_address(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = _a2a_settings([_a2a_agent("home", "Home", None)])
+
+    def respond(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/projects/p1/a2a/endpoints":
+            return httpx.Response(200, json=settings)
+        return httpx.Response(500, json={"message": str(req.url)})
+
+    result = _cards(monkeypatch, respond, "home", str(tmp_path / "public"))
+
+    assert result.exit_code != 0
+    assert "has no A2A address" in result.output
+    assert not (tmp_path / "public").exists()
+
+
+def test_that_agent_help_lists_cards_and_keeps_the_old_card_command_out_of_sight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = CliRunner().invoke(cli, ["dashboard", "agent", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "cards" in result.output
+    # `card` still works for instructions written before `cards`, but isn't advertised.
+    assert "  card " not in result.output
+
+
+def test_that_agent_view_prints_the_poppy_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _agent_view(
+        monkeypatch,
+        httpx.Response(
+            200,
+            json=_a2a_settings(
+                [_a2a_agent("home", "Home", _a2a_endpoint("acme-store-home", site="acme.com"))]
+            ),
+        ),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _field(result.output, "POPPY ADDRESS") == f"{POPPY_BASE}/acme-store-home"
 
 
 # --- A2A: reading and writing an agent's A2A settings -----------------------

@@ -252,10 +252,10 @@ def test_that_widget_init_tells_the_reader_how_to_publish_the_agent_card_and_its
     assert "parlant dashboard agent view <agent-id>" in output
     # The redirect first; the downloaded card for hosts that can't redirect.
     assert "308" in output
-    assert (
-        "parlant dashboard agent card <agent-id> > <public-dir>/.well-known/agent-card.json"
-        in output
-    )
+    assert "parlant dashboard agent cards <agent-id> <public-dir>" in output
+    # Poppy's documents go beside the card, as files on the site's own host.
+    assert "/.well-known/poppy.json" in output
+    assert "/.well-known/poppy-0.4.json" in output
     # The pointers that got plain assistants to the card.
     assert '<link rel="agent-card" href="/.well-known/agent-card.json">' in output
     assert '<meta name="a2a-agent-card" content="/.well-known/agent-card.json">' in output

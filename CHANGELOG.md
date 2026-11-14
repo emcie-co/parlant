@@ -13,6 +13,19 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Added
+
+- `parlant dashboard agent cards AGENT_ID DESTINATION` writes every file your
+  site serves so personal AI agents find your agent, into `DESTINATION/.well-known`:
+  `agent-card.json` for A2A, and `poppy.json` and `poppy-0.4.json` for Poppy, the
+  Personal Agent Protocol that Meta Muse and Shopify use. `--no-a2a` and
+  `--no-poppy` leave a family out. The Poppy documents need the agent's site set
+  in the Dashboard, since Poppy identifies a business by its domain; without it the
+  command writes the card and says so. `parlant dashboard agent view` shows the
+  agent's POPPY ADDRESS, and `parlant widget init` points at the new command.
+  `parlant dashboard agent card` still prints the A2A card alone for older
+  instructions.
+
 ### Changed
 
 - With Gemini as your provider, replies at medium, high and max effort and both

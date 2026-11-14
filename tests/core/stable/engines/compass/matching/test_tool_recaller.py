@@ -433,3 +433,63 @@ async def test_that_a_cumulative_tool_query_exceeding_the_embedder_token_budget_
 
     assert scores[refund_tool_id] > scores[hours_tool_id]
     assert all(len(text.split()) <= 32 for call in embedder.embed_calls for text in call)
+
+
+def test_that_remaining_tools_below_min_relevance_score_are_filtered_out() -> None:
+    t1 = ToolId("local", "tool_high")
+    t2 = ToolId("local", "tool_borderline")
+    t3 = ToolId("local", "tool_irrelevant")
+    tools = {
+        t1: _tool("tool_high"),
+        t2: _tool("tool_borderline"),
+        t3: _tool("tool_irrelevant"),
+    }
+    scores = {
+        t1: 0.8,
+        t2: 0.1,
+        t3: -0.4,
+    }
+
+    # With default min_relevance_score=None, all remaining tools are selected
+    recaller_default = ToolRecaller(
+        entity_queries=cast(Any, None),
+        model_router=cast(Any, None),
+        embedding_cache=cast(Any, None),
+        max_tools=16,
+    )
+    selected_default = recaller_default._select_tool_ids(
+        turn_tool_ids=[],
+        session_tool_ids=[],
+        all_tool_ids=[t1, t2, t3],
+        tools_by_id=tools,
+        scores=scores,
+    )
+    assert selected_default == [t1, t2, t3]
+
+    # With min_relevance_score=0.0, negative score tools are filtered out
+    recaller_with_floor = ToolRecaller(
+        entity_queries=cast(Any, None),
+        model_router=cast(Any, None),
+        embedding_cache=cast(Any, None),
+        max_tools=16,
+        min_relevance_score=0.0,
+    )
+    selected_with_floor = recaller_with_floor._select_tool_ids(
+        turn_tool_ids=[],
+        session_tool_ids=[],
+        all_tool_ids=[t1, t2, t3],
+        tools_by_id=tools,
+        scores=scores,
+    )
+    assert selected_with_floor == [t1, t2]
+
+    # Rule-enabled tools in turn_tool_ids or session_tool_ids bypass the score floor
+    selected_rule_bypass = recaller_with_floor._select_tool_ids(
+        turn_tool_ids=[t3],
+        session_tool_ids=[],
+        all_tool_ids=[t1, t2, t3],
+        tools_by_id=tools,
+        scores=scores,
+    )
+    assert t3 in selected_rule_bypass
+

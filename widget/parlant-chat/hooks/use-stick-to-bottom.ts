@@ -46,14 +46,21 @@ export function useStickToBottom(): StickToBottom {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    // Near the bottom counts as pinned, except while moving up away from it: otherwise a
-    // reader scrolling up through the last few lines is pinned again and pulled back down.
+    // Near the bottom counts as pinned only when the reader comes toward it. Moving up away
+    // from it unpins (or a reader scrolling up through the last lines is pulled back down),
+    // and a scroll that keeps the distance, as when content grows above the view and the
+    // scroll follows it, changes nothing.
     let lastTop = el.scrollTop;
+    let lastDistance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const onScroll = () => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       const movingUp = el.scrollTop < lastTop - 0.5;
+      const nearer = distance < lastDistance - 0.5;
       lastTop = el.scrollTop;
-      setPinned(movingUp ? distance <= 1 : distance <= NEAR_BOTTOM_PX);
+      lastDistance = distance;
+      if (distance <= 1) setPinned(true);
+      else if (distance > NEAR_BOTTOM_PX || movingUp) setPinned(false);
+      else if (nearer) setPinned(true);
     };
     // Scrolling up is a request to read back, even where the view can't scroll (a short
     // transcript is within reach of the bottom at its top): unpin, so growth below doesn't

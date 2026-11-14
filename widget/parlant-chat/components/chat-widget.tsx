@@ -1095,6 +1095,12 @@ function VideoDock({
     let frame = 0;
     let last = 0;
     let naturalH = 0;
+    // Whether the slot closes up as the video docks (it reopens, out of view, as soon as the
+    // visitor scrolls back up), where the scroll last was, and the scroll position this
+    // effect itself set (so its own scroll isn't taken for the visitor's).
+    let collapsed = false;
+    let lastTop = scroller?.scrollTop ?? 0;
+    let ownTop: number | null = null;
 
     const draw = () => {
       if (!header) return;
@@ -1117,21 +1123,32 @@ function VideoDock({
       // In the transcript, the slot closes up as the video leaves it, to just below the circle,
       // so no empty space is left where the video was. While the slot is above the view, the
       // scroll moves with it and the messages in view stay put; while it is in view, the
-      // messages below it slide up with it.
+      // messages below it slide up with it. It reopens in one step, growing upward with the
+      // scroll moved by as much, so nothing in view moves.
       if (slot && scroller && slotShown && inTranscript) {
         if (!slot.style.height) naturalH = slot.offsetHeight;
         else if (!naturalH) naturalH = (slot.offsetWidth * 9) / 16;
         const slotTop = boxIn(slot).y - boxIn(scroller).y;
         const closed = Math.max(0, headerBottom + reachBelow + SHELF_FADE_PX - boxIn(slot).y);
         const oldH = slot.style.height ? parseFloat(slot.style.height) : naturalH;
-        const newH = lerp(naturalH, closed, e);
-        if (e <= 0) slot.style.height = "";
+        const c = collapsed ? e : 0;
+        const newH = lerp(naturalH, closed, c);
+        if (c <= 0) slot.style.height = "";
         else if (newH !== oldH) slot.style.height = newH + "px";
         if (newH !== oldH) {
           const scrolled = scroller.scrollTop;
           const past = scrolled - (slotTop + oldH);
-          const next = past >= 0 ? slotTop + newH + past : Math.min(scrolled, slotTop + newH);
-          if (Math.abs(next - scrolled) >= 0.5) scroller.scrollTop = next;
+          const next =
+            newH > oldH
+              ? scrolled + (newH - oldH)
+              : past >= 0
+                ? slotTop + newH + past
+                : Math.min(scrolled, slotTop + newH);
+          if (Math.abs(next - scrolled) >= 0.5) {
+            scroller.scrollTop = next;
+            ownTop = scroller.scrollTop;
+            lastTop = ownTop;
+          }
         }
       }
 
@@ -1192,8 +1209,7 @@ function VideoDock({
       frame = t === target ? 0 : requestAnimationFrame(step);
     };
 
-    // Where it belongs: the circle once the transcript has scrolled (or the slot is hidden),
-    // the slot again once it is back at the top. In between, it stays where it is.
+    // Heads for the slot (0) or the circle (1), animating unless told not to.
     const go = (next: number, animate: boolean) => {
       dockedRef.current = next === 1;
       if (next === target) return;
@@ -1206,28 +1222,53 @@ function VideoDock({
       }
     };
 
-    // Where it belongs: the circle once the transcript scrolls, or wherever the slot is hidden
-    // (on phones); the slot before the transcript shows. Once docked it stays docked until the
-    // visitor scrolls up past the top (below).
-    const update = (animate: boolean) => {
-      const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
-      const inTranscript = Boolean(slot && scroller && scroller.contains(slot));
-      if (!slotShown) go(1, animate);
-      else if (!inTranscript) go(0, animate);
-      else if (scroller!.scrollTop > DOCK_SCROLL_PX) go(1, animate);
-      else if (target < 0) go(dockedRef.current ? 1 : 0, animate);
+    // Scrolling back up while docked reopens the slot (out of view), and once the slot comes
+    // into view the video moves back into it, as the visitor scrolls on into it.
+    const scrollUp = () => {
+      if (target !== 1 || !slot || !scroller || !scroller.contains(slot)) return;
+      if (slot.offsetParent === null || phone?.matches) return;
+      if (collapsed) {
+        collapsed = false;
+        draw();
+      }
+      const slotTop = boxIn(slot).y - boxIn(scroller).y;
+      if (scroller.scrollTop < slotTop + naturalH) go(0, true);
       draw();
     };
 
-    // Scrolling up at the top of the transcript brings the video back into its slot.
-    const atTop = () =>
-      target === 1 &&
-      Boolean(slot && scroller && slot.offsetParent !== null && !phone?.matches && scroller.contains(slot)) &&
-      scroller!.scrollTop <= 0;
-    const undock = () => {
-      if (!atTop()) return;
-      go(0, true);
+    // Where it belongs: the circle once the transcript scrolls down, or wherever the slot is
+    // hidden (on phones); the slot before the transcript shows. Scrolling back up brings it
+    // back (scrollUp). A scroll this effect made itself, or a resize, moves it neither way.
+    const update = (animate: boolean, scrolled = false) => {
+      const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
+      const inTranscript = Boolean(slot && scroller && scroller.contains(slot));
+      const top = scroller?.scrollTop ?? 0;
+      let dir = 0;
+      if (scrolled) {
+        const own = ownTop !== null && Math.abs(top - ownTop) < 1;
+        ownTop = null;
+        if (!own) dir = Math.sign(top - lastTop);
+      }
+      lastTop = top;
+      if (!slotShown) go(1, animate);
+      else if (!inTranscript) go(0, animate);
+      else if (target < 0) {
+        go(dockedRef.current || top > DOCK_SCROLL_PX ? 1 : 0, animate);
+        collapsed = target === 1;
+      } else if (dir > 0 && target === 0 && top > DOCK_SCROLL_PX) {
+        collapsed = true;
+        go(1, animate);
+      } else if (dir < 0) {
+        scrollUp();
+        return;
+      }
       draw();
+    };
+
+    // Scrolling up where the transcript can't scroll (at its top) shows no scroll at all.
+    const atTop = () => (scroller?.scrollTop ?? 1) <= 0;
+    const undock = () => {
+      if (atTop()) scrollUp();
     };
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) undock();
@@ -1245,8 +1286,9 @@ function VideoDock({
 
     update(false);
     const onChange = () => update(true);
+    const onScroll = () => update(true, true);
     // Scroll and resize events arrive before the frame is painted, so the dock never lags.
-    scroller?.addEventListener("scroll", onChange, { passive: true });
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
     scroller?.addEventListener("wheel", onWheel, { passive: true });
     scroller?.addEventListener("touchstart", onTouchStart, { passive: true });
     scroller?.addEventListener("touchmove", onTouchMove, { passive: true });
@@ -1260,7 +1302,7 @@ function VideoDock({
     if (content) resize?.observe(content);
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      scroller?.removeEventListener("scroll", onChange);
+      scroller?.removeEventListener("scroll", onScroll);
       scroller?.removeEventListener("wheel", onWheel);
       scroller?.removeEventListener("touchstart", onTouchStart);
       scroller?.removeEventListener("touchmove", onTouchMove);

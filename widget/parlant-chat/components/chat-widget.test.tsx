@@ -1727,7 +1727,7 @@ describe("avatar", () => {
     expect(container.querySelector(".parlant-cw-dock video")).toBe(before);
   });
 
-  it("moves the video to a circle beside the name once the transcript scrolls, closing its slot, and back on scrolling up past the top", async () => {
+  it("moves the video to a circle beside the name once the transcript scrolls, closing its slot, and back as it scrolls up into the reopened slot", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" customerSound={false} agentSound={false} avatar={video} />,
@@ -1792,19 +1792,31 @@ describe("avatar", () => {
     // The slot has closed up behind it, to just below the shelf's fade: 48 + 36 + 20 - 60.
     expect(slot.style.height).toBe("44px");
 
-    // Scrolling anywhere, the top included, leaves it docked.
+    // Scrolling further down leaves it docked.
     scrollTo(300);
-    scrollTo(0);
     expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
 
-    // Scrolling up past the top opens the slot again and returns the video to it.
-    fireEvent.wheel(scroller, { deltaY: -40 });
-    expect(text.dataset.dock).toBe("moving");
-    await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
+    // Scrolling back up reopens the slot at once, growing it upward with the scroll moved by
+    // as much (200 - 44), so nothing in view moves. The slot is still above the view, so the
+    // video stays docked.
+    scrollTo(290);
     expect(slot.style.height).toBe("");
+    expect(scroller.scrollTop).toBe(446);
+    expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
+
+    // Once the slot comes into view (its bottom is at 60 + 200), the video moves back into it,
+    // scrolled with it.
+    scrollTo(250);
+    expect(text.dataset.dock).toBe("moving");
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: -190, width: 356, height: 200 }));
     expect(text.dataset.dock).toBe("rest");
     expect(text.dataset.layout).toBeUndefined();
     expect(text.style.transform).toBe("");
+
+    // Scrolling down again docks it and closes the slot.
+    scrollTo(260);
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 }));
+    expect(slot.style.height).toBe("44px");
   });
 
   it("shows the video on the launcher, cropped onto the face, with its live dot", async () => {

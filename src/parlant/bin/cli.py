@@ -179,22 +179,29 @@ AGENT_CARD_STEPS = """\
 Next: let people's AI agents talk to your agent.
 
 Personal AI agents, like a user's assistant booking a demo for them, look for
-your agent's card at /.well-known/agent-card.json and for pointers to it on
-your pages. Without them, those agents can only read your pages and use your
-forms; they can't talk to your agent. Do all of the following on the site
-that hosts this widget:
+files on your site that say your business has an agent and how to reach it:
+/.well-known/poppy.json (Poppy, the Personal Agent Protocol, which Meta Muse
+uses) and /.well-known/agent-card.json (A2A), plus pointers on your pages.
+Without them, those agents can only read your pages and use your forms; they
+can't talk to your agent. Do all of the following on the site that hosts this
+widget:
 
-1. Get the agent's A2A card URL:
+1. Get the agent's addresses:
        parlant dashboard agent view <agent-id>
-   It prints A2A ADDRESS and AGENT CARD, for example
-   https://agents.parlant.io/a2a/your-agent/.well-known/agent-card.json.
+   It prints A2A ADDRESS, AGENT CARD and POPPY ADDRESS. The Poppy address
+   needs the agent's site set in the Dashboard's AI agents section (or
+   parlant dashboard agent a2a set <agent-id> --site <your-domain>), since
+   Poppy identifies your business by its domain.
 
-2. Publish the card at /.well-known/agent-card.json:
-   - Best: a 308 redirect from /.well-known/agent-card.json to the AGENT CARD
-     URL. The card then stays current when the agent's settings change.
-   - If your host can't redirect, serve the card as a file instead, and run
-     this again whenever the agent's settings change:
-       parlant dashboard agent card <agent-id> > <public-dir>/.well-known/agent-card.json
+2. Write the files into your site's public directory, and run this again
+   whenever the agent's settings change:
+       parlant dashboard agent cards <agent-id> <public-dir>
+   It writes <public-dir>/.well-known/agent-card.json, and the Poppy
+   documents /.well-known/poppy.json and /.well-known/poppy-0.4.json beside
+   it. Serve all three as files from your own host: Poppy's documents may
+   not redirect. For the A2A card alone, a 308 redirect from
+   /.well-known/agent-card.json to the AGENT CARD URL also works, and keeps
+   it current without re-running the command.
 
 3. Point to it from your pages:
    - In the <head> of your homepage, and ideally of every page:
@@ -209,6 +216,9 @@ that hosts this widget:
 4. After you deploy, check:
    - https://<your-site>/.well-known/agent-card.json returns the card (JSON,
      status 200, after any redirect);
+   - https://<your-site>/.well-known/poppy.json returns the Poppy document
+     (JSON, status 200, no redirect); https://poppydemoagent.dev/validator
+     checks it against the protocol;
    - the homepage's HTML has the <link rel="agent-card"> tag, and its
      response has the Link header.
    Without the card, people's personal agents won't be able to talk to your

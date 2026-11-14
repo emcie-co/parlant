@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -46,6 +46,10 @@ class A2AState:
     short: str
     address: str
     card: str
+    # The Poppy (Personal Agent Protocol) conversation endpoint, and the discovery
+    # documents the site serves for it by version; "-" and empty until the agent has a site.
+    poppy_address: str = "-"
+    poppy_documents: Mapping[str, str] = dataclass_field(default_factory=dict)
 
 
 UNKNOWN = A2AState(summary="-", short="-", address="-", card="-")
@@ -193,6 +197,7 @@ def print_a2a_settings(settings: Mapping[str, Any], entry: Mapping[str, Any]) ->
             ("REPLY WAIT", reply_wait),
             ("A2A ADDRESS", state.address),
             ("AGENT CARD", state.card),
+            ("POPPY ADDRESS", state.poppy_address),
         ]
     )
 
@@ -245,14 +250,17 @@ def a2a_state(settings: Mapping[str, Any] | None, agent_id: str) -> A2AState:
     urls = endpoint.get("urls") if isinstance(endpoint, Mapping) else None
     address = _url(urls, "interface")
     card = _url(urls, "card")
+    poppy = _poppy_urls(urls)
     plan = settings.get("plan")
 
     if isinstance(plan, Mapping) and plan.get("enabled") is False:
-        return A2AState(summary="not in your plan", short="not-in-plan", address=address, card=card)
+        return A2AState(
+            summary="not in your plan", short="not-in-plan", address=address, card=card, **poppy
+        )
 
     if isinstance(endpoint, Mapping) and endpoint.get("enabled") is True:
         callers = CALLERS.get(str(endpoint.get("callers")), str(endpoint.get("callers")))
-        return A2AState(summary=f"on: {callers}", short="on", address=address, card=card)
+        return A2AState(summary=f"on: {callers}", short="on", address=address, card=card, **poppy)
 
     if endpoint is None and entry is not None and entry.get("turnsOnAtNextDeploy") is True:
         return A2AState(
@@ -262,7 +270,7 @@ def a2a_state(settings: Mapping[str, Any] | None, agent_id: str) -> A2AState:
             card="-",
         )
 
-    return A2AState(summary="off", short="off", address=address, card=card)
+    return A2AState(summary="off", short="off", address=address, card=card, **poppy)
 
 
 def _skill_names(card: Mapping[str, Any]) -> str:
@@ -278,6 +286,23 @@ def _skill_names(card: Mapping[str, Any]) -> str:
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _poppy_urls(urls: Any) -> dict[str, Any]:
+    """The Poppy address and documents in `urls.poppy`, which the Dashboard gives once
+    the agent has a site; a Dashboard from before Poppy has no such field."""
+    poppy = urls.get("poppy") if isinstance(urls, Mapping) else None
+    if not isinstance(poppy, Mapping):
+        return {}
+    documents = poppy.get("documents")
+    return {
+        "poppy_address": _url(poppy, "endpoint"),
+        "poppy_documents": {
+            str(version): url
+            for version, url in (documents.items() if isinstance(documents, Mapping) else [])
+            if isinstance(url, str) and url
+        },
+    }
 
 
 def _url(urls: Any, key: str) -> str:

@@ -21,7 +21,9 @@ Each entry says what changed and what it means for you, under `Added`,
   height and fades out over the messages below the circle. The name and
   subtitle fade out while the video moves and back in beside the circle, the
   subtitle under the name. A photo avatar is now the same size as the docked
-  circle, and its header fades out over the messages below it too.
+  circle, and its header fades out over the messages below it too. Scrolling up
+  in the widget no longer gets pulled back down in a short conversation, and
+  sending a message brings the view to it.
   On phones the widget only shows the circle, which is cropped onto the face
   by the avatar's `launcher` setting. Your project keeps the copy
   `parlant widget init` made. To pick this up, run

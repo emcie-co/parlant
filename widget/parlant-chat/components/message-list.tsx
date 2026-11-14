@@ -2,7 +2,7 @@
 // collapsible mode, reasoning), the status line, and a "new messages" pill when the
 // user has scrolled up.
 
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import type {
   ChatMessage,
@@ -165,6 +165,16 @@ export function MessageList({
   signIns = [],
 }: MessageListProps) {
   const { scrollRef, contentRef, isPinned, scrollToBottom } = useStickToBottom();
+
+  // Sending a message brings the view to it (and pins it there for the reply), wherever the
+  // visitor had scrolled.
+  const lastSent = useRef<string | null>(null);
+  const sent = [...messages].reverse().find((m) => m.role === "customer" && m.pending);
+  useEffect(() => {
+    if (!sent || sent.id === lastSent.current) return;
+    lastSent.current = sent.id;
+    scrollToBottom();
+  }, [sent, scrollToBottom]);
 
   // Group tool widgets by trace so each turn's output renders under its agent reply.
   const widgetsByTrace = new Map<string, ToolWidget[]>();

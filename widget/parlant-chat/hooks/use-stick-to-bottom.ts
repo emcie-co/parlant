@@ -46,12 +46,45 @@ export function useStickToBottom(): StickToBottom {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Near the bottom counts as pinned, except while moving up away from it: otherwise a
+    // reader scrolling up through the last few lines is pinned again and pulled back down.
+    let lastTop = el.scrollTop;
     const onScroll = () => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setPinned(distance <= NEAR_BOTTOM_PX);
+      const movingUp = el.scrollTop < lastTop - 0.5;
+      lastTop = el.scrollTop;
+      setPinned(movingUp ? distance <= 1 : distance <= NEAR_BOTTOM_PX);
+    };
+    // Scrolling up is a request to read back, even where the view can't scroll (a short
+    // transcript is within reach of the bottom at its top): unpin, so growth below doesn't
+    // pull the view back down. Without this, a video avatar reopening its space at the top
+    // of a short transcript was scrolled away and docked again, over and over.
+    const unpin = () => setPinned(false);
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) unpin();
+    };
+    let touchY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if ((event.touches[0]?.clientY ?? 0) > touchY + 4) unpin();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") unpin();
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("keydown", onKey);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("keydown", onKey);
+    };
   }, [setPinned]);
 
   // As the content grows or the view shrinks, stay pinned to the bottom — but only if

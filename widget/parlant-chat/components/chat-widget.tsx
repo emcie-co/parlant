@@ -1023,9 +1023,10 @@ const lerp = (from: number, to: number, p: number) => from + (to - from) * p;
  * The agent's video, drawn over the card. It has two places: its slot
  * (`.parlant-cw-video--slot`), under the header before the transcript shows and then leading the
  * transcript, and a circle beside the name. It rests in the slot, scrolling with it, until the
- * transcript scrolls; then it moves to the circle in one short animation, and stays there until
- * the transcript is back at the top, when it moves back. It never stops in between, whether the
- * visitor scrolls or new messages scroll the transcript.
+ * transcript scrolls; then it moves to the circle in one short animation, and the slot closes up
+ * behind it, so no empty space is left. It stays docked until the visitor scrolls up past the
+ * top, when the slot opens again and the video moves back. It never stops in between, whether
+ * the visitor scrolls or new messages scroll the transcript.
  *
  * The header never changes height. As the circle docks, a strip of header background (the
  * shelf) grows under it, so messages scroll beneath the circle; the name and subtitle fade out
@@ -1049,6 +1050,8 @@ function VideoDock({
   layoutKey: string;
 }) {
   const dockRef = useRef<HTMLDivElement>(null);
+  // Whether the video is docked, kept across layout changes (expanding, minimizing).
+  const dockedRef = useRef(false);
   const shelfRef = useRef<HTMLDivElement>(null);
   const zoom = launcher?.zoom ?? 1;
   const faceX = parseFloat(launcher?.x ?? "50%");
@@ -1090,6 +1093,7 @@ function VideoDock({
     let t = 0;
     let frame = 0;
     let last = 0;
+    let naturalH = 0;
 
     const draw = () => {
       if (!header) return;
@@ -1104,15 +1108,40 @@ function VideoDock({
       const headerBottom = head.y + head.h;
       const circle = { x: head.x + padLeft, y: head.y + padTop };
 
-      // The slot where it is now, scrolled with the transcript.
+      const e = t * t * (3 - 2 * t);
+      const reachBelow = Math.max(0, circle.y + size + padTop - headerBottom);
       const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
+      const inTranscript = Boolean(slot && scroller && scroller.contains(slot));
+
+      // In the transcript, the slot closes up as the video leaves it, to just below the circle,
+      // so no empty space is left where the video was. While the slot is above the view, the
+      // scroll moves with it and the messages in view stay put; while it is in view, the
+      // messages below it slide up with it.
+      if (slot && scroller && slotShown && inTranscript) {
+        if (!slot.style.height) naturalH = slot.offsetHeight;
+        else if (!naturalH) naturalH = (slot.offsetWidth * 9) / 16;
+        const slotTop = boxIn(slot).y - boxIn(scroller).y;
+        const closed = Math.max(0, headerBottom + reachBelow - boxIn(slot).y);
+        const oldH = slot.style.height ? parseFloat(slot.style.height) : naturalH;
+        const newH = lerp(naturalH, closed, e);
+        if (e <= 0) slot.style.height = "";
+        else if (newH !== oldH) slot.style.height = newH + "px";
+        if (newH !== oldH) {
+          const scrolled = scroller.scrollTop;
+          const past = scrolled - (slotTop + oldH);
+          const next = past >= 0 ? slotTop + newH + past : Math.min(scrolled, slotTop + newH);
+          if (Math.abs(next - scrolled) >= 0.5) scroller.scrollTop = next;
+        }
+      }
+
+      // The slot where it is now, at its full size, scrolled with the transcript.
       let rest = { x: circle.x, y: circle.y, w: size, h: size };
       if (slot && slotShown) {
         rest = boxIn(slot);
-        if (scroller && scroller.contains(slot)) rest.y -= scroller.scrollTop;
+        if (naturalH && inTranscript) rest.h = naturalH;
+        if (scroller && inTranscript) rest.y -= scroller.scrollTop;
       }
 
-      const e = t * t * (3 - 2 * t);
       const left = lerp(rest.x, circle.x, e);
       const top = lerp(rest.y, circle.y, e);
       const width = lerp(rest.w, size, e);
@@ -1130,7 +1159,6 @@ function VideoDock({
       }
 
       // The shelf: header background under the circle, as far as the circle reaches.
-      const reachBelow = Math.max(0, circle.y + size + padTop - headerBottom);
       shelf.style.transform = "translateY(" + headerBottom + "px)";
       shelf.style.height = reachBelow * e + "px";
 
@@ -1167,30 +1195,63 @@ function VideoDock({
 
     // Where it belongs: the circle once the transcript has scrolled (or the slot is hidden),
     // the slot again once it is back at the top. In between, it stays where it is.
+    const go = (next: number, animate: boolean) => {
+      dockedRef.current = next === 1;
+      if (next === target) return;
+      target = next;
+      if (!animate || reduced) {
+        t = target;
+      } else if (!frame) {
+        last = 0;
+        frame = requestAnimationFrame(step);
+      }
+    };
+
+    // Where it belongs: the circle once the transcript scrolls, or wherever the slot is hidden
+    // (on phones); the slot before the transcript shows. Once docked it stays docked until the
+    // visitor scrolls up past the top (below).
     const update = (animate: boolean) => {
       const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
-      const scrolled = slot && scroller && scroller.contains(slot) ? scroller.scrollTop : 0;
-      let next = target;
-      if (!slotShown) next = 1;
-      else if (scrolled > DOCK_SCROLL_PX) next = 1;
-      else if (scrolled < 1) next = 0;
-      else if (next < 0) next = 0;
-      if (next !== target) {
-        target = next;
-        if (!animate || reduced) {
-          t = target;
-        } else if (!frame) {
-          last = 0;
-          frame = requestAnimationFrame(step);
-        }
-      }
+      const inTranscript = Boolean(slot && scroller && scroller.contains(slot));
+      if (!slotShown) go(1, animate);
+      else if (!inTranscript) go(0, animate);
+      else if (scroller!.scrollTop > DOCK_SCROLL_PX) go(1, animate);
+      else if (target < 0) go(dockedRef.current ? 1 : 0, animate);
       draw();
+    };
+
+    // Scrolling up at the top of the transcript brings the video back into its slot.
+    const atTop = () =>
+      target === 1 &&
+      Boolean(slot && scroller && slot.offsetParent !== null && !phone?.matches && scroller.contains(slot)) &&
+      scroller!.scrollTop <= 0;
+    const undock = () => {
+      if (!atTop()) return;
+      go(0, true);
+      draw();
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) undock();
+    };
+    let touchY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if ((event.touches[0]?.clientY ?? 0) > touchY + 4) undock();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") undock();
     };
 
     update(false);
     const onChange = () => update(true);
     // Scroll and resize events arrive before the frame is painted, so the dock never lags.
     scroller?.addEventListener("scroll", onChange, { passive: true });
+    scroller?.addEventListener("wheel", onWheel, { passive: true });
+    scroller?.addEventListener("touchstart", onTouchStart, { passive: true });
+    scroller?.addEventListener("touchmove", onTouchMove, { passive: true });
+    scroller?.addEventListener("keydown", onKey);
     window.addEventListener("resize", onChange);
     phone?.addEventListener?.("change", onChange);
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onChange);
@@ -1201,6 +1262,10 @@ function VideoDock({
     return () => {
       if (frame) cancelAnimationFrame(frame);
       scroller?.removeEventListener("scroll", onChange);
+      scroller?.removeEventListener("wheel", onWheel);
+      scroller?.removeEventListener("touchstart", onTouchStart);
+      scroller?.removeEventListener("touchmove", onTouchMove);
+      scroller?.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onChange);
       phone?.removeEventListener?.("change", onChange);
       resize?.disconnect();

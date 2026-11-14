@@ -1727,7 +1727,7 @@ describe("avatar", () => {
     expect(container.querySelector(".parlant-cw-dock video")).toBe(before);
   });
 
-  it("moves the video to a circle beside the name once the transcript scrolls, and back at the top", async () => {
+  it("moves the video to a circle beside the name once the transcript scrolls, closing its slot, and back on scrolling up past the top", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" customerSound={false} agentSound={false} avatar={video} />,
@@ -1766,8 +1766,8 @@ describe("avatar", () => {
     };
 
     // At rest it is drawn over its slot, and scrolls with it. (jsdom laid nothing out at first,
-    // so the slot only now shows.)
-    scrollTo(0);
+    // so it docked as if on a phone; scrolling up at the top brings it to the slot.)
+    fireEvent.wheel(scroller, { deltaY: -40 });
     await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
     expect(shelf.style.height).toBe("0px");
     expect(text.dataset.dock).toBe("rest");
@@ -1787,15 +1787,19 @@ describe("avatar", () => {
     // Docked, the name fades back in beside the circle.
     expect(text.dataset.dock).toBe("docked");
     expect(text.style.transform).toMatch(/^translate\(/);
+    // The slot has closed up behind it, to just below the circle: 48 + 36 - 60.
+    expect(slot.style.height).toBe("24px");
 
-    // Scrolling further, or most of the way back, leaves it docked.
+    // Scrolling anywhere, the top included, leaves it docked.
     scrollTo(300);
-    scrollTo(2);
+    scrollTo(0);
     expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
 
-    // Back at the top, it returns to its slot.
-    scrollTo(0);
+    // Scrolling up past the top opens the slot again and returns the video to it.
+    fireEvent.wheel(scroller, { deltaY: -40 });
+    expect(text.dataset.dock).toBe("moving");
     await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
+    expect(slot.style.height).toBe("");
     expect(text.dataset.dock).toBe("rest");
     expect(text.style.transform).toBe("");
   });

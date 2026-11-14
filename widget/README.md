@@ -232,7 +232,8 @@ order. Duplicate text appears only once. Set the limit to 0 to hide chips.
   header in place of the avatar, with the subtitle beside the name and, with `live: true`, the
   live dot in its bottom-right corner. Once the conversation starts, it leads the transcript.
   Once the transcript scrolls, the video moves into a circle beside the name, cropped by
-  `launcher`, and back once it is scrolled to the top again. The header keeps its
+  `launcher`, and the space it leaves in the transcript closes up. Scrolling up past the top
+  opens it again and brings the video back. The header keeps its
   height, and the name and subtitle fade out while the video moves, then fade back in beside the
   circle, the subtitle under the name. On phones the widget only shows the
   circle. Expanding the chat keeps the video at its opened size. Use an H.264 MP4 with its index at the start (`ffmpeg -movflags +faststart`), so

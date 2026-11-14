@@ -2,7 +2,7 @@
 // collapsible mode, reasoning), the status line, and a "new messages" pill when the
 // user has scrolled up.
 
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import type {
   ChatMessage,
@@ -32,7 +32,8 @@ export interface MessageListProps {
   reasoningStreaming: boolean;
   reasoningByTrace: Map<string, ReasoningSummary>;
   reasoningMode: ReasoningMode;
-  /** Shown first in the transcript, scrolling away with it, such as the agent's video. */
+  /** Shown first in the transcript, scrolling with it, such as the slot the agent's video
+   *  rests in. */
   lead?: ReactNode;
   /** Muted intro shown above the first message. */
   preface?: string;
@@ -165,6 +166,16 @@ export function MessageList({
 }: MessageListProps) {
   const { scrollRef, contentRef, isPinned, scrollToBottom } = useStickToBottom();
 
+  // Sending a message brings the view to it (and pins it there for the reply), wherever the
+  // visitor had scrolled.
+  const lastSent = useRef<string | null>(null);
+  const sent = [...messages].reverse().find((m) => m.role === "customer" && m.pending);
+  useEffect(() => {
+    if (!sent || sent.id === lastSent.current) return;
+    lastSent.current = sent.id;
+    scrollToBottom();
+  }, [sent, scrollToBottom]);
+
   // Group tool widgets by trace so each turn's output renders under its agent reply.
   const widgetsByTrace = new Map<string, ToolWidget[]>();
   for (const w of toolWidgets) {
@@ -190,7 +201,7 @@ export function MessageList({
     <div className="parlant-list">
       <div ref={scrollRef} className="parlant-hide-scrollbar parlant-mlist-scroll">
         <div ref={contentRef} className="parlant-mlist-content">
-          {lead}
+          {lead && <div className="parlant-mlist-lead">{lead}</div>}
           {preface && (
             <p className="parlant-mlist-preface">
               {preface}

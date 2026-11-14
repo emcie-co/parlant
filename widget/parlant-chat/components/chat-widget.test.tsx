@@ -1681,16 +1681,19 @@ describe("avatar", () => {
     await waitFor(() => expect(container.querySelector(".parlant-cw-avatar--photo img")?.getAttribute("src")).toBe("/dana.jpg"));
   });
 
-  it("shows a video under the header in place of the avatar, with the subtitle beside the name", async () => {
+  it("draws the video over its slot under the header, in place of the avatar, with the subtitle beside the name", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" avatar={video} />,
     );
 
-    await waitFor(() => expect(container.querySelector(".parlant-cw-video video")).not.toBeNull());
-    const el = container.querySelector(".parlant-cw-video video") as HTMLVideoElement;
+    await waitFor(() => expect(container.querySelector(".parlant-cw-dock video")).not.toBeNull());
+    const el = container.querySelector(".parlant-cw-dock video") as HTMLVideoElement;
     expect(el.getAttribute("src")).toBe("/shira.mp4");
     expect(el.getAttribute("poster")).toBe("/shira.jpg");
+    expect(container.querySelector(".parlant-cw-video--slot")).not.toBeNull();
+    // Laid out from the first render, before any message.
+    expect((container.querySelector(".parlant-cw-dock") as HTMLElement).style.width).not.toBe("");
     expect(container.querySelector(".parlant-cw-avatar")).toBeNull();
     expect(container.querySelector(".parlant-cw-header-text--inline")).not.toBeNull();
   });
@@ -1698,27 +1701,133 @@ describe("avatar", () => {
   it("puts the live dot in the video's corner, only when it's live", async () => {
     server();
     const view = render(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={video} />);
-    await waitFor(() => expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).not.toBeNull());
+    await waitFor(() => expect(view.container.querySelector(".parlant-cw-dock .parlant-cw-live")).not.toBeNull());
 
     view.rerender(<ChatWidget serverUrl={SERVER} agentId="agent" mode="input" avatar={{ ...video, live: false }} />);
-    expect(view.container.querySelector(".parlant-cw-video .parlant-cw-live")).toBeNull();
+    expect(view.container.querySelector(".parlant-cw-dock .parlant-cw-live")).toBeNull();
   });
 
-  it("moves the video into the transcript once the conversation starts, so it scrolls away", async () => {
+  it("moves the video's slot into the transcript once the conversation starts, keeping the same video playing", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" customerSound={false} agentSound={false} avatar={video} />,
     );
 
-    await waitFor(() => expect(container.querySelector(".parlant-cw-video")).not.toBeNull());
-    expect(container.querySelector(".parlant-mlist-content .parlant-cw-video")).toBeNull();
+    await waitFor(() => expect(container.querySelector(".parlant-cw-dock video")).not.toBeNull());
+    const before = container.querySelector(".parlant-cw-dock video");
+    expect(container.querySelector(".parlant-mlist-content .parlant-cw-video--slot")).toBeNull();
 
     const input = container.querySelector("textarea")!;
     fireEvent.change(input, { target: { value: "Hi" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(container.querySelector(".parlant-mlist-content > .parlant-cw-video")).not.toBeNull());
-    expect(container.querySelectorAll(".parlant-cw-video")).toHaveLength(1);
+    await waitFor(() => expect(container.querySelector(".parlant-mlist-lead > .parlant-cw-video--slot")).not.toBeNull());
+    expect(container.querySelectorAll(".parlant-cw-video--slot")).toHaveLength(1);
+    expect(container.querySelectorAll("video")).toHaveLength(1);
+    expect(container.querySelector(".parlant-cw-dock video")).toBe(before);
+  });
+
+  it("moves the video to a circle beside the name once the transcript scrolls, closing its slot, and back as it scrolls up into the reopened slot", async () => {
+    server();
+    const { container } = render(
+      <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" customerSound={false} agentSound={false} avatar={video} />,
+    );
+    const input = await waitFor(() => container.querySelector("textarea")!);
+    fireEvent.change(input, { target: { value: "Hi" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(container.querySelector(".parlant-mlist-lead")).not.toBeNull());
+
+    const card = container.querySelector(".parlant-chat") as HTMLElement;
+    const header = container.querySelector(".parlant-cw-header") as HTMLElement;
+    const scroller = container.querySelector(".parlant-mlist-scroll") as HTMLElement;
+    const slot = container.querySelector(".parlant-cw-video--slot") as HTMLElement;
+    const dock = container.querySelector(".parlant-cw-dock") as HTMLElement;
+    const shelf = container.querySelector(".parlant-cw-shelf") as HTMLElement;
+    // Lay out a 380px card: a 48px header, and the 200px slot resting 60px down, in the card's
+    // own coordinates (offsets ignore the transcript's scroll).
+    const place = (el: HTMLElement, left: number, top: number, width: number, height: number) => {
+      const define = (key: string, value: unknown) => Object.defineProperty(el, key, { configurable: true, get: () => value });
+      define("offsetParent", card);
+      define("offsetLeft", left);
+      define("offsetTop", top);
+      define("offsetWidth", width);
+      define("offsetHeight", height);
+    };
+    place(header, 0, 0, 380, 48);
+    place(slot, 12, 60, 356, 200);
+    const text = container.querySelector(".parlant-cw-header-text") as HTMLElement;
+    const box = () => {
+      const [x, y] = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(dock.style.transform)!.slice(1).map(Number);
+      return { x, y, width: parseFloat(dock.style.width), height: parseFloat(dock.style.height) };
+    };
+    const scrollTo = (scrollTop: number) => {
+      scroller.scrollTop = scrollTop;
+      fireEvent.scroll(scroller);
+    };
+
+    // At rest it is drawn over its slot, and scrolls with it. (jsdom laid nothing out at first,
+    // so it docked as if on a phone; scrolling up at the top brings it to the slot.)
+    fireEvent.wheel(scroller, { deltaY: -40 });
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
+    expect(shelf.style.height).toBe("0px");
+    expect(text.dataset.dock).toBe("rest");
+    scrollTo(1);
+    expect(box()).toEqual({ x: 12, y: 59, width: 356, height: 200 });
+
+    // Once the transcript scrolls, it moves to the circle on its own, never stopping on the
+    // way, with the name faded out while it moves.
+    scrollTo(40);
+    expect(text.dataset.dock).toBe("moving");
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 }));
+    expect(dock.style.borderRadius).toBe("32px");
+    // The shelf fills what the circle reaches below the header, with the header's padding
+    // under it, then fades out over 20px: 10 + 64 + 10 - 48 + 20.
+    expect(shelf.style.height).toBe("56px");
+    expect((container.querySelector(".parlant-cw-dock video") as HTMLElement).style.transform).toContain("scale(1.6)");
+    // Docked, the name fades back in beside the circle.
+    expect(text.dataset.dock).toBe("docked");
+    expect(text.style.transform).toMatch(/^translate\(/);
+    // With the subtitle under the name.
+    expect(text.dataset.layout).toBe("stacked");
+    // The slot has closed up behind it, to just below the shelf's fade: 48 + 36 + 20 - 60.
+    expect(slot.style.height).toBe("44px");
+
+    // Scrolling further down leaves it docked.
+    scrollTo(300);
+    expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
+
+    // The browser moving the scroll up (as when the slot closes near the bottom) changes
+    // nothing: scrolling up is told by the visitor's gestures.
+    scrollTo(290);
+    expect(slot.style.height).toBe("44px");
+    scrollTo(300);
+
+    // Scrolling back up reopens the slot at once, growing it upward with the scroll moved by
+    // as much (200 - 44), so nothing in view moves. The slot is still above the view, so the
+    // video stays docked.
+    fireEvent.wheel(scroller, { deltaY: -40 });
+    expect(slot.style.height).toBe("");
+    expect(scroller.scrollTop).toBe(456);
+    expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
+
+    // Once the slot comes into view (its bottom is at 60 + 200), the video moves back into it,
+    // scrolled with it.
+    scrollTo(250);
+    expect(text.dataset.dock).toBe("moving");
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: -190, width: 356, height: 200 }));
+    expect(text.dataset.dock).toBe("rest");
+    // Scrolled partway, it is clipped at the transcript's top, under the header.
+    expect(dock.style.clipPath).not.toBe("");
+    expect(text.dataset.layout).toBeUndefined();
+    expect(text.style.transform).toBe("");
+
+    // Scrolling down again docks it. The part of the slot already out of view is cut at once,
+    // down to its closed height, with the scroll moved by as much (190 - 156 = 34 is left).
+    scrollTo(260);
+    expect(slot.style.height).toBe("44px");
+    expect(scroller.scrollTop).toBe(104);
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 }));
+    expect(slot.style.height).toBe("44px");
   });
 
   it("shows the video on the launcher, cropped onto the face, with its live dot", async () => {

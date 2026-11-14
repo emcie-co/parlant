@@ -621,6 +621,8 @@
   .parlant-widget .parlant-sidebar .parlant-cw-size-toggle { display: none; }
 }
 .parlant-widget .parlant-cw-header {
+  /* Positioned, so the header text's offsets (which VideoDock reads) are the header's. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -648,11 +650,27 @@
   min-width: 0;
   flex-direction: column;
 }
-/* With the video below and no avatar beside it, the subtitle follows the name on one line. */
+/* With a video avatar, the subtitle follows the name on one line; once the video has docked
+ * beside the name, it goes under the name (VideoDock sets data-layout, chat-widget.tsx). */
 .parlant-widget .parlant-cw-header-text--inline {
   flex-direction: row;
   align-items: baseline;
   gap: 0.375rem;
+}
+/* Stacked, the two lines keep the one line's height and overflow it evenly, so the header
+ * doesn't grow (and move the transcript) when they stack. */
+.parlant-widget .parlant-cw-header-text--inline[data-layout="stacked"] {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  height: 1.25rem;
+}
+.parlant-widget .parlant-cw-header-text[data-layout="stacked"] > * { flex-shrink: 0; }
+/* Beside the docked circle, the name is 2px larger. */
+.parlant-widget .parlant-cw-header-text[data-layout="stacked"] .parlant-cw-header-name {
+  font-size: calc(0.875rem + 2px);
+  line-height: 1.375rem;
 }
 /* The open panel's expand/shrink arrows, a little under the 16px icon size. */
 .parlant-widget .parlant-cw-size-toggle svg { width: 14px; height: 14px; }
@@ -717,38 +735,70 @@
 @media (prefers-reduced-motion: reduce) {
   .parlant-widget .parlant-cw-live::after { animation: none; opacity: 0; }
 }
-/* The intro video spans the card under the header, almost square-cornered. */
+/* The video's slot: an empty box under the header, then leading the transcript, that the video
+ * (VideoDock) is drawn over while it rests. */
 .parlant-widget .parlant-cw-video {
   position: relative;
   flex-shrink: 0;
   width: calc(100% - 1.5rem);
   margin: 0.375rem auto 0.25rem;
   aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: 2px;
-  background: hsl(var(--muted));
 }
-.parlant-widget .parlant-cw-video video {
+/* The video itself, drawn over the card: over its slot at rest, a circle beside the name once
+ * the transcript has scrolled. VideoDock sets its position, size and rounding from the scroll
+ * position on every scroll and resize, so it has no transitions of its own. */
+.parlant-widget .parlant-cw-dock {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  overflow: hidden;
+  background: hsl(var(--muted));
+  pointer-events: none;
+  will-change: transform, width, height;
+}
+.parlant-widget .parlant-cw-dock video {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* The video ignores the pointer, so the browser shows no controls over it. */
-  pointer-events: none;
+  transform-origin: center;
 }
-/* The live dot sits inside the video's bottom-right corner. */
-.parlant-widget .parlant-cw-video .parlant-cw-live,
-.parlant-widget .parlant-input--open .parlant-cw-video .parlant-cw-live {
-  right: 0.5rem;
-  bottom: 0.5rem;
+.parlant-widget .parlant-cw-dock .parlant-cw-live,
+.parlant-widget .parlant-input--open .parlant-cw-dock .parlant-cw-live {
+  right: 0.375rem;
+  bottom: 0.375rem;
   height: 0.75rem;
   width: 0.75rem;
 }
+/* Header background under the docked circle, as tall as the circle reaches below the header,
+ * so messages scroll beneath it. Its height follows the dock. */
+.parlant-widget .parlant-cw-shelf {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  height: 0;
+  /* Solid as far as the circle reaches, then fading out over its last 20px
+   * (SHELF_FADE_PX in chat-widget.tsx), so messages fade as they scroll under the header. */
+  background: linear-gradient(to bottom, hsl(var(--background)) calc(100% - 20px), hsl(var(--background) / 0));
+  pointer-events: none;
+}
+/* The header's text stays above the shelf and the dock (VideoDock keeps it clear of the video). */
+.parlant-widget .parlant-cw-header-text { position: relative; z-index: 4; }
+/* While the video moves between its slot and the circle, the name and subtitle are faded out;
+ * they fade back in where it settles (VideoDock sets data-dock). */
+.parlant-widget .parlant-cw-header-text[data-dock] { transition: opacity 140ms ease-out; }
+.parlant-widget .parlant-cw-header-text[data-dock="moving"] { opacity: 0; transition-duration: 90ms; }
+@media (prefers-reduced-motion: reduce) {
+  .parlant-widget .parlant-cw-header-text[data-dock] { transition: none; }
+}
 /* The closed bar stays a slim input; the video shows once it opens. */
 .parlant-widget .parlant-bar:not(.parlant-bar--open) .parlant-cw-video { display: none; }
-/* Once the transcript shows, the video leads it and scrolls away with it, keeping its gap
- * under the header. */
-.parlant-widget .parlant-mlist-content > .parlant-cw-video { width: 100%; margin: -0.375rem auto 0; }
+/* Once the transcript shows, the slot leads it and scrolls with it, keeping its gap under the
+ * header. */
+.parlant-widget .parlant-mlist-lead > .parlant-cw-video { width: 100%; margin: -0.375rem auto 0; }
 /* Expanding the chat doesn't enlarge the video: it keeps the width it has in the standard
  * 380px panel, centered. An inline widget's size is the page's, and phones fill the screen. */
 @media (min-width: 641px) {
@@ -924,16 +974,33 @@
   height: 60%;
   object-fit: contain;
 }
+/* A photo is the size of a docked video avatar's circle (DOCK_REM in chat-widget.tsx), with
+ * the live dot inset on its corner. */
 .parlant-widget .parlant-cw-avatar--photo {
-  height: 2.5rem;
-  width: 2.5rem;
+  height: 4rem;
+  width: 4rem;
   border-radius: 9999px;
 }
-/* The opened widget gives the portrait more presence than the collapsed bar does. */
-.parlant-widget .parlant-input--open .parlant-cw-avatar--photo {
-  height: 3.75rem;
-  width: 3.75rem;
+.parlant-widget .parlant-cw-avatar-frame .parlant-cw-live {
+  right: 0.125rem;
+  bottom: 0.125rem;
+  height: 0.875rem;
+  width: 0.875rem;
 }
+/* Under a photo's header, as under a docked video's, the header fades out over the transcript,
+ * and the transcript starts below the fade. */
+.parlant-widget .parlant-chat:has(.parlant-cw-avatar--photo):has(.parlant-mlist-scroll) .parlant-cw-header { z-index: 2; }
+.parlant-widget .parlant-chat:has(.parlant-cw-avatar--photo):has(.parlant-mlist-scroll) .parlant-cw-header::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--background) / 0));
+  pointer-events: none;
+}
+.parlant-widget .parlant-chat:has(.parlant-cw-avatar--photo) .parlant-mlist-content { padding-top: 20px; }
 .parlant-widget .parlant-cw-avatar--photo img {
   width: 100%;
   height: 100%;
@@ -1095,7 +1162,10 @@
   color: hsl(var(--muted-foreground));
 }
 .parlant-widget .parlant-list { position: relative; min-height: 0; flex: 1 1 0%; }
-.parlant-widget .parlant-mlist-scroll { height: 100%; overflow-y: auto; }
+/* No rubber-band bounce: a glide past the agent's video can land at the top with a trackpad's
+ * momentum still going, and the bounce then stretches the space above the video. It also
+ * keeps a scroll that reaches the end of the transcript from scrolling the page. */
+.parlant-widget .parlant-mlist-scroll { height: 100%; overflow-y: auto; overscroll-behavior-y: none; }
 .parlant-widget .parlant-mlist-content { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.75rem; }
 .parlant-widget .parlant-mlist-preface { padding: 1rem 1.5rem; text-align: center; font-size: 0.75rem; line-height: 1.625; color: hsl(var(--muted-foreground)); }
 .parlant-widget .parlant-mlist-widget { align-self: flex-start; }
@@ -1290,6 +1360,12 @@
 @media (max-width: 640px) {
   /* Full-screen already; the expand/shrink size toggle is meaningless — leave only minimize. */
   .parlant-widget .parlant-cw-size-toggle { display: none; }
+
+  /* A video avatar is only the circle beside the name: the big video would take most of the
+   * screen. The header is tall enough for the circle. */
+  .parlant-widget .parlant-cw-video { display: none; }
+  .parlant-widget .parlant-chat:has(.parlant-cw-dock) .parlant-cw-header { min-height: calc(4rem + 1.25rem); }
+
 
   /* Input mode — collapsed bar: full-width with a margin, sized/anchored to the *visual*
    * viewport (so it clears the scrollbar/keyboard). See chat-widget.tsx for the vars. */

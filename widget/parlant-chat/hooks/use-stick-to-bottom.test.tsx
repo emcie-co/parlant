@@ -53,4 +53,35 @@ describe("sticking to the bottom", () => {
     act(() => resize());
     expect(scroll.scrollTop).toBe(100);
   });
+
+  it("stays unpinned while the reader scrolls up through the last lines", () => {
+    const view = render(<Transcript />);
+    const scroll = view.getByTestId("scroll");
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scroll, "clientHeight", { configurable: true, value: 400 });
+    scroll.scrollTop = 600;
+    act(() => { scroll.dispatchEvent(new Event("scroll")); });
+
+    // 30px up from the bottom, within the near-bottom margin, but moving up.
+    scroll.scrollTop = 570;
+    act(() => { scroll.dispatchEvent(new Event("scroll")); });
+    act(() => resize());
+    expect(scroll.scrollTop).toBe(570);
+  });
+
+  it("unpins when the reader scrolls up, even where the view is within reach of the bottom", () => {
+    const view = render(<Transcript />);
+    const scroll = view.getByTestId("scroll");
+    // A short transcript: at its top, 40px from the bottom, so it counts as pinned.
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 440 });
+    Object.defineProperty(scroll, "clientHeight", { configurable: true, value: 400 });
+    scroll.scrollTop = 0;
+    act(() => { scroll.dispatchEvent(new Event("scroll")); });
+
+    // Scrolling up at the top, then the content grows: the view stays at the top.
+    act(() => { scroll.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 })); });
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 600 });
+    act(() => resize());
+    expect(scroll.scrollTop).toBe(0);
+  });
 });

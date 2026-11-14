@@ -28,6 +28,21 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- A chat widget with a video avatar now moves the video into a circle beside
+  the agent's name once the conversation scrolls, and the space it leaves
+  closes up. Scrolling up past the top brings it back. The header keeps its
+  height and fades out over the messages below the circle. The name and
+  subtitle fade out while the video moves and back in beside the circle, the
+  subtitle under the name. A photo avatar is now the same size as the docked
+  circle, and its header fades out over the messages below it too. Scrolling up
+  in the widget no longer gets pulled back down in a short conversation, and
+  sending a message brings the view to it.
+  On phones the widget only shows the circle, which is cropped onto the face
+  by the avatar's `launcher` setting. Your project keeps the copy
+  `parlant widget init` made. To pick this up, run
+  `parlant widget init --force`, which replaces that copy and any changes you
+  made to it.
+
 - With Gemini as your provider, replies at medium, high and max effort and both
   review checks now run on Gemini 4 Hydrogen instead of Gemini 3.8 Flash. Medium
   effort keeps low reasoning. On a website agent this cut replies from 15–30

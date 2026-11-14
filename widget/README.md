@@ -230,9 +230,13 @@ order. Duplicate text appears only once. Set the limit to 0 to hide chips.
   photo, `live: true` adds a green dot on its corner that pulses twice as the widget appears.
 - **Video avatar** — `avatar={{ type: "video", src, poster }}` shows a short muted loop under the
   header in place of the avatar, with the subtitle beside the name and, with `live: true`, the
-  live dot in its bottom-right corner. Once the conversation starts,
-  it leads the transcript and scrolls away with it, and expanding the chat keeps it at its
-  opened size. Use an H.264 MP4 with its index at the start (`ffmpeg -movflags +faststart`), so
+  live dot in its bottom-right corner. Once the conversation starts, it leads the transcript.
+  Once the transcript scrolls, the video moves into a circle beside the name, cropped by
+  `launcher`, and the space it leaves in the transcript closes up. Scrolling up past the top
+  opens it again and brings the video back. The header keeps its
+  height, and the name and subtitle fade out while the video moves, then fade back in beside the
+  circle, the subtitle under the name. On phones the widget only shows the
+  circle. Expanding the chat keeps the video at its opened size. Use an H.264 MP4 with its index at the start (`ffmpeg -movflags +faststart`), so
   it streams; iPhone Safari stalls on WebM. `poster` is its first frame, shown while it loads and
   with reduced motion. It plays only while on screen. Leave out `src` (`avatar={{ type: "video" }}`)
   to use the widget's own video of an agent, in `parlant-chat/assets/`, with its poster and a
@@ -831,7 +835,7 @@ which is exactly what the sample agent's `describe_attached_image` does before r
 | `reasoningMode` | `"transient" \| "collapsible"` | `"transient"` | Once the reply arrives: reasoning disappears, or folds into a "Thought for Xs" toggle. |
 | `errorMessage` | `string` | `"The agent ran into an error…"` | Inline notice shown at the end of the transcript when a turn fails (session `error` status). |
 | `title` | `string` | agent's name | Header title; defaults to the agent name from `GET /agents/{id}`. |
-| `avatar` | `AgentAvatar` | initials | The agent's picture: `{ type: "logo", src }` fits a logo inside the round avatar; `{ type: "photo", src, live? }` fills it with a portrait (larger once an input-mode widget opens) and replaces the chat bubble on the closed launcher; `{ type: "video", src?, poster?, live?, launcher? }` shows a looping video under the header instead, the widget's own when `src` is left out (see [The panel](#the-panel)). `live` adds a green dot, red while the server can't be reached. Replaces the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator`, which still work when `avatar` isn't set. |
+| `avatar` | `AgentAvatar` | initials | The agent's picture: `{ type: "logo", src }` fits a logo inside the round avatar; `{ type: "photo", src, live? }` fills it with a 4rem round portrait, the size of a docked video, over a header that fades out over the messages and replaces the chat bubble on the closed launcher; `{ type: "video", src?, poster?, live?, launcher? }` shows a looping video under the header instead, the widget's own when `src` is left out (see [The panel](#the-panel)). `live` adds a green dot, red while the server can't be reached. Replaces the deprecated `avatarUrl`, `avatarStyle` and `liveIndicator`, which still work when `avatar` isn't set. |
 | `subtitle` | `ReactNode` | — | Muted line under the header title, such as who the agent speaks for. |
 | `preface` | `string` | — | Muted intro line shown above the conversation at session start. |
 | `disclaimer` | `ReactNode` | — | Small print under the input (accepts JSX, e.g. a privacy-policy link). A "Powered by Parlant" line always shows beneath it. |

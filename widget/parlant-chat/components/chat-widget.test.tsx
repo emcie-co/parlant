@@ -1727,7 +1727,7 @@ describe("avatar", () => {
     expect(container.querySelector(".parlant-cw-dock video")).toBe(before);
   });
 
-  it("shrinks the video into a circle beside the name in step with the scroll, its bottom edge staying with the transcript and the name fading out while it moves", async () => {
+  it("moves the video to a circle beside the name once the transcript scrolls, and back at the top", async () => {
     server();
     const { container } = render(
       <ChatWidget serverUrl={SERVER} agentId="agent" mode="input" subtitle="Head of Product" customerSound={false} agentSound={false} avatar={video} />,
@@ -1755,40 +1755,47 @@ describe("avatar", () => {
     };
     place(header, 0, 0, 380, 48);
     place(slot, 12, 60, 356, 200);
-    const at = (scrollTop: number) => {
-      scroller.scrollTop = scrollTop;
-      fireEvent.scroll(scroller);
+    const text = container.querySelector(".parlant-cw-header-text") as HTMLElement;
+    const box = () => {
       const [x, y] = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(dock.style.transform)!.slice(1).map(Number);
       return { x, y, width: parseFloat(dock.style.width), height: parseFloat(dock.style.height) };
     };
+    const scrollTo = (scrollTop: number) => {
+      scroller.scrollTop = scrollTop;
+      fireEvent.scroll(scroller);
+    };
 
-    expect(at(0)).toEqual({ x: 12, y: 60, width: 356, height: 200 });
+    // At rest it is drawn over its slot, and scrolls with it. (jsdom laid nothing out at first,
+    // so the slot only now shows.)
+    scrollTo(0);
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
     expect(shelf.style.height).toBe("0px");
+    expect(text.dataset.dock).toBe("rest");
+    scrollTo(1);
+    expect(box()).toEqual({ x: 12, y: 59, width: 356, height: 200 });
 
-    // Halfway, its bottom edge is where the slot's is: 260 - 93.
-    const half = at(93);
-    expect(half.y + half.height).toBeCloseTo(167);
-    expect(half.width).toBeGreaterThan(64);
-    expect(half.width).toBeLessThan(356);
-    // Rounder than at rest, and the name and subtitle are faded out while it moves, where they
-    // last showed.
-    expect(parseFloat(dock.style.borderRadius)).toBeGreaterThan(14);
-    const text = container.querySelector(".parlant-cw-header-text") as HTMLElement;
+    // Once the transcript scrolls, it moves to the circle on its own, never stopping on the
+    // way, with the name faded out while it moves.
+    scrollTo(40);
     expect(text.dataset.dock).toBe("moving");
-    expect(text.style.transform).toBe("");
-
-    // Past the slot, it is the circle, and the shelf fills what it reaches below the header,
-    // with the header's padding under it: 10 + 64 + 10 - 48.
-    expect(at(300)).toEqual({ x: 12, y: 10, width: 64, height: 64 });
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 }));
     expect(dock.style.borderRadius).toBe("32px");
-    // Docked, the name and subtitle fade back in beside the circle.
-    expect(text.dataset.dock).toBe("docked");
-    expect(text.style.transform).toMatch(/^translate\(/);
+    // The shelf fills what the circle reaches below the header, with the header's padding
+    // under it: 10 + 64 + 10 - 48.
     expect(shelf.style.height).toBe("36px");
     expect((container.querySelector(".parlant-cw-dock video") as HTMLElement).style.transform).toContain("scale(1.6)");
+    // Docked, the name fades back in beside the circle.
+    expect(text.dataset.dock).toBe("docked");
+    expect(text.style.transform).toMatch(/^translate\(/);
 
-    // And back.
-    expect(at(0)).toEqual({ x: 12, y: 60, width: 356, height: 200 });
+    // Scrolling further, or most of the way back, leaves it docked.
+    scrollTo(300);
+    scrollTo(2);
+    expect(box()).toEqual({ x: 12, y: 10, width: 64, height: 64 });
+
+    // Back at the top, it returns to its slot.
+    scrollTo(0);
+    await waitFor(() => expect(box()).toEqual({ x: 12, y: 60, width: 356, height: 200 }));
     expect(text.dataset.dock).toBe("rest");
     expect(text.style.transform).toBe("");
   });

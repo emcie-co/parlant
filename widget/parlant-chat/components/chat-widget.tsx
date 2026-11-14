@@ -753,10 +753,10 @@ function ChatPanel({
           <div className="parlant-cw-header-id">
             {/* A video avatar has no avatar here: the video itself docks beside the name. */}
             {!video && <Avatar name={name} avatar={avatar} offline={connectionIssue} />}
-            {subtitle ? (
+            {subtitle || video ? (
               <span className={cn("parlant-cw-header-text", video && "parlant-cw-header-text--inline")}>
                 <span className="parlant-cw-header-name">{name}</span>
-                <span className="parlant-cw-header-subtitle">{subtitle}</span>
+                {subtitle && <span className="parlant-cw-header-subtitle">{subtitle}</span>}
               </span>
             ) : (
               <span className="parlant-cw-header-name">{name}</span>
@@ -1013,20 +1013,24 @@ function isEditable(el: Element | null): boolean {
 /** The docked circle's size, and the gap between it and the name. */
 const DOCK_REM = 4;
 const DOCK_GAP_PX = 10;
+/** How far the transcript scrolls before the video docks, and how long the move takes. */
+const DOCK_SCROLL_PX = 2;
+const DOCK_MS = 320;
 
 const lerp = (from: number, to: number, p: number) => from + (to - from) * p;
 
 /**
- * The agent's video, drawn over the card. It rests in its slot (`.parlant-cw-video--slot`):
- * under the header before the transcript shows, then leading the transcript. As the transcript
- * scrolls, it shrinks into a circle beside the name, driven by the scroll position itself, not
- * by a timed animation: its bottom edge stays with the slot's (so with the first message), and
- * it arrives at the circle exactly when the slot's bottom does. Scrolling back reverses it the
- * same way, and it never takes over the scroll, so momentum and the scroll bar behave as usual.
+ * The agent's video, drawn over the card. It has two places: its slot
+ * (`.parlant-cw-video--slot`), under the header before the transcript shows and then leading the
+ * transcript, and a circle beside the name. It rests in the slot, scrolling with it, until the
+ * transcript scrolls; then it moves to the circle in one short animation, and stays there until
+ * the transcript is back at the top, when it moves back. It never stops in between, whether the
+ * visitor scrolls or new messages scroll the transcript.
  *
  * The header never changes height. As the circle docks, a strip of header background (the
- * shelf) grows under it, so messages scroll beneath the circle; the name and subtitle fade
- * out while it moves and back in beside it once it has docked. Phones always show the circle, in a header tall enough for it.
+ * shelf) grows under it, so messages scroll beneath the circle; the name and subtitle fade out
+ * while it moves and back in beside it. A change of layout (opening, minimizing, a new chat)
+ * puts it straight in its place. Phones always show the circle, in a header tall enough for it.
  */
 function VideoDock({
   src,
@@ -1080,7 +1084,14 @@ function VideoDock({
       return { x, y, w: el.offsetWidth, h: el.offsetHeight };
     };
 
-    const layout = () => {
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    // Where the video is headed (0 the slot, 1 the circle), and how far it has got.
+    let target = -1;
+    let t = 0;
+    let frame = 0;
+    let last = 0;
+
+    const draw = () => {
       if (!header) return;
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       const size = DOCK_REM * rem;
@@ -1093,46 +1104,41 @@ function VideoDock({
       const headerBottom = head.y + head.h;
       const circle = { x: head.x + padLeft, y: head.y + padTop };
 
-      // Where the video rests, and how far into the scroll it reaches the circle.
+      // The slot where it is now, scrolled with the transcript.
       const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
-      let p = 1;
       let rest = { x: circle.x, y: circle.y, w: size, h: size };
       if (slot && slotShown) {
-        const scrolled = scroller && scroller.contains(slot) ? scroller.scrollTop : 0;
         rest = boxIn(slot);
-        const reach = rest.y + rest.h - (circle.y + size);
-        p = reach > 0 ? Math.min(1, Math.max(0, scrolled / reach)) : 1;
+        if (scroller && scroller.contains(slot)) rest.y -= scroller.scrollTop;
       }
 
-      // The bottom edge follows the slot's, the width narrows as it goes, and the top rises
-      // late (cubed), so the video stays below the name until it is nearly a circle.
-      const width = lerp(rest.w, size, p);
-      const left = lerp(rest.x, circle.x, p);
-      const bottom = lerp(rest.y + rest.h, circle.y + size, p);
-      const top = lerp(rest.y, circle.y, p * p * p);
+      const e = t * t * (3 - 2 * t);
+      const left = lerp(rest.x, circle.x, e);
+      const top = lerp(rest.y, circle.y, e);
+      const width = lerp(rest.w, size, e);
+      const height = lerp(rest.h, size, e);
       dock.style.transform = "translate(" + left + "px, " + top + "px)";
       dock.style.width = width + "px";
-      dock.style.height = bottom - top + "px";
-      // The corners round off with the scroll: from the resting 14px to half the box's shorter
-      // side, so it is a full circle when it docks.
-      dock.style.borderRadius = lerp(14, Math.min(width, bottom - top) / 2, p) + "px";
+      dock.style.height = height + "px";
+      // The corners round off as it goes, to a full circle.
+      dock.style.borderRadius = lerp(14, Math.min(width, height) / 2, e) + "px";
       if (videoEl) {
         // Zooms onto the face (the avatar's `launcher` crop) as it becomes the circle.
-        const z = lerp(1, zoom, p);
+        const z = lerp(1, zoom, e);
         videoEl.style.transform =
-          "scale(" + z + ") translate(" + (50 - faceX) * p + "%, " + (50 - faceY) * p + "%)";
+          "scale(" + z + ") translate(" + (50 - faceX) * e + "%, " + (50 - faceY) * e + "%)";
       }
 
       // The shelf: header background under the circle, as far as the circle reaches.
       const reachBelow = Math.max(0, circle.y + size + padTop - headerBottom);
       shelf.style.transform = "translateY(" + headerBottom + "px)";
-      shelf.style.height = reachBelow * p + "px";
+      shelf.style.height = reachBelow * e + "px";
 
-      // The name and subtitle don't travel with the video: they fade out as it starts to move
-      // and fade back in once it has docked, already beside the circle with the subtitle under
-      // the name. While the video moves they stay where they last showed, faded out.
+      // The name and subtitle don't travel with the video: they fade out while it moves and
+      // back in where it settles, beside the circle with the subtitle under the name. While it
+      // moves they stay where they last showed.
       if (text && nameEl) {
-        const state = p <= 0 ? "rest" : p >= 1 ? "docked" : "moving";
+        const state = t !== target ? "moving" : t >= 1 ? "docked" : "rest";
         text.dataset.dock = state;
         if (state !== "moving") {
           const docked = state === "docked";
@@ -1150,20 +1156,53 @@ function VideoDock({
       }
     };
 
-    layout();
+    const step = (now: number) => {
+      const dt = last ? now - last : 16;
+      last = now;
+      const delta = dt / DOCK_MS;
+      t = target > t ? Math.min(target, t + delta) : Math.max(target, t - delta);
+      draw();
+      frame = t === target ? 0 : requestAnimationFrame(step);
+    };
+
+    // Where it belongs: the circle once the transcript has scrolled (or the slot is hidden),
+    // the slot again once it is back at the top. In between, it stays where it is.
+    const update = (animate: boolean) => {
+      const slotShown = Boolean(slot && slot.offsetParent !== null && !phone?.matches);
+      const scrolled = slot && scroller && scroller.contains(slot) ? scroller.scrollTop : 0;
+      let next = target;
+      if (!slotShown) next = 1;
+      else if (scrolled > DOCK_SCROLL_PX) next = 1;
+      else if (scrolled < 1) next = 0;
+      else if (next < 0) next = 0;
+      if (next !== target) {
+        target = next;
+        if (!animate || reduced) {
+          t = target;
+        } else if (!frame) {
+          last = 0;
+          frame = requestAnimationFrame(step);
+        }
+      }
+      draw();
+    };
+
+    update(false);
+    const onChange = () => update(true);
     // Scroll and resize events arrive before the frame is painted, so the dock never lags.
-    scroller?.addEventListener("scroll", layout, { passive: true });
-    window.addEventListener("resize", layout);
-    phone?.addEventListener?.("change", layout);
-    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(layout);
+    scroller?.addEventListener("scroll", onChange, { passive: true });
+    window.addEventListener("resize", onChange);
+    phone?.addEventListener?.("change", onChange);
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onChange);
     resize?.observe(card);
     if (scroller) resize?.observe(scroller);
     const content = scroller?.firstElementChild;
     if (content) resize?.observe(content);
     return () => {
-      scroller?.removeEventListener("scroll", layout);
-      window.removeEventListener("resize", layout);
-      phone?.removeEventListener?.("change", layout);
+      if (frame) cancelAnimationFrame(frame);
+      scroller?.removeEventListener("scroll", onChange);
+      window.removeEventListener("resize", onChange);
+      phone?.removeEventListener?.("change", onChange);
       resize?.disconnect();
       if (text) {
         text.style.transform = "";

@@ -164,7 +164,7 @@ export function MessageList({
   signingIn = false,
   signIns = [],
 }: MessageListProps) {
-  const { scrollRef, contentRef, isPinned, scrollToBottom } = useStickToBottom();
+  const { scrollRef, contentRef, isPinned, hasMoreBelow, scrollToBottom } = useStickToBottom();
 
   // Sending a message brings the view to it (and pins it there for the reply), wherever the
   // visitor had scrolled.
@@ -287,7 +287,7 @@ export function MessageList({
         </div>
       </div>
 
-      {!isPinned && (
+      {!isPinned && hasMoreBelow && (
         <button
           type="button"
           onClick={() => scrollToBottom("smooth")}

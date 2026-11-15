@@ -25,6 +25,12 @@ Each entry says what changed and what it means for you, under `Added`,
   agent's POPPY ADDRESS, and `parlant widget init` points at the new command.
   `parlant dashboard agent card` still prints the A2A card alone for older
   instructions.
+- The chat widget's `onPathChanged(path, notifyAgent)` tells the agent which page
+  the visitor is on. It's called when the widget loads and when the path changes
+  without a reload; `notifyAgent(path, data?)` adds a custom event
+  (`{ type: "page_view", page: path, ...data }`, source `customer_ui`) that doesn't start
+  a reply. A new conversation gets it before anything else, so the agent can tell
+  a question asked on your pricing page from one asked on your home page.
 
 ### Changed
 
@@ -33,6 +39,14 @@ Each entry says what changed and what it means for you, under `Added`,
   theirs, such as "the add-on" that another policy defines. It still matches on
   its own merits, and entailment works as before: when an entailing policy
   matches, the entailed one is activated too.
+
+- Guests and signed-in customers may add custom events to their own sessions,
+  with source `customer_ui`, up to 4 KB of data and 30 a minute. Until now only
+  the backend could, so a site had to relay page views through its own server
+  with the admin key. Other sources still need the admin key; a custom permission
+  gate that doesn't grant `CREATE_CUSTOM_EVENT` keeps refusing them.
+  `PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES` changes the size limit (4096 by default).
+
 - A chat widget with a video avatar now moves the video into a circle beside
   the agent's name once the conversation scrolls, and the space it leaves
   closes up. Scrolling up past the top brings it back. The header keeps its
@@ -61,6 +75,9 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- The chat widget centers "Powered by Parlant" under the input on phones.
+- The chat widget no longer shows "↓ New messages" in an empty or short chat that the
+  visitor scrolled up in. The pill now appears only when there is something below to jump to.
 - A reasoning level set on a Gemini 4 model in a schematic route, such as
   `"review.*": p.ModelConfig("gemini:gemini-4-hydrogen", reasoning="high")`, is now
   sent to Gemini. It used to be dropped, so the model thought at its own default.

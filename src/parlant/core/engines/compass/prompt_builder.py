@@ -615,10 +615,16 @@ Prioritize their data over any other sources and use their details to complete y
         rules: Sequence[Rule],
         tools_by_rule: Mapping[RuleId, Set[tuple[ToolId, Tool]]],
     ) -> PromptBuilder:
+        # A rule reaches the prompt only when it tells the model something: its
+        # content (an observation's note, a policy's action), or the tools it
+        # makes relevant. One with neither (typically an observation without a
+        # note, there for relationships, scoping or matching) is left out,
+        # titled or not; a title alone would render as an empty instruction.
+        #
         # Titled instructions first; within each group ordered by id, so the rendered
         # list is deterministic (cache-stable) and the cached prefix stays byte-stable.
         listed = sorted(
-            rules,
+            (g for g in rules if g.content or tools_by_rule.get(g.id)),
             key=lambda g: (0 if g.title else 1, g.id),
         )
 
@@ -628,24 +634,22 @@ Prioritize their data over any other sources and use their details to complete y
         instruction_texts = []
 
         for i, g in enumerate(listed, start=1):
-            if g.title:
-                text = f"### Instruction #{i}: {g.title}\n\n"
-            elif g.condition:
-                if g.content or (g.id in tools_by_rule):
+            if not g.content:
+                # Here only for its tools: the condition is what says when they
+                # apply, so it renders even when the rule has a title.
+                if g.condition:
                     text = f"### Instruction #{i}: When {g.condition}...\n\n"
                 else:
-                    # Pure condition rule - probably used for relationships
-                    # and not meant to be included in the prompt. Skip it.
-                    continue
-            else:
-                text = f"### Instruction #{i}:\n\n"
-
-            if g.content:
-                text += f"{g.content.strip()}"
-            elif g.id not in tools_by_rule:
-                text += "\nDetails:\n[None]"
-            else:
+                    text = f"### Instruction #{i}:\n\n"
                 text += "\nConsider using the associated tool(s)."
+            else:
+                if g.title:
+                    text = f"### Instruction #{i}: {g.title}\n\n"
+                elif g.condition:
+                    text = f"### Instruction #{i}: When {g.condition}...\n\n"
+                else:
+                    text = f"### Instruction #{i}:\n\n"
+                text += f"{g.content.strip()}"
 
             if tools_by_rule.get(g.id):
                 tool_names = ", ".join(t.name for _, t in tools_by_rule[g.id])

@@ -2515,3 +2515,49 @@ async def test_that_an_effort_lifting_match_emits_a_raise_effort_event(
     assert raises_[0]["from_effort"] == "low"
     assert raises_[0]["to_effort"] == "max"
     assert raises_[0]["rule_ids"] == [str(lifting.id)]
+
+
+def test_that_a_titled_rule_without_content_is_left_out_of_the_domain_instructions() -> None:
+    # An observation without a note gives the model nothing to act on: it is
+    # there for relationships, scoping and matching. Its title must not turn it
+    # into an empty "Details: [None]" entry.
+    observation = create_rule(condition="the customer asks about pricing", title="ZZQ_PRICING")
+    policy = create_rule(condition="the customer greets you", action="greet them back")
+
+    prompt = PromptBuilder().add_system_wide_rules([observation, policy], {}).build()
+
+    assert "ZZQ_PRICING" not in prompt
+    assert "[None]" not in prompt
+    assert "greet them back" in prompt
+
+
+def test_that_a_titled_rule_with_content_still_renders_in_the_domain_instructions() -> None:
+    observation = create_rule(
+        condition="the customer asks about pricing",
+        content="Prices are listed in USD.",
+        title="ZZQ_PRICING",
+    )
+
+    prompt = PromptBuilder().add_system_wide_rules([observation], {}).build()
+
+    assert "ZZQ_PRICING" in prompt
+    assert "Prices are listed in USD." in prompt
+
+
+def test_that_a_rule_without_content_but_with_tools_renders_its_condition_and_tools() -> None:
+    # The one thing such a rule tells the model is when its tools are relevant,
+    # so the condition renders even when the rule is titled.
+    observation = create_rule(condition="the customer asks where their order is", title="ZZQ")
+    lookup = _tool("lookup_order")
+
+    prompt = (
+        PromptBuilder()
+        .add_system_wide_rules(
+            [observation], {observation.id: {(ToolId("orders", "lookup_order"), lookup)}}
+        )
+        .build()
+    )
+
+    assert "the customer asks where their order is" in prompt
+    assert "lookup_order" in prompt
+    assert "[None]" not in prompt

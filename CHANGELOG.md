@@ -96,6 +96,15 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- An observation with a title but no note no longer appears in the agent's
+  instructions as an empty entry (its title followed by "Details: [None]",
+  without its condition). A rule now reaches the agent's prompt only when it
+  says something: its content (an observation's note, a policy's action), or
+  the tools it makes relevant, in which case its condition is shown even when
+  it has a title. Rules without content are also left out of the note that
+  tells the agent which instructions lost priority this turn. Observations
+  without a note keep working for relationships, canned-response scoping and
+  matching; they simply cost no prompt tokens.
 - Logging scopes now unwind after exceptions and cancellation, so later logs
   in the same task do not retain stale component labels.
 

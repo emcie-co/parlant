@@ -998,7 +998,7 @@ worth knowing:
 ```
 
 Each call adds a custom event to the conversation (`kind: "custom"`, `source: "customer_ui"`)
-whose data is `{ type: "page_view", path, ...data }`. It doesn't start a reply: the agent reads
+whose data is `{ type: "page_view", page: path, ...data }`. It doesn't start a reply: the agent reads
 it in the history on the visitor's next message.
 
 - A new conversation gets the page before anything else, so the agent reads it before the first

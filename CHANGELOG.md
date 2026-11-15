@@ -28,7 +28,7 @@ Each entry says what changed and what it means for you, under `Added`,
 - The chat widget's `onPathChanged(path, notifyAgent)` tells the agent which page
   the visitor is on. It's called when the widget loads and when the path changes
   without a reload; `notifyAgent(path, data?)` adds a custom event
-  (`{ type: "page_view", path, ...data }`, source `customer_ui`) that doesn't start
+  (`{ type: "page_view", page: path, ...data }`, source `customer_ui`) that doesn't start
   a reply. A new conversation gets it before anything else, so the agent can tell
   a question asked on your pricing page from one asked on your home page.
 

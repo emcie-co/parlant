@@ -164,7 +164,7 @@ describe("telling the agent about the page", () => {
       {
         kind: "custom",
         source: "customer_ui",
-        data: { title: "Pricing", type: "page_view", path: "/pricing" },
+        data: { title: "Pricing", type: "page_view", page: "/pricing" },
       },
       { kind: "message", source: "customer", message: "How much is Plus?" },
     ]);
@@ -192,7 +192,7 @@ describe("telling the agent about the page", () => {
 
     await waitFor(() => expect(sent).toHaveLength(2));
     expect(sent.map((s) => s.body.kind)).toEqual(["custom", "message"]);
-    expect(sent[0].body.data).toEqual({ title: "Home", type: "page_view", path: "/" });
+    expect(sent[0].body.data).toEqual({ title: "Home", type: "page_view", page: "/" });
   });
 
   it("adds it to a resumed conversation, and again when the path changes", async () => {
@@ -217,8 +217,8 @@ describe("telling the agent about the page", () => {
     history.pushState(null, "", "/pricing?plan=plus#faq");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(sent.map((s) => [s.sessionId, s.body.data])).toEqual([
-      ["resumed-session", { title: "Home", type: "page_view", path: "/" }],
-      ["resumed-session", { title: "Pricing", type: "page_view", path: "/pricing" }],
+      ["resumed-session", { title: "Home", type: "page_view", page: "/" }],
+      ["resumed-session", { title: "Pricing", type: "page_view", page: "/pricing" }],
     ]);
 
     // The widget on another load of the same page doesn't repeat it.

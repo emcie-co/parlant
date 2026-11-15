@@ -126,7 +126,7 @@ export interface ChatWidgetProps {
   /** Called with the page's path when the widget loads and whenever the path changes without a
    *  reload (the site's own links, back and forward; not a ?query or #hash change). Call
    *  `notifyAgent` to tell the agent the visitor is on this page: it adds a custom event (source
-   *  "customer_ui", data `{ type: "page_view", path, ...data }`) that doesn't start a reply; the
+   *  "customer_ui", data `{ type: "page_view", page: path, ...data }`) that doesn't start a reply; the
    *  agent reads it in the history on the visitor's next message. A new conversation gets it
    *  before anything else. See "Telling the agent about the page" in the README. */
   onPathChanged?: (path: string, notifyAgent: NotifyAgent) => void;
@@ -215,7 +215,7 @@ function defaultVideo() {
 export type NotifyAgent = (path: string, data?: Record<string, unknown>) => void;
 
 /** The `data` of a page-view custom event. */
-type PageView = Record<string, unknown> & { type: "page_view"; path: string };
+type PageView = Record<string, unknown> & { type: "page_view"; page: string };
 
 /** Built-in color themes; see `.parlant-theme-*` in styles.css. */
 export type ThemeName = "monochrome" | "parlant" | "ocean" | "amethyst" | "sand";
@@ -267,7 +267,7 @@ export function ChatWidget(props: ChatWidgetProps) {
     onPathChanged &&
       ((path) =>
         onPathChanged(path, (page, data) =>
-          setPageView({ ...data, type: "page_view", path: page }),
+          setPageView({ ...data, type: "page_view", page }),
         )),
   );
   const panelProps = { askAgent, agentIsOpening, onAgentName: setAgentName, pageView };

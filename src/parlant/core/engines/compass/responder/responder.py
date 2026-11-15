@@ -518,12 +518,14 @@ Finally, remember that this is a LIVE CONVERSATION, not email. Be simple, concis
         # know what NOT to do — an indirection small models routinely fumble.
         references = []
         for rule in deprioritized.values():
-            if rule.condition and rule.content:
+            if not rule.content:
+                # Gave no instruction (e.g. an observation without a note), so
+                # there is nothing for the agent to not apply.
+                continue
+            if rule.condition:
                 body = f"When {rule.condition}: {rule.content}"
-            elif rule.condition:
-                body = f"When {rule.condition}"
             else:
-                body = rule.content or ""
+                body = rule.content
 
             if rule.title:
                 references.append(f'- "{rule.title}": {body}')

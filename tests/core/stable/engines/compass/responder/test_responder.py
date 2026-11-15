@@ -447,3 +447,24 @@ async def test_that_high_effort_agents_still_re_match_before_building() -> None:
     await build(context)
 
     assert refreshes == [True]
+
+
+def test_that_a_deprioritized_rule_without_content_is_left_out_of_the_do_not_apply_note() -> None:
+    # A rule without content gave no instruction, so there is nothing to not apply.
+    from tests.core.stable.engines.compass.matching.utils import create_rule
+
+    responder = _make_responder()
+    context = _context(MessageOutputMode.STREAM)
+    observation = create_rule(condition="the customer asks about pricing", title="ZZQ_PRICING")
+    policy = create_rule(condition="the customer wants a refund", action="ZZQ_REFUND")
+    context.state.turn_deprioritized_rules = [observation, policy]
+
+    note = responder._render_deprioritized_rules(context)
+
+    assert note is not None
+    assert "ZZQ_REFUND" in note
+    assert "ZZQ_PRICING" not in note
+
+    context.state.turn_deprioritized_rules = [observation]
+
+    assert responder._render_deprioritized_rules(context) is None

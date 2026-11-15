@@ -216,6 +216,7 @@ export PARLANT_CUSTOMER_JWT_SECRET="secret-shared-with-backend"    # or:
 # export PARLANT_CUSTOMER_JWKS_URL="https://idp.example.com/.well-known/jwks.json"
 export PARLANT_GUEST_TOKEN_SECRET="another-long-random-secret"     # recommended
 export PARLANT_GUEST_IDENTITY_MAX_AGE_DAYS=28                      # optional; the default
+export PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES=4096                    # optional; the default
 export PARLANT_AUTH_AUTO_PROVISION_CUSTOMERS=false
 ```
 
@@ -447,6 +448,7 @@ Two rules keep custom policies maintainable:
 | Read session / list events / read event | — | own only | own only | ✓ |
 | Read event reasoning / tool result data | — | — | — | ✓ |
 | Post customer message / status event | — | own only | own only | ✓ |
+| Post custom event | — | own only, source `customer_ui`, ≤ 4 KB | own only, source `customer_ui`, ≤ 4 KB | ✓ |
 | List sessions | — | — | own only | ✓ |
 | Everything else (customer management, groups, session administration, diagnostics) | — | — | — | ✓ |
 

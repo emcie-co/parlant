@@ -274,6 +274,7 @@ async def test_that_a_guest_principal_is_allowed_only_conversation_operations() 
     assert await gate.check(principal, Operation.READ_EVENT) is True
     assert await gate.check(principal, Operation.CREATE_CUSTOMER_EVENT) is True
     assert await gate.check(principal, Operation.CREATE_STATUS_EVENT) is True
+    assert await gate.check(principal, Operation.CREATE_CUSTOM_EVENT) is True
 
     assert await gate.check(principal, Operation.CREATE_CUSTOMER_SESSION) is False
     assert await gate.check(principal, Operation.LIST_SESSIONS) is False
@@ -296,6 +297,7 @@ async def test_that_a_customer_principal_may_use_customer_session_operations_but
     assert await gate.check(principal, Operation.READ_EVENT) is True
     assert await gate.check(principal, Operation.CREATE_CUSTOMER_EVENT) is True
     assert await gate.check(principal, Operation.CREATE_STATUS_EVENT) is True
+    assert await gate.check(principal, Operation.CREATE_CUSTOM_EVENT) is True
 
     assert await gate.check(principal, Operation.CREATE_GUEST_SESSION) is False
 

@@ -20,9 +20,13 @@ import jwt
 from fastapi import status
 from typing_extensions import override
 from parlant.core.container import Container
-from pytest import fixture, mark
+from pytest import MonkeyPatch, fixture, mark, raises
 
 from parlant.api.app import create_api_app
+from parlant.api.sessions import (
+    CUSTOMER_UI_EVENT_MAX_BYTES_ENV,
+    customer_ui_event_max_bytes_from_env,
+)
 from parlant.api.authentication import Principal, TokenAuthenticator
 from fastapi import Request
 
@@ -449,6 +453,51 @@ async def test_that_a_guest_cannot_post_a_large_custom_event(
     )
 
     assert response.status_code == status.HTTP_413_CONTENT_TOO_LARGE
+
+
+async def test_that_the_custom_event_size_limit_follows_the_environment(
+    container: Container,
+    agent_id: AgentId,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(CUSTOMER_UI_EVENT_MAX_BYTES_ENV, "8192")
+    secure_container = container.clone()
+    secure_container[AuthorizationPolicy] = make_composite_policy(container)
+    app = await create_api_app(secure_container)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        session_id, token = await create_guest_session(client, agent_id)
+        page_view = {"type": "page_view", "page": "/" + "a" * 5000}
+
+        within = await client.post(
+            f"/sessions/{session_id}/events",
+            json={"kind": "custom", "source": "customer_ui", "data": page_view},
+            headers=bearer(token),
+        )
+        over = await client.post(
+            f"/sessions/{session_id}/events",
+            json={
+                "kind": "custom",
+                "source": "customer_ui",
+                "data": {**page_view, "page": "/" + "a" * 9000},
+            },
+            headers=bearer(token),
+        )
+
+    assert within.status_code == status.HTTP_201_CREATED
+    assert over.status_code == status.HTTP_413_CONTENT_TOO_LARGE
+
+
+@mark.parametrize("value", ["0", "-1", "lots"])
+def test_that_an_unusable_custom_event_size_limit_fails_fast(
+    monkeypatch: MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(CUSTOMER_UI_EVENT_MAX_BYTES_ENV, value)
+
+    with raises(ValueError, match=CUSTOMER_UI_EVENT_MAX_BYTES_ENV):
+        customer_ui_event_max_bytes_from_env()
 
 
 ###############################################################################

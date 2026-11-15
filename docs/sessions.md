@@ -711,7 +711,8 @@ Custom events require `data`, accept any JSON-serializable object, and do not
 trigger AI processing.
 
 A guest or customer may add custom events to its own session from the browser,
-with source `customer_ui` and up to 4 KB of `data`; any other source needs the
+with source `customer_ui` and up to 4 KB of `data` (set
+`PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES` to change it); any other source needs the
 admin key. The chat widget's `onPathChanged` uses this to tell the agent which
 page the visitor is on. Treat such an event as what the visitor's browser
 reports, like their messages, not as something the visitor can't change.

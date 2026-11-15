@@ -39,6 +39,7 @@ Each entry says what changed and what it means for you, under `Added`,
   the backend could, so a site had to relay page views through its own server
   with the admin key. Other sources still need the admin key; a custom permission
   gate that doesn't grant `CREATE_CUSTOM_EVENT` keeps refusing them.
+  `PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES` changes the size limit (4096 by default).
 
 - A chat widget with a video avatar now moves the video into a circle beside
   the agent's name once the conversation scrolls, and the space it leaves

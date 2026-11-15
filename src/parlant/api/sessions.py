@@ -14,6 +14,7 @@
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -97,7 +98,33 @@ from parlant.core.pricing import costs_per_provider
 API_GROUP = "sessions"
 
 # What a guest or customer may put in a custom event from its own UI: a page view, not a payload.
-_CUSTOMER_UI_EVENT_MAX_LENGTH = 4096
+DEFAULT_CUSTOMER_UI_EVENT_MAX_BYTES = 4096
+
+CUSTOMER_UI_EVENT_MAX_BYTES_ENV = "PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES"
+
+
+def customer_ui_event_max_bytes_from_env() -> int:
+    """The most `data` (as JSON) a guest or customer may put in a custom event, set by
+    ``PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES``. Unset means 4096. Admins aren't limited.
+    """
+    value = os.environ.get(CUSTOMER_UI_EVENT_MAX_BYTES_ENV, "").strip()
+
+    if not value:
+        return DEFAULT_CUSTOMER_UI_EVENT_MAX_BYTES
+
+    try:
+        max_bytes = int(value)
+    except ValueError:
+        max_bytes = 0
+
+    if max_bytes <= 0:
+        raise ValueError(
+            f"{CUSTOMER_UI_EVENT_MAX_BYTES_ENV} must be a positive whole number of bytes "
+            f"(got '{value}'); unset it to use the default of "
+            f"{DEFAULT_CUSTOMER_UI_EVENT_MAX_BYTES}."
+        )
+
+    return max_bytes
 
 
 class EventKindDTO(Enum):
@@ -1216,6 +1243,7 @@ def create_router(
     router = APIRouter()
     client_addresses = client_address_resolver or ClientAddressResolver()
     client_recorder = session_client_recorder or SessionClientRecorder()
+    customer_ui_event_max_bytes = customer_ui_event_max_bytes_from_env()
 
     def validate_public_metadata(metadata: Mapping[str, JSONSerializableDTO] | None) -> None:
         """Translate reserved-namespace violations into an API validation error."""
@@ -1835,12 +1863,12 @@ def create_router(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail='A customer\'s own custom events must use source "customer_ui"',
                     )
-                if len(json.dumps(params.data)) > _CUSTOMER_UI_EVENT_MAX_LENGTH:
+                if len(json.dumps(params.data).encode()) > customer_ui_event_max_bytes:
                     raise HTTPException(
                         status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                         detail=(
                             "A customer's own custom event data may be at most "
-                            f"{_CUSTOMER_UI_EVENT_MAX_LENGTH} characters of JSON"
+                            f"{customer_ui_event_max_bytes} bytes of JSON"
                         ),
                     )
             return await _add_custom_event(session_id, params)

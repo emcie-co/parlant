@@ -719,9 +719,6 @@ class CannedResponseVectorStore(CannedResponseStore):
             ):
                 unique_sdocs[similar_doc.document["canned_response_id"]] = similar_doc
 
-            if len(unique_sdocs) >= max_count:
-                break
-
         top_results = sorted(unique_sdocs.values(), key=lambda r: r.distance)[:max_count]
 
         canrep_docs: dict[str, CannedResponseDocument] = {

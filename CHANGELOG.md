@@ -81,6 +81,8 @@ Each entry says what changed and what it means for you, under `Added`,
 - A reasoning level set on a Gemini 4 model in a schematic route, such as
   `"review.*": p.ModelConfig("gemini:gemini-4-hydrogen", reasoning="high")`, is now
   sent to Gemini. It used to be dropped, so the model thought at its own default.
+- Canned-response relevance now considers matches from every query chunk before
+  selecting the closest responses, retaining each response's best matching score.
 
 ## [4.0.5] - 2026-11-12
 

@@ -48,11 +48,13 @@ from parlant.bin.dashboard.commands.project_creation import create
 from parlant.bin.dashboard.errors import DashboardError
 from parlant.bin.dashboard.output import emit_json, json_mode, json_option, reset_json_mode
 from parlant.bin.docs import docs
+from parlant.bin.lint import lint
 from parlant.bin.scaffold import (
     PackageManager,
     Scaffold,
     detect_package_managers,
     install_command,
+    install_pre_push_hook,
     project_files,
     write_project,
 )
@@ -163,6 +165,7 @@ def widget() -> None:
 
 cli.add_command(dashboard)
 cli.add_command(docs)
+cli.add_command(lint)
 
 
 # What whoever deploys the site, often a coding agent, must do so personal AI agents
@@ -377,7 +380,10 @@ def _init_git_repository(destination: Path, console: Console) -> None:
         return
 
     subprocess.run(["git", "init", "--quiet"], cwd=destination, check=True)
-    console.print("[dim]Initialized a git repository.[/dim]")
+    install_pre_push_hook(destination)
+    console.print(
+        "[dim]Initialized a git repository, with a pre-push hook that asks for `parlant lint`.[/dim]"
+    )
 
 
 @cli.command(

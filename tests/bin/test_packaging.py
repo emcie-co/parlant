@@ -93,3 +93,13 @@ def test_that_the_built_wheel_installs_the_parlant_console_script(
 
     assert "[console_scripts]" in content
     assert "parlant" in content
+
+
+def test_that_the_built_wheel_ships_the_lint_rules(
+    built_wheel: Path,
+) -> None:
+    names = zipfile.ZipFile(built_wheel).namelist()
+
+    assert "parlant/bin/lint_rules/behavior.md" in names
+    assert "parlant/bin/lint_rules/wording_and_tone_of_voice.md" in names
+    assert "parlant/bin/lint_rules/RULE_IDS" in names

@@ -1,0 +1,14 @@
+# Every lint rule ID ever issued, one per line.
+#
+# IDs are stable across releases: coding agents, users and saved findings refer
+# to them. Never renumber, rename or reuse one. To drop a rule, delete it from
+# its section file and mark its line here "retired"; the line stays forever.
+#
+#   BHV001            an active rule
+#   BHV009 retired    a rule that no longer ships; never reuse the ID
+BHV001
+BHV002
+BHV003
+BHV004
+WTV001
+WTV002

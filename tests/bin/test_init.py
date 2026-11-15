@@ -1162,3 +1162,57 @@ def test_that_init_does_not_overwrite_an_existing_agents_file_without_force(
         assert result.exit_code != 0
         assert "AGENTS.md" in result.output
         assert Path("AGENTS.md").read_text() == "# My own instructions\n"
+
+
+@pytest.mark.parametrize("scaffold", SCAFFOLDS)
+def test_that_the_agents_file_says_to_run_parlant_lint_before_pushing(
+    runner: CliRunner,
+    scaffold: str,
+) -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli, ["init", "bot", "--package-manager", "uv", "--scaffold", scaffold, "--no-git"]
+        )
+
+        assert result.exit_code == 0, result.output
+
+        agents = Path("bot/AGENTS.md").read_text()
+        heading = "## IMPORTANT: Run `parlant lint` before every push"
+        assert heading in agents
+        start = agents.index(heading)
+        end = agents.find("\n## ", start + 1)
+        section = agents[start : end if end != -1 else len(agents)]
+        assert "parlant lint --done" in section
+        assert "pre-push" in section
+
+
+def test_that_init_installs_a_pre_push_hook_that_runs_parlant_lint(
+    runner: CliRunner,
+) -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(cli, ["init", "bot", "--package-manager", "uv"])
+
+        assert result.exit_code == 0, result.output
+
+        hook = Path("bot/.githooks/pre-push")
+        assert hook.is_file()
+        assert hook.stat().st_mode & stat.S_IXUSR
+        assert "parlant lint" in hook.read_text()
+
+        hooks_path = subprocess.run(
+            ["git", "config", "core.hooksPath"],
+            cwd="bot",
+            capture_output=True,
+            text=True,
+        )
+        assert hooks_path.stdout.strip() == ".githooks"
+
+
+def test_that_init_installs_no_hook_without_git(
+    runner: CliRunner,
+) -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(cli, ["init", "bot", "--package-manager", "uv", "--no-git"])
+
+        assert result.exit_code == 0, result.output
+        assert not Path("bot/.githooks").exists()

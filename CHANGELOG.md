@@ -15,6 +15,22 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- `parlant lint` lints a Parlant agent project through your coding agent. It
+  prints instructions for the coding agent: which lint chapters to run, each in
+  its own subagent (`parlant lint --section SECTION --chapter CHAPTER` prints a
+  chapter's rules), and how to handle findings by severity. HIGH findings are
+  fixed right away, at most 3 MEDIUM issue types are proposed per round, and
+  LOW ones only with your OK. The first sections are Behavior (observations
+  that combine several situations) and Wording and Tone of Voice (canned
+  responses rather than wording in policies or instructions). Every rule has an
+  ID, such as `BHV001`, that stays the same across releases.
+- `parlant init` now installs a git pre-push hook (`.githooks/pre-push`, set
+  through `core.hooksPath`) that stops a push until the commit has been linted,
+  and the scaffolded AGENTS.md tells the coding agent to run `parlant lint`
+  before every push. After linting and committing the fixes, `parlant lint
+  --done` records the commit so the push goes through; `git push --no-verify`
+  skips the hook. A clone of the project turns the hook on with
+  `git config core.hooksPath .githooks`. `--no-git` installs no hook.
 - `parlant dashboard agent cards AGENT_ID DESTINATION` writes every file your
   site serves so personal AI agents find your agent, into `DESTINATION/.well-known`:
   `agent-card.json` for A2A, and `poppy.json` and `poppy-0.4.json` for Poppy, the

@@ -44,3 +44,8 @@ Always follow this plan when asked to code a feature or fix a bug:
 7. Make sure to format all of the files you changed using ruff (it is installed in the environment).
 8. Run `uv run python scripts/lint.py --mypy --ruff` to ensure your code has no lint issues.
 9. Update `CHANGELOG.md` under `## [Unreleased]` as part of the same commit, in the matching section (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`). Write it for the person upgrading: what changed and what it means for them, not which files you touched. A change nobody outside this repo can observe — a refactor, a test, a comment — needs no entry.
+
+`parlant lint` rules:
+
+- The rules live in `src/parlant/bin/lint_rules/`, one Markdown file per section, named after the section. The H1 is the section's title; each H2 is one rule, written `## ABC123 (LOW|MEDIUM|HIGH): Title`. Chapters are computed (10 rules each, in file order), so never write them by hand.
+- IMPORTANT: Lint rule IDs must stay stable across CLI releases. Coding agents, users and saved findings refer to them. Never renumber, rename or reuse an ID, even when reordering or rewording a rule. A new rule gets the next unused number in its section's prefix. To drop a rule, delete it from its file and mark its line in `lint_rules/RULE_IDS` as `retired`; never delete a line from `RULE_IDS`. `tests/bin/test_lint.py` enforces this.

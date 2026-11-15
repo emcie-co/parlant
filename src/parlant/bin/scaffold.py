@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from enum import Enum
 import shutil
 import stat
+import subprocess
 from pathlib import Path
 
 
@@ -4491,6 +4492,57 @@ PARLANT_ENV=development
 {sign_in}{backends}{cap}"""
 
 
+PRE_PUSH_HOOK = """#!/bin/sh
+# Installed by `parlant init`. Blocks a push until `parlant lint --done` has
+# recorded the commit being pushed as linted.
+
+linted=""
+marker="$(git rev-parse --absolute-git-dir)/parlant-lint-passed"
+[ -f "$marker" ] && linted=$(cat "$marker")
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # A deleted branch pushes an all-zero ID: nothing to lint.
+    [ -z "$(printf %s "$local_sha" | tr -d 0)" ] && continue
+    [ "$local_sha" = "$linted" ] && continue
+
+    cat >&2 <<'MESSAGE'
+This commit hasn't been linted, so the push was stopped.
+
+Run `parlant lint` and follow its instructions, commit your fixes, then run
+`parlant lint --done` and push again.
+
+To push without linting: git push --no-verify
+MESSAGE
+    exit 1
+done
+
+exit 0
+"""
+
+HOOKS_DIR = ".githooks"
+
+
+def install_pre_push_hook(repository: Path) -> Path:
+    """Write the lint pre-push hook and point git at it.
+
+    The hook is committed with the project, in `.githooks/`, rather than
+    written to `.git/hooks/`, which git never shares: a clone keeps it once it
+    runs `git config core.hooksPath .githooks`.
+    """
+    hook = repository / HOOKS_DIR / "pre-push"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(PRE_PUSH_HOOK)
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    subprocess.run(
+        ["git", "config", "core.hooksPath", HOOKS_DIR],
+        cwd=repository,
+        check=True,
+    )
+
+    return hook
+
+
 GITIGNORE = """# Parlant's local state: caches, session store, logs, diagnostic reports.
 parlant-data/
 
@@ -4996,6 +5048,17 @@ and ask which is right or what they would change.
 The answer is your success criteria. Write the tests from it first, then build
 the agent logic to meet it, and give it to `parlant docs query` as `--context`
 so the documentation can point you at the right construct.
+
+## IMPORTANT: Run `parlant lint` before every push
+
+Before you push, run `parlant lint` and follow what it prints: the lint
+chapters to run, each in its own subagent, and how to handle what they find.
+Commit your fixes, then run `parlant lint --done` to record that this commit
+was linted.
+
+The repository's git pre-push hook (`.githooks/pre-push`) blocks a push of
+any commit that wasn't recorded with `parlant lint --done`, and says so. Lint
+then; don't skip the hook with `git push --no-verify` unless the user asks you to.
 
 ## Before you start
 

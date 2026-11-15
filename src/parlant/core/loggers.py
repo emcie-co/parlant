@@ -258,9 +258,10 @@ class TracingLogger(Logger):
 
         reset_token = self._scopes.set(new_scopes)
 
-        yield
-
-        self._scopes.reset(reset_token)
+        try:
+            yield
+        finally:
+            self._scopes.reset(reset_token)
 
     @property
     def current_scope(self) -> str:

@@ -227,6 +227,15 @@ class ResponseState:
     dependency_prompt_targets_by_rule: dict[RuleId, list[Rule]] = field(default_factory=dict)
     indeterminate_dependency_context_rule_ids: set[RuleId] = field(default_factory=set)
 
+    # The rules that entail each rule, directly or through a chain, with group
+    # endpoints resolved to member rules. An entailed rule is activated
+    # whenever one of these matches, but it is also ranked on its own, and its
+    # wording is often written with them in mind. They are rendered in its
+    # per-rule prompt tail as context only: unlike dependency targets, they
+    # never gate the rule (MCN-568). Computed by the matcher alongside the
+    # dependency mapping; keyed by entailed rule, deterministic order.
+    entailing_rules_by_rule: dict[RuleId, list[Rule]] = field(default_factory=dict)
+
     # TODO: Remove what isn't needed
     context_variables: list[tuple[ContextVariable, ContextVariableValue]] = field(
         default_factory=list

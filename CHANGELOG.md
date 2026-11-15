@@ -34,6 +34,12 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- When one policy entails another, the entailed policy is now judged with the
+  policies that entail it in view. This helps when its wording relies on
+  theirs, such as "the add-on" that another policy defines. It still matches on
+  its own merits, and entailment works as before: when an entailing policy
+  matches, the entailed one is activated too.
+
 - Guests and signed-in customers may add custom events to their own sessions,
   with source `customer_ui`, up to 4 KB of data and 30 a minute. Until now only
   the backend could, so a site had to relay page views through its own server

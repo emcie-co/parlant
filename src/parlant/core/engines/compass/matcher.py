@@ -1026,6 +1026,37 @@ class Matcher:
         context.state.dependency_prompt_targets_by_rule.clear()
         context.state.indeterminate_dependency_context_rule_ids.clear()
 
+        # Map each entailed rule to every rule that activates it, directly or
+        # through a chain (C -> A -> B gives B both A and C), so it is ranked
+        # with them in view. Context only: entailment never gates the rule.
+        entailment_relationships = await self._relationship_store.list_relationships(
+            kind=RelationshipKind.ENTAILMENT, indirect=False
+        )
+
+        direct_entailers: dict[RuleId, dict[RuleId, Rule]] = {}
+        for relationship in entailment_relationships:
+            for source in resolve_endpoint(relationship.source):
+                for target in resolve_endpoint(relationship.target):
+                    if target.id != source.id:
+                        direct_entailers.setdefault(target.id, {})[source.id] = source
+
+        entailers_by_rule: dict[RuleId, list[Rule]] = {}
+        for entailed_id in direct_entailers:
+            found: dict[RuleId, Rule] = {}
+            frontier = list(direct_entailers[entailed_id].values())
+            while frontier:
+                entailer = frontier.pop()
+                if entailer.id == entailed_id or entailer.id in found:
+                    continue
+                found[entailer.id] = entailer
+                frontier.extend(direct_entailers.get(entailer.id, {}).values())
+            if found:
+                entailers_by_rule[entailed_id] = sorted(
+                    found.values(), key=lambda rule: str(rule.id)
+                )
+
+        context.state.entailing_rules_by_rule = entailers_by_rule
+
     def _prepare_dependency_prompt_context(
         self,
         context: EngineContext,

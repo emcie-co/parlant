@@ -347,10 +347,11 @@ everything that isn't clearly irrelevant") — which biases it away from false
 negatives. Its prompt is split into a cross-turn-stable shared prefix
 (instructions, shots, identities — prefill-warmed and cached) and a live
 tail (current turn, agent reasoning, staged tool events, the rule's glossary
-terms, dependency context, and — for cross-referential rules — the policy
-context). Rules judged relevant become turn matches; the ranker's per-rule
-isolation is exactly why cross-referential rules need the policy-context
-section.
+terms, dependency context, entailment context — the rules that entail it,
+shown as context only, never as a gate — and, for cross-referential rules,
+the policy context). Rules judged relevant become turn matches; the
+ranker's per-rule isolation is exactly why cross-referential rules need the
+policy-context section.
 
 #### c. Distillation
 

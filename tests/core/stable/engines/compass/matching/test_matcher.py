@@ -1243,6 +1243,61 @@ async def test_that_dependency_targets_are_resolved_from_the_full_inventory(
     assert dependency.id in harness.context.state.rule_ids_with_dependents
 
 
+async def test_that_entailing_rules_are_mapped_per_entailed_rule(
+    container: Container,
+) -> None:
+    root = make_rule("ROOT")
+    entailer = make_rule("ENTAILER")
+    entailed = make_rule("ENTAILED")
+    group_member = replace(make_rule("GROUP_MEMBER"), groups=[GroupId("entailed-group")])
+    group_entailer = make_rule("GROUP_ENTAILER")
+    unrelated = make_rule("UNRELATED")
+    rules = [root, entailer, entailed, group_member, group_entailer, unrelated]
+    harness = await matching_harness(
+        container,
+        rules,
+        rank_relevant=set(),
+        effort=Effort.MEDIUM,
+    )
+    # A chain: ROOT -> ENTAILER -> ENTAILED.
+    await harness.entail(root, entailer)
+    await harness.entail(entailer, entailed)
+    await harness.entail_group(group_entailer, GroupId("entailed-group"))
+
+    await harness.matcher._load_strategy_choice_signals(harness.context, rules)
+
+    entailing = harness.context.state.entailing_rules_by_rule
+    assert {rule.id for rule in entailing[entailed.id]} == {root.id, entailer.id}
+    assert [rule.id for rule in entailing[entailer.id]] == [root.id]
+    assert [rule.id for rule in entailing[group_member.id]] == [group_entailer.id]
+    # Only entailed rules carry context; entailing roots and bystanders map to nothing.
+    assert root.id not in entailing
+    assert group_entailer.id not in entailing
+    assert unrelated.id not in entailing
+
+
+async def test_that_entailing_rules_are_resolved_from_the_full_inventory(
+    container: Container,
+) -> None:
+    entailer = make_rule("ENTAILER")
+    entailed = make_rule("ENTAILED")
+    unrelated = make_rule("UNRELATED")
+    rules = [entailer, entailed, unrelated]
+    harness = await matching_harness(
+        container,
+        rules,
+        rank_relevant=set(),
+        effort=Effort.MEDIUM,
+    )
+    await harness.entail(entailer, entailed)
+
+    # Mid-turn reevaluation passes only a subset, but the entailed rule's prompt
+    # must still see an entailing rule outside that subset.
+    await harness.matcher._load_strategy_choice_signals(harness.context, [entailed])
+
+    assert harness.context.state.entailing_rules_by_rule[entailed.id] == [entailer]
+
+
 async def test_that_a_recalled_dependent_survives_when_its_ranked_dependency_matches(
     container: Container,
 ) -> None:

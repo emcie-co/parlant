@@ -324,6 +324,52 @@ The following dependency target(s) are satisfied for this evaluation. The rule u
     )
 
 
+def add_entailment_context(
+    builder: PromptBuilder,
+    context: EngineContext,
+    rule: Rule,
+    format_rule: Callable[[Rule], str],
+    *,
+    section_name: str,
+) -> None:
+    """Render the rules that entail this rule into its evaluation prompt.
+
+    An entailed rule is activated automatically whenever one of its entailing
+    rules matches, but it is also ranked on its own, and its wording is often
+    written with them in mind ("the add-on" that another policy defines). So
+    its verdict sees them as context. Unlike dependency context this never
+    gates the rule: it still matches on its own condition (MCN-568).
+
+    Per-rule, so callers must add it to the live tail, never the cached
+    prefix. Renders nothing for rules that no rule entails.
+    """
+    entailing_rules = [
+        other
+        for other in context.state.entailing_rules_by_rule.get(rule.id, [])
+        if other.id != rule.id
+    ]
+
+    if not entailing_rules:
+        return
+
+    builder.add_section(
+        name=section_name,
+        template="""
+# POLICIES THAT ACTIVATE THIS RULE
+
+This rule is also activated automatically whenever any of the following policies applies. Use them to understand what this rule is about and the context it was written for. Judge whether this rule's own condition holds in the conversation. If one of these policies applies, this rule would be activated anyway, even if you here don't deem it relevant in its own right.
+
+{entailing_rules_text}
+""",
+        props={
+            "entailing_rules_text": "\n".join(
+                f"- ###\n{format_rule(other)}\n###" for other in entailing_rules
+            ),
+        },
+        status=SectionStatus.ACTIVE,
+    )
+
+
 def add_policy_context(
     builder: PromptBuilder,
     context: EngineContext,

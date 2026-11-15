@@ -184,3 +184,11 @@ describe("Markdown links", () => {
     expect(computed.fontWeight).not.toBe("700");
   });
 });
+
+describe("attribution", () => {
+  it('centers "Powered by Parlant" on phones, and leaves it at the start elsewhere', () => {
+    expect(rule(".parlant-widget .parlant-cmp-poweredby")).toContain("justify-content: flex-start");
+    const phone = styles.slice(styles.indexOf("@media (max-width: 640px) {"));
+    expect(phone).toMatch(/\.parlant-widget \.parlant-cmp-poweredby \{ justify-content: center; \}/);
+  });
+});

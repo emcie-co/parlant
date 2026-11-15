@@ -330,6 +330,20 @@ class MatchingHarness:
             kind=RelationshipKind.DEPENDENCY,
         )
 
+    async def entail(self, source: Rule, target: Rule) -> None:
+        await self.relationship_store.create_relationship(
+            source=RelationshipEntity(source.id, RelationshipEntityKind.RULE),
+            target=RelationshipEntity(target.id, RelationshipEntityKind.RULE),
+            kind=RelationshipKind.ENTAILMENT,
+        )
+
+    async def entail_group(self, source: Rule, target: GroupId) -> None:
+        await self.relationship_store.create_relationship(
+            source=RelationshipEntity(source.id, RelationshipEntityKind.RULE),
+            target=RelationshipEntity(target, RelationshipEntityKind.GROUP_ALL),
+            kind=RelationshipKind.ENTAILMENT,
+        )
+
     async def match(self) -> None:
         await self.matcher._match(self.context)
 

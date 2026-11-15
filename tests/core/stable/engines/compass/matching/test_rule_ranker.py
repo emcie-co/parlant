@@ -617,6 +617,89 @@ def test_that_rules_without_dependencies_omit_the_dependency_context_section() -
     assert "CONTEXT THIS RULE OPERATES WITHIN" not in prompt
 
 
+# Entailment context (MCN-568)
+#
+# A rule that other rules entail is activated automatically whenever one of
+# them matches, but it is also ranked on its own. Its wording is often written
+# with its entailing rules in mind, so it is ranked with their content in the
+# live prompt tail. Unlike dependency context, this never gates the rule.
+
+
+def test_that_an_entailed_rules_prompt_renders_the_rules_that_entail_it() -> None:
+    ranker = _make_ranker()
+    rule = create_rule(
+        condition="the customer asks what the add-on costs",
+        action="say it's $39 per flight",
+    )
+    entailing = create_rule(
+        title="Comfort+ seating",
+        condition="ZZQ_ENTAILING the customer asks about extra-legroom seats",
+        action="explain that the Comfort+ add-on gives extra legroom",
+    )
+
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "hi")])
+    context.state = ResponseState(entailing_rules_by_rule={rule.id: [entailing]})
+
+    prompt = ranker._build_prompt(context, rule, shots=[]).build()  # type: ignore[arg-type]
+    prefix = _cached_prefix(ranker, context, rule)
+
+    assert "POLICIES THAT ACTIVATE THIS RULE" in prompt
+    assert "even if you here don't deem it relevant in its own right" in prompt
+    assert "ZZQ_ENTAILING" in prompt
+    assert "Comfort+ seating" in prompt
+    # Entailment context is per-rule; it must stay out of the cached shared prefix.
+    assert "ZZQ_ENTAILING" not in prefix
+
+
+def test_that_rules_without_entailing_rules_omit_the_entailment_context_section() -> None:
+    ranker = _make_ranker()
+    rule = create_rule(condition="the customer wants a refund", action="refund")
+
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "hi")])
+    context.state = ResponseState()
+
+    prompt = ranker._build_prompt(context, rule, shots=[]).build()  # type: ignore[arg-type]
+
+    assert "POLICIES THAT ACTIVATE THIS RULE" not in prompt
+
+
+def test_that_entailment_context_lists_only_the_rules_own_entailing_rules() -> None:
+    ranker = _make_ranker()
+    rule = create_rule(condition="the customer asks what the add-on costs", action="quote")
+    own_entailing = create_rule(condition="ZZQ_OWN the customer asks about legroom", action="a")
+    other_rule = create_rule(condition="something else entirely", action="other")
+    other_entailing = create_rule(condition="ZZQ_FOREIGN the customer asks about bags", action="b")
+
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "hi")])
+    context.state = ResponseState(
+        entailing_rules_by_rule={
+            rule.id: [own_entailing],
+            other_rule.id: [other_entailing],
+        },
+    )
+
+    prompt = ranker._build_prompt(context, rule, shots=[]).build()  # type: ignore[arg-type]
+
+    assert "ZZQ_OWN" in prompt
+    assert "ZZQ_FOREIGN" not in prompt
+
+
+def test_that_the_decision_path_question_carries_the_entailment_context() -> None:
+    ranker = _make_ranker()
+    rule = create_rule(condition="the customer asks what the add-on costs", action="quote")
+    entailing = create_rule(condition="ZZQ_ENTAILING the customer asks about legroom", action="a")
+
+    context = _low_effort_context()
+    context.state = replace(context.state, entailing_rules_by_rule={rule.id: [entailing]})
+
+    question = ranker._rule_question(context, rule)
+
+    assert isinstance(question.instructions, dict)
+    rule_text = str(question.instructions["rule"])
+    assert "POLICIES THAT ACTIVATE THIS RULE" in rule_text
+    assert "ZZQ_ENTAILING" in rule_text
+
+
 async def test_that_a_configured_prompt_provider_supplies_the_rankers_builder() -> None:
     from parlant.core.nlp.model_routing import ModelScope
     from parlant.core.nlp.prompt_routing import PromptConfigurationService

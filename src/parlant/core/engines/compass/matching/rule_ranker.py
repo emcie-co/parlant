@@ -45,6 +45,7 @@ from parlant.core.engines.compass.prompt_builder import (
 from parlant.core.engines.compass.matching.common import (
     add_agent_reasoning,
     add_dependency_context,
+    add_entailment_context,
     add_policy_context,
     add_rule_terms,
     aggregate_generation_info,
@@ -88,6 +89,7 @@ class PromptSections(str, Enum):
     CURRENT_TURN = "ranker.current-turn"
     POLICY_CONTEXT = "ranker.policy-context"
     DEPENDENCY_CONTEXT = "ranker.dependency-context"
+    ENTAILMENT_CONTEXT = "ranker.entailment-context"
 
 
 def get_dynamic_reasoning_effort_for_matching(context: EngineContext) -> str:
@@ -296,8 +298,8 @@ class RuleRanker(TurnEvaluator):
     def _rule_question(self, context: EngineContext, rule: Rule) -> Proposition:
         """One rule as a proposition, carrying the same per-rule context the
         fan-out renders into its prompt tail — the rule's terms, its policy
-        context, and its dependency context — so a verdict here sees what a
-        verdict there would.
+        context, its dependency context and its entailment context — so a
+        verdict here sees what a verdict there would.
 
         A rule's signals and anti-signals become the true and false criteria.
         They are the same exemplars the recaller trains on, but used differently:
@@ -328,6 +330,13 @@ class RuleRanker(TurnEvaluator):
             rule,
             lambda target: _format_rule(target.title, target.condition, target.content),
             section_name=PromptSections.DEPENDENCY_CONTEXT,
+        )
+        add_entailment_context(
+            extras,
+            context,
+            rule,
+            lambda other: _format_rule(other.title, other.condition, other.content),
+            section_name=PromptSections.ENTAILMENT_CONTEXT,
         )
 
         rule_text = _format_rule(rule.title, rule.condition, rule.content)
@@ -712,6 +721,21 @@ class RuleRanker(TurnEvaluator):
                 target.content,
             ),
             section_name=PromptSections.DEPENDENCY_CONTEXT,
+        )
+
+        # The rules that entail this one, as context for reading it. Never a
+        # gate; see matching/common.py: add_entailment_context. Per-rule, so
+        # it lives in the live tail, never the prefix.
+        add_entailment_context(
+            builder,
+            context,
+            rule,
+            lambda other: _format_rule(
+                other.title,
+                other.condition,
+                other.content,
+            ),
+            section_name=PromptSections.ENTAILMENT_CONTEXT,
         )
 
         builder.add_section(

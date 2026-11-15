@@ -28,6 +28,11 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- When one policy entails another, the entailed policy is now judged with the
+  policies that entail it in view. This helps when its wording relies on
+  theirs, such as "the add-on" that another policy defines. It still matches on
+  its own merits, and entailment works as before: when an entailing policy
+  matches, the entailed one is activated too.
 - A chat widget with a video avatar now moves the video into a circle beside
   the agent's name once the conversation scrolls, and the space it leaves
   closes up. Scrolling up past the top brings it back. The header keeps its

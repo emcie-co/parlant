@@ -17,6 +17,11 @@ export interface StickToBottom {
   contentRef: RefObject<HTMLDivElement>;
   /** True when the view is at (or near) the bottom. */
   isPinned: boolean;
+  /**
+   * True when there is content below the view to jump to. An unpinned view with nothing
+   * below it (an empty or short chat the visitor swiped up on) has nothing new to show.
+   */
+  hasMoreBelow: boolean;
   /** Jump to the bottom; instant during streaming, smooth for a discrete new message. */
   scrollToBottom: (behavior?: ScrollBehavior) => void;
 }
@@ -26,6 +31,11 @@ export function useStickToBottom(): StickToBottom {
   const contentRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [isPinned, setIsPinned] = useState(true);
+  const [hasMoreBelow, setHasMoreBelow] = useState(false);
+  const measureBelow = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) setHasMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+  }, []);
 
   const setPinned = useCallback((value: boolean) => {
     pinnedRef.current = value;
@@ -58,6 +68,7 @@ export function useStickToBottom(): StickToBottom {
       const nearer = distance < lastDistance - 0.5;
       lastTop = el.scrollTop;
       lastDistance = distance;
+      setHasMoreBelow(distance > 1);
       if (distance <= 1) setPinned(true);
       else if (distance > NEAR_BOTTOM_PX || movingUp) setPinned(false);
       else if (nearer) setPinned(true);
@@ -102,11 +113,12 @@ export function useStickToBottom(): StickToBottom {
     if (!content || !el) return;
     const observer = new ResizeObserver(() => {
       if (pinnedRef.current) el.scrollTop = el.scrollHeight;
+      measureBelow();
     });
     observer.observe(content);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [measureBelow]);
 
-  return { scrollRef, contentRef, isPinned, scrollToBottom };
+  return { scrollRef, contentRef, isPinned, hasMoreBelow, scrollToBottom };
 }

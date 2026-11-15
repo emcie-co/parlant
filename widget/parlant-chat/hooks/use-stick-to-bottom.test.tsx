@@ -7,10 +7,11 @@ let resize: () => void = () => {};
 let observed: Element[] = [];
 
 function Transcript() {
-  const { scrollRef, contentRef } = useStickToBottom();
+  const { scrollRef, contentRef, isPinned, hasMoreBelow } = useStickToBottom();
   return (
     <div ref={scrollRef} data-testid="scroll">
       <div ref={contentRef} />
+      {!isPinned && hasMoreBelow && <span>New messages</span>}
     </div>
   );
 }
@@ -83,5 +84,26 @@ describe("sticking to the bottom", () => {
     Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 600 });
     act(() => resize());
     expect(scroll.scrollTop).toBe(0);
+  });
+
+  it("offers no jump to new messages when there is nothing below, as in an empty chat", () => {
+    const view = render(<Transcript />);
+    const scroll = view.getByTestId("scroll");
+    // An empty chat: nothing to scroll. Swiping up unpins it, but nothing is below.
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 400 });
+    Object.defineProperty(scroll, "clientHeight", { configurable: true, value: 400 });
+    act(() => resize());
+    act(() => { scroll.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 })); });
+    expect(view.queryByText("New messages")).toBeNull();
+  });
+
+  it("offers the jump once the reader has scrolled up away from content below", () => {
+    const view = render(<Transcript />);
+    const scroll = view.getByTestId("scroll");
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scroll, "clientHeight", { configurable: true, value: 400 });
+    scroll.scrollTop = 100;
+    act(() => { scroll.dispatchEvent(new Event("scroll")); });
+    expect(view.queryByText("New messages")).not.toBeNull();
   });
 });

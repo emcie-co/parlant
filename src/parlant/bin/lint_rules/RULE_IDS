@@ -8,5 +8,7 @@
 #   BHV009 retired    a rule that no longer ships; never reuse the ID
 BHV001
 BHV002
+BHV003
+BHV004
 WTV001
 WTV002

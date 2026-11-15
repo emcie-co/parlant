@@ -21,7 +21,8 @@ Each entry says what changed and what it means for you, under `Added`,
   chapter's rules), and how to handle findings by severity. HIGH findings are
   fixed right away, at most 3 MEDIUM issue types are proposed per round, and
   LOW ones only with your OK. The first sections are Behavior (observations
-  that combine several situations) and Wording and Tone of Voice (canned
+  that combine several situations, whether alternatives or ones that must all
+  hold) and Wording and Tone of Voice (canned
   responses rather than wording in policies or instructions). Every rule has an
   ID, such as `BHV001`, that stays the same across releases.
 - `parlant init` now installs a git pre-push hook (`.githooks/pre-push`, set

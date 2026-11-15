@@ -120,6 +120,8 @@ def test_that_a_chapter_prints_its_rules_with_ids_and_severities(runner: CliRunn
     assert "HIGH" in result.output
     assert "BHV002" in result.output
     assert "MEDIUM" in result.output
+    assert "BHV003" in result.output
+    assert "BHV004" in result.output
     # The subagent reports back; it does not fix.
     assert "Do not change any files" in result.output
     # Another section's rules stay out of this chapter.

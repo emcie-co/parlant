@@ -34,6 +34,10 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- At high agent effort, pruning previously discovered rules now defaults to
+  low model reasoning, matching rule ranking. Explicit model-route reasoning
+  settings still take precedence.
+
 - When one policy entails another, the entailed policy is now judged with the
   policies that entail it in view. This helps when its wording relies on
   theirs, such as "the add-on" that another policy defines. It still matches on

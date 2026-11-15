@@ -75,6 +75,9 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- Logging scopes now unwind after exceptions and cancellation, so later logs
+  in the same task do not retain stale component labels.
+
 - The chat widget centers its disclaimer and "Powered by Parlant" under the input on phones.
 - The chat widget no longer shows "↓ New messages" in an empty or short chat that the
   visitor scrolled up in. The pill now appears only when there is something below to jump to.

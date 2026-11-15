@@ -69,6 +69,7 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Fixed
 
+- The chat widget centers "Powered by Parlant" under the input on phones.
 - The chat widget no longer shows "↓ New messages" in an empty or short chat that the
   visitor scrolled up in. The pill now appears only when there is something below to jump to.
 - A reasoning level set on a Gemini 4 model in a schematic route, such as

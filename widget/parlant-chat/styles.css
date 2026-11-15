@@ -1361,6 +1361,9 @@
   /* Full-screen already; the expand/shrink size toggle is meaningless — leave only minimize. */
   .parlant-widget .parlant-cw-size-toggle { display: none; }
 
+  /* The attribution sits centered under the input on a phone. */
+  .parlant-widget .parlant-cmp-poweredby { justify-content: center; }
+
   /* A video avatar is only the circle beside the name: the big video would take most of the
    * screen. The header is tall enough for the circle. */
   .parlant-widget .parlant-cw-video { display: none; }

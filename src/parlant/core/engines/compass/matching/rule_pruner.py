@@ -73,7 +73,7 @@ def get_dynamic_reasoning_effort_for_matching(context: EngineContext) -> str:
         case Effort.MEDIUM:
             return "minimal"
         case Effort.HIGH:
-            return "minimal"
+            return "low"
         case Effort.MAX:
             return "low"
 

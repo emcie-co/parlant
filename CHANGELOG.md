@@ -13,6 +13,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+## [4.0.6] - 2026-11-16
+
 ### Added
 
 - `parlant lint` lints a Parlant agent project through your coding agent. It
@@ -54,20 +56,17 @@ Each entry says what changed and what it means for you, under `Added`,
 - At high agent effort, pruning previously discovered rules now defaults to
   low model reasoning, matching rule ranking. Explicit model-route reasoning
   settings still take precedence.
-
 - When one policy entails another, the entailed policy is now judged with the
   policies that entail it in view. This helps when its wording relies on
   theirs, such as "the add-on" that another policy defines. It still matches on
   its own merits, and entailment works as before: when an entailing policy
   matches, the entailed one is activated too.
-
 - Guests and signed-in customers may add custom events to their own sessions,
   with source `customer_ui`, up to 4 KB of data and 30 a minute. Until now only
   the backend could, so a site had to relay page views through its own server
   with the admin key. Other sources still need the admin key; a custom permission
   gate that doesn't grant `CREATE_CUSTOM_EVENT` keeps refusing them.
   `PARLANT_CUSTOMER_UI_EVENT_MAX_BYTES` changes the size limit (4096 by default).
-
 - A chat widget with a video avatar now moves the video into a circle beside
   the agent's name once the conversation scrolls, and the space it leaves
   closes up. Scrolling up past the top brings it back. The header keeps its
@@ -82,7 +81,6 @@ Each entry says what changed and what it means for you, under `Added`,
   `parlant widget init` made. To pick this up, run
   `parlant widget init --force`, which replaces that copy and any changes you
   made to it.
-
 - With Gemini as your provider, replies at medium, high and max effort and both
   review checks now run on Gemini 4 Hydrogen instead of Gemini 3.8 Flash. Medium
   effort keeps low reasoning. On a website agent this cut replies from 15–30
@@ -107,10 +105,14 @@ Each entry says what changed and what it means for you, under `Added`,
   matching; they simply cost no prompt tokens.
 - Logging scopes now unwind after exceptions and cancellation, so later logs
   in the same task do not retain stale component labels.
-
 - The chat widget centers its disclaimer and "Powered by Parlant" under the input on phones.
 - The chat widget no longer shows "↓ New messages" in an empty or short chat that the
   visitor scrolled up in. The pill now appears only when there is something below to jump to.
+- The chat widget no longer ends a finished reply with a stray `*`. A reply with
+  an odd number of `* ` bullets used to get one after its last word. Half-typed
+  bold and italics still close while a reply streams. To pick up this and the
+  other widget fixes, run `parlant widget init --force`, which replaces your
+  project's copy of the widget and any changes you made to it.
 - A reasoning level set on a Gemini 4 model in a schematic route, such as
   `"review.*": p.ModelConfig("gemini:gemini-4-hydrogen", reasoning="high")`, is now
   sent to Gemini. It used to be dropped, so the model thought at its own default.

@@ -42,16 +42,21 @@
 
 ## Know this problem?
 
-You want an AI agent handling your customer conversations, and you hit the same three walls:
+You want an AI agent handling your customer conversations, and you hit these same annoying issues:
 
-- **It's hard to set up and manage.** A closed CX platform means deep settings menus, vendor tickets, and sometimes a whole implementation project. Building your own means an engineering sprint for every change.<br>
-  **With Parlant**, you describe what you want to Claude (or Codex, or Cursor), and it builds, tests and changes your agent for you. No coding experience needed.
-- **It's expensive.** Closed CX platforms charge around [$1 per resolution](https://hansvandam.substack.com/p/false-containment-how-your-best-dashboard). That's $10,000 a month at 10,000 conversations, up to 200x what the model calls cost.<br>
-  **With Parlant**, you bring your own model and pay its provider directly, with no markup. Those same 10,000 conversations can cost as little as $50 in model usage, plus a flat Dashboard fee.
-- **It's not reliable.** Customers mix topics, push back and change their minds, and most agents aren't built for that. They claim a transaction went through when it didn't, or promise something your policy doesn't allow.<br>
-  **With Parlant**, the engine keeps your agent on your policies and checks its actions and replies before customers see them. It's reliable enough for banks: one runs customer service for 18 million clients on it.
+❌ **It's a hassle to set up and manage.** Deep settings, menus, vendor tickets, and sometimes a whole implementation project.
 
-**Parlant** is an open platform for building customer-facing chat agents with AI. You describe how the agent should behave, and your coding agent implements it for you. Parlant provides the rest: an engine that keeps the agent on your rules in every conversation, plus the parts every customer-facing agent needs, from a chat widget and human handoff to testing, hosting, and analytics.
+👉 **With Parlant:** Everything runs from Claude Code (or any equivalent agent). No coding experience needed.
+
+❌ **It's expensive.** Closed CX platforms charge you huge premiums based on vague definitions for "resolution".
+
+👉 **With Parlant:** You bring your own model and pay its provider directly. That's 20x–100x cheaper to run, right off the bat.
+
+❌ **It's not reliable.** As soon as customers mix topics, push back or change their minds, everything goes left. Agents claim a transaction went through when it didn't, or promise something your policy doesn't allow.
+
+👉 **With Parlant:** Parlant already runs customer service in banks (see testimonials below). Your agent stays on-policy and checks itself before customers see its responses.
+
+**Parlant** is the open platform for building CX agents with AI. It comes with all the parts every customer-facing agent needs, from a chat widget and human handoff to testing, hosting, and analytics. All of it built to operate from within your existing, personal AI agent.
 
 ## What building with Parlant feels like
 

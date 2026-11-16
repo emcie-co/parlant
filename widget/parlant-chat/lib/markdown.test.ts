@@ -105,6 +105,27 @@ describe("bare URLs", () => {
     ]);
   });
 
+  it("leaves a finished reply with an odd number of * bullets unchanged", () => {
+    const reply =
+      "Here's what you need:\n\n* **Price:** $49.99\n* **Shipping:** free over $89\n* **Nutrition:** 70 calories\n\nDoes that help?";
+    expect(completeIncompleteMarkdown(reply)).toBe(reply);
+    const last = parseMarkdown(completeIncompleteMarkdown(reply)).at(-1);
+    expect(last).toEqual({ type: "paragraph", children: [{ type: "text", value: "Does that help?" }] });
+  });
+
+  it("does not count a lone *, an indented bullet or a word's underscores as open emphasis", () => {
+    for (const text of ["5 * 3 is 15", "Steps:\n  * one\n  * two\n  * three", "use snake_case names", "a * b and c"]) {
+      expect(completeIncompleteMarkdown(text)).toBe(text);
+    }
+  });
+
+  it("still closes emphasis and strong that are mid-stream", () => {
+    expect(completeIncompleteMarkdown("* item with **bol")).toBe("* item with **bol**");
+    expect(completeIncompleteMarkdown("an *ital")).toBe("an *ital*");
+    expect(completeIncompleteMarkdown("an _ital")).toBe("an _ital_");
+    expect(completeIncompleteMarkdown("**done** and *more")).toBe("**done** and *more*");
+  });
+
   it("does not treat a lone underscore in a streaming URL as open emphasis", () => {
     const frame = completeIncompleteMarkdown("see https://x.io/a_b");
     expect(parseMarkdown(frame)).toEqual([

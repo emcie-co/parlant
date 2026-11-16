@@ -340,17 +340,22 @@ export function completeIncompleteMarkdown(src: string): string {
       continue;
     }
 
-    if ((c === "*" || c === "_") && s[i + 1] === c) {
-      const marker = c + c;
-      if (open[open.length - 1] === marker) open.pop();
-      else open.push(marker);
-      i++;
+    if (c !== "*" && c !== "_") continue;
+    const marker = s[i + 1] === c ? c + c : c;
+    const before = s[i - 1];
+    const after = s[i + marker.length];
+    i += marker.length - 1;
+    // An underscore inside a word (snake_case) is never a marker.
+    if (c === "_" && before && after && /\w/.test(before) && /\w/.test(after)) continue;
+    // A marker closes the innermost open one of its kind when text precedes it...
+    if (open[open.length - 1] === marker && before && !/\s/.test(before)) {
+      open.pop();
       continue;
     }
-    if (c === "*" || c === "_") {
-      if (open[open.length - 1] === c) open.pop();
-      else open.push(c);
-    }
+    // ...and opens only when text follows it. So a list bullet (`* item`), a lone `*`
+    // between spaces, or a marker that is the last character so far opens nothing: counting
+    // them left a finished reply with an odd number of `*` bullets ending in a stray `*`.
+    if (after && !/\s/.test(after)) open.push(marker);
   }
 
   let suffix = "";

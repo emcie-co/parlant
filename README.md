@@ -52,11 +52,21 @@ You want an AI agent handling your customer conversations, and you hit these sam
 
 👉 **With Parlant:** You bring your own model and pay its provider directly. That's 20x–100x cheaper to run, right off the bat.
 
-❌ **It's not reliable.** As soon as customers mix topics, push back or change their minds, everything goes left. Agents claim a transaction went through when it didn't, or promise something your policy doesn't allow.
+❌ **It's not reliable.** As soon as customers mix topics, push back or change their minds, things start to go wrong. Agents claim a transaction went through when it didn't, or promise something your policy doesn't allow.
 
 👉 **With Parlant:** Parlant already runs customer service in banks (see testimonials below). Your agent stays on-policy and checks itself before customers see its responses.
 
 **Parlant** is the open platform for building CX agents with AI. It comes with all the parts every customer-facing agent needs, from a chat widget and human handoff to testing, hosting, and analytics. All of it built to operate from within your existing, personal AI agent.
+
+
+### Use cases
+- **Business discovery:** Handling personal agents like Muse and Instinct on your website
+- **Sales development:** Answering questions about your business or products and capturing leads
+- **Support:** Automating customer support in-app, on email, or any other channel
+
+### Integrate any system
+
+Because Parlant's open source is fully available to your coding agent, you can easily integrate any system into it by just asking. Connect Shopify, Zapier, Zendesk, Google Calendar, or any other tool.
 
 ## What building with Parlant feels like
 

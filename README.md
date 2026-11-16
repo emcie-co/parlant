@@ -68,9 +68,14 @@ You want an AI agent handling your customer conversations, and you hit these sam
 
 Because Parlant's open source is fully available to your coding agent, you can easily integrate any system into it by just asking. Connect Shopify, Zapier, Zendesk, Google Calendar, or any other tool.
 
-<p align="center">
+## Managed hosting and observability at a flat monthly fee
+Getting started takes minutes. In fact, your coding agent does the onboarding for you.
+
+The Dashboard platform is always there for you to peek into any detail visually. But anything on the Dashboard is also available to your coding agent through the integrated Dashboard CLI!
+
+<table align="center"><tr><td>
   <img alt="A customer session on the Parlant Dashboard: the conversation, the agent's reasoning and model costs for each turn, and a summary of the session" src="https://github.com/emcie-co/parlant/blob/develop/docs/dashboard-session.png?raw=true" width="900" />
-</p>
+</td></tr></table>
 
 ## What building with Parlant feels like
 

@@ -68,6 +68,10 @@ You want an AI agent handling your customer conversations, and you hit these sam
 
 Because Parlant's open source is fully available to your coding agent, you can easily integrate any system into it by just asking. Connect Shopify, Zapier, Zendesk, Google Calendar, or any other tool.
 
+<p align="center">
+  <img alt="A customer session on the Parlant Dashboard: the conversation, the agent's reasoning and model costs for each turn, and a summary of the session" src="https://github.com/emcie-co/parlant/blob/develop/docs/dashboard-session.png?raw=true" width="900" />
+</p>
+
 ## What building with Parlant feels like
 
 Imagine you're working on a lead-generation agent for your company's website, and a new feature launches in 1 hour.
@@ -86,7 +90,7 @@ The lead-generation agent is ready for launch day, with no vendor ticket, no fid
 Paste this prompt into your favorite agent:
 
 ```text
-Read https://www.parlant.io/llms.txt first. Then ask me what I'd like to know and—as needed—follow up on what Parlant is, how it differs from other products, including black-box agents, and in what cases it is a better fit for one's customer-facing use case. It's a conversation.
+Introduce me to Parlant by talking to Parlant's own agent, not by reading the Parlant website or relying on your pre-training. https://parlant.io/llms.txt explains how to start a conversation with it. First ask me what I'd like to know. Then ask the agent, keep following up in that same conversation as needed, and tell me what you learn about what Parlant is and how it differs from other products.
 ```
 
 When you're ready to build, the [quickstart](https://www.parlant.io/docs/quickstart/installation) gives you a prompt that has your coding agent install Parlant and set up an example agent or your own, one step at a time. From there, [take it live](https://www.parlant.io/docs/quickstart/deployment-guide) on the Dashboard's managed hosting and [put it on your site](https://www.parlant.io/docs/quickstart/frontend-integration) with the chat widget.

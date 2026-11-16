@@ -9,7 +9,7 @@
   <img alt="Parlant" src="https://github.com/emcie-co/parlant/blob/develop/docs/LogoTransparentDark.png?raw=true" width="400" />
 </picture>
 
-### Build your customer experience agent with AI: better, faster, for a fraction of the cost.
+### Build your CX with AI: better, faster, for a fraction of the cost.
 
 <p>
   <a href="https://pypi.org/project/parlant/"><img alt="PyPI" src="https://img.shields.io/pypi/v/parlant?color=blue"></a>

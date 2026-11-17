@@ -13,6 +13,12 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Fixed
+
+- Rejected rule edits that remove all text now leave the original rule and its
+  search vectors unchanged. Previously an empty or whitespace-only edit could
+  fail after saving, leaving unreadable rule data or stale vectors behind.
+
 ## [4.0.6] - 2026-11-16
 
 ### Added

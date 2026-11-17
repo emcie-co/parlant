@@ -64,6 +64,7 @@ SETTINGS_OPTIONS = {
     "organization": "--organization",
     "signInUrl": "--sign-in-url",
     "skills": "--skills",
+    "personalAgentSimulations": "--personal-agent-simulations",
 }
 
 SKILL_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -156,6 +157,12 @@ def settings_body(endpoint: Mapping[str, Any], changes: Mapping[str, Any]) -> di
         if endpoint.get("signInUrl")
         else {}
     )
+    saved_simulations = _mapping(endpoint.get("personalAgentSimulations"))
+    simulations = {
+        key: saved_simulations[key] for key in ("enabled", "perDay") if key in saved_simulations
+    }
+    if "personalAgentSimulations" in changes:
+        simulations["enabled"] = changes["personalAgentSimulations"]
 
     return {
         "enabled": endpoint.get("enabled") is True,
@@ -167,6 +174,12 @@ def settings_body(endpoint: Mapping[str, Any], changes: Mapping[str, Any]) -> di
         "guestLimits": dict(endpoint.get("guestLimits") or {}),
         "limits": dict(endpoint.get("limits") or {}),
         "replyTimeoutSeconds": endpoint.get("replyTimeoutSeconds"),
+        **(
+            {"protocols": dict(endpoint["protocols"])}
+            if isinstance(endpoint.get("protocols"), Mapping)
+            else {}
+        ),
+        **({"personalAgentSimulations": simulations} if simulations else {}),
     }
 
 
@@ -185,6 +198,11 @@ def print_a2a_settings(settings: Mapping[str, Any], entry: Mapping[str, Any]) ->
     reply_wait = f"{wait} seconds" if isinstance(wait, int) else "-"
     if isinstance(wait, int) and not isinstance(endpoint.get("replyTimeoutSeconds"), int):
         reply_wait += " (the default)"
+    simulations = _mapping(endpoint.get("personalAgentSimulations"))
+    enabled = simulations.get("enabled")
+    simulation_state = ("on" if enabled else "off") if isinstance(enabled, bool) else "-"
+    per_day = simulations.get("perDay")
+    daily_simulations = str(per_day) if per_day is not None else ("default" if simulations else "-")
 
     print_fields(
         [
@@ -195,6 +213,8 @@ def print_a2a_settings(settings: Mapping[str, Any], entry: Mapping[str, Any]) ->
             ("DESCRIPTION", str(description)),
             ("ORGANIZATION", str(organization)),
             ("REPLY WAIT", reply_wait),
+            ("PERSONAL AGENT SIMULATIONS", simulation_state),
+            ("SIMULATIONS PER DAY", daily_simulations),
             ("A2A ADDRESS", state.address),
             ("AGENT CARD", state.card),
             ("POPPY ADDRESS", state.poppy_address),

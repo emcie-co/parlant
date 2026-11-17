@@ -745,6 +745,19 @@ class RuleVectorStore(RuleStore):
                 }
             )
 
+            current_document = await self._collection.find_one(filters={"id": {"$eq": rule_id}})
+            assert current_document
+
+            # Validate the complete proposed rule before changing either store.
+            updated = await self._deserialize(
+                rule_document=RuleDocument({**current_document, **rule_document})
+            )
+            vector_documents = (
+                self._build_vector_documents(updated)
+                if any(key in params for key in ("content", "condition", "title", "signals"))
+                else None
+            )
+
             result = await self._collection.update_one(
                 filters={"id": {"$eq": rule_id}},
                 params=rule_document,
@@ -752,14 +765,12 @@ class RuleVectorStore(RuleStore):
 
             assert result.updated_document
 
-            updated = await self._deserialize(rule_document=result.updated_document)
-
             # Re-sync the embedded vectors if any embedded field changed
             # (content / condition / title / signals).
-            if any(key in params for key in ("content", "condition", "title", "signals")):
+            if vector_documents is not None:
                 await self._vector_collection.replace_documents(
                     filters={"rule_id": {"$eq": rule_id}},
-                    documents=self._build_vector_documents(updated),
+                    documents=vector_documents,
                 )
 
         return updated

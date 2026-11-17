@@ -13,6 +13,20 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Added
+
+- `parlant dashboard agent a2a set AGENT_ID --personal-agent-simulations off`
+  stops that agent's scheduled personal-agent simulations; `on` enables them.
+  Both keep its saved daily number, protocols and other settings. `get` and
+  `set` show the saved simulation state and daily number.
+
+### Fixed
+
+- Dashboard CLI sign-in requests permission to manage A2A settings through the
+  browser approval flow. Owners and Admins with an older sign-in can run
+  `parlant dashboard auth login --reauthorize` to approve the added permission.
+  Workspace roles still decide who may change these settings.
+
 ## [4.0.6] - 2026-11-16
 
 ### Added

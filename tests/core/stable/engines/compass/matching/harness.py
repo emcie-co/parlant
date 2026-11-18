@@ -330,6 +330,13 @@ class MatchingHarness:
             kind=RelationshipKind.DEPENDENCY,
         )
 
+    async def exclude(self, source: Rule, target: Rule) -> None:
+        await self.relationship_store.create_relationship(
+            source=RelationshipEntity(source.id, RelationshipEntityKind.RULE),
+            target=RelationshipEntity(target.id, RelationshipEntityKind.RULE),
+            kind=RelationshipKind.EXCLUSION,
+        )
+
     async def entail(self, source: Rule, target: Rule) -> None:
         await self.relationship_store.create_relationship(
             source=RelationshipEntity(source.id, RelationshipEntityKind.RULE),

@@ -1281,3 +1281,29 @@ async def test_that_dashboard_tunnel_factory_reads_the_shared_retriever_registry
     assert [entry["id"] for entry in catalog["retrievers"]] == [registration.id]
     agents = await call(service._dispatcher, "agents.list", {})
     assert agents["capabilities"]["retrievers"] is True
+
+
+async def test_that_exclusion_relationships_round_trip_over_the_tunnel(
+    dispatcher: TunnelRequestDispatcher,
+    container: Container,
+) -> None:
+    from parlant.core.rules import RuleStore
+    from parlant.core.relationships import RelationshipKind, RelationshipStore
+
+    excluder = await container[RuleStore].create_rule(content="Offer the VIP lounge")
+    excluded = await container[RuleStore].create_rule(content="Offer the standard lounge")
+
+    created = await call(
+        dispatcher,
+        "relationships.create",
+        {"source_rule": excluder.id, "target_rule": excluded.id, "kind": "exclusion"},
+    )
+    assert created["relationship"]["kind"] == "exclusion"
+
+    stored = await container[RelationshipStore].read_relationship(
+        relationship_id=created["relationship"]["id"]
+    )
+    assert stored.kind == RelationshipKind.EXCLUSION
+
+    listed = await call(dispatcher, "relationships.list", {"kind": "exclusion", "indirect": False})
+    assert [relationship["id"] for relationship in listed["relationships"]] == [stored.id]

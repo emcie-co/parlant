@@ -2561,3 +2561,321 @@ def test_that_a_rule_without_content_but_with_tools_renders_its_condition_and_to
     assert "the customer asks where their order is" in prompt
     assert "lookup_order" in prompt
     assert "[None]" not in prompt
+
+
+# --- Exclusion ---------------------------------------------------------------------
+#
+# While an excluding rule is turn-matched, its targets leave the turn entirely:
+# turn state, the matched-rule ledger and new working-set admissions. A target
+# already in the working set stays there (it returns once the excluder stops
+# matching) but is listed in `turn_excluded_rule_ids` so nothing renders it.
+# Ordering semantics live in test_relational_resolver.py.
+
+
+def _fillers(count: int = 5) -> list[Rule]:
+    # Keeps the inventory above the small-inventory fast path, which would
+    # otherwise admit every rule without any strategy choice.
+    return [make_rule(f"FILLER_{index}") for index in range(count)]
+
+
+async def test_that_an_excluded_rule_is_kept_out_of_turn_state_and_the_ledger(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    harness = await matching_harness(
+        container,
+        [vip, standard],
+        rank_relevant={"VIP", "STANDARD"},
+    )
+    await harness.exclude(vip, standard)
+
+    await harness.match()
+
+    assert [m.rule.id for m in harness.context.state.ordinary_rule_matches] == [vip.id]
+    assert harness.context.state.turn_excluded_rule_ids == {standard.id}
+    assert harness.context.state.discovered_rules == {vip}
+    assert await harness.staged_rules_ever_matched() == {vip.id}
+
+
+async def test_that_an_excluded_rule_already_in_the_working_set_stays_there_hidden(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    harness = await matching_harness(
+        container,
+        [vip, standard],
+        rank_relevant={"VIP"},
+        discovered_rules={standard},
+    )
+    await harness.exclude(vip, standard)
+
+    await harness.match()
+
+    assert harness.context.state.discovered_rules == {vip, standard}
+    assert harness.context.state.turn_excluded_rule_ids == {standard.id}
+
+
+async def test_that_an_excluder_that_does_not_match_excludes_nothing(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    harness = await matching_harness(
+        container,
+        [vip, standard],
+        rank_relevant={"STANDARD"},
+        discovered_rules={standard},
+    )
+    await harness.exclude(vip, standard)
+
+    await harness.match()
+
+    assert [m.rule.id for m in harness.context.state.ordinary_rule_matches] == [standard.id]
+    assert harness.context.state.turn_excluded_rule_ids == set()
+
+
+async def test_that_the_ledger_does_not_unlock_a_dependent_of_an_excluded_rule(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    follow_up = make_rule("FOLLOW_UP")
+    harness = await matching_harness(
+        container,
+        [vip, standard, follow_up],
+        rank_relevant={"VIP", "FOLLOW_UP"},
+        rules_ever_matched={standard},
+    )
+    await harness.exclude(vip, standard)
+    await harness.depend(follow_up, standard)
+
+    await harness.match()
+
+    assert [m.rule.id for m in harness.context.state.ordinary_rule_matches] == [vip.id]
+
+
+async def test_that_an_exclusion_source_is_ranked_even_at_low_effort(
+    container: Container,
+) -> None:
+    excluder = make_rule("EXCLUDER")  # MEDIUM weight normally recalls at LOW effort.
+    target = make_rule("TARGET")
+    harness = await matching_harness(
+        container,
+        [excluder, target, *_fillers()],
+        rank_relevant=set(),
+        effort=Effort.LOW,
+    )
+    await harness.exclude(excluder, target)
+    await harness.matcher._load_strategy_choice_signals(
+        harness.context, harness.context.state.usable_rules
+    )
+
+    assert (
+        harness.matcher._select_evaluator(harness.context, excluder)
+        is harness.matcher._rule_evaluator
+    )
+
+
+async def test_that_an_exclusion_target_keeps_its_ordinary_strategy(
+    container: Container,
+) -> None:
+    # A target is excluded whether or not it matched, so it needs no verdict.
+    excluder = make_rule("EXCLUDER")
+    target = make_rule("TARGET")
+    harness = await matching_harness(
+        container,
+        [excluder, target, *_fillers()],
+        rank_relevant=set(),
+        effort=Effort.LOW,
+    )
+    await harness.exclude(excluder, target)
+    await harness.matcher._load_strategy_choice_signals(
+        harness.context, harness.context.state.usable_rules
+    )
+
+    assert harness.matcher._select_evaluator(harness.context, target) is None
+
+
+async def test_that_a_group_exclusion_source_member_is_ranked(container: Container) -> None:
+    group = await container[GroupStore].create_group(name="vip")
+    member = replace(make_rule("MEMBER"), groups=[group.id])
+    target = make_rule("TARGET")
+    harness = await matching_harness(
+        container,
+        [member, target, *_fillers()],
+        rank_relevant=set(),
+        effort=Effort.LOW,
+    )
+    await harness.relationship_store.create_relationship(
+        source=RelationshipEntity(group.id, RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(target.id, RelationshipEntityKind.RULE),
+        kind=RelationshipKind.EXCLUSION,
+    )
+    await harness.matcher._load_strategy_choice_signals(
+        harness.context, harness.context.state.usable_rules
+    )
+
+    assert (
+        harness.matcher._select_evaluator(harness.context, member)
+        is harness.matcher._rule_evaluator
+    )
+
+
+async def test_that_a_low_weight_excluder_is_still_evaluated(container: Container) -> None:
+    excluder = replace(make_rule("EXCLUDER"), weight=Weight.LOW)
+    target = make_rule("TARGET")
+    harness = await matching_harness(
+        container,
+        [excluder, target, *_fillers()],
+        rank_relevant={"EXCLUDER", "TARGET"},
+    )
+    await harness.exclude(excluder, target)
+
+    await harness.match()
+
+    assert [m.rule.id for m in harness.context.state.ordinary_rule_matches] == [excluder.id]
+    assert harness.context.state.turn_excluded_rule_ids == {target.id}
+
+
+async def test_that_an_excluder_is_never_statically_included(container: Container) -> None:
+    excluder = _flagged_rule("COVERAGE_NET")
+    target = make_rule("TARGET")
+    harness = await matching_harness(
+        container,
+        [excluder, target],
+        rank_relevant=set(),
+        effort=Effort.MEDIUM,
+    )
+    await harness.exclude(excluder, target)
+    await harness.matcher._load_strategy_choice_signals(harness.context, [excluder, target])
+    await harness.matcher._load_static_inclusion(harness.context)
+
+    assert excluder not in harness.context.state.statically_included_rules
+
+
+async def test_that_a_bare_exclusion_target_can_still_be_statically_included(
+    container: Container,
+) -> None:
+    excluder = make_rule("EXCLUDER")
+    target = _flagged_rule("COVERAGE_NET")
+    harness = await matching_harness(
+        container,
+        [excluder, target],
+        rank_relevant=set(),
+        effort=Effort.MEDIUM,
+    )
+    await harness.exclude(excluder, target)
+    await harness.matcher._load_strategy_choice_signals(harness.context, [excluder, target])
+    await harness.matcher._load_static_inclusion(harness.context)
+
+    assert target in harness.context.state.statically_included_rules
+
+
+async def test_that_a_statically_included_target_is_excluded_while_its_excluder_matches(
+    container: Container,
+) -> None:
+    excluder = make_rule("EXCLUDER")
+    target = _flagged_rule("COVERAGE_NET")
+    harness = await matching_harness(
+        container,
+        [excluder, target],
+        rank_relevant={"EXCLUDER"},
+    )
+    await harness.exclude(excluder, target)
+    await harness.matcher._load_strategy_choice_signals(harness.context, [excluder, target])
+    await harness.matcher._load_static_inclusion(harness.context)
+
+    await harness.match()
+
+    assert harness.context.state.turn_excluded_rule_ids == {target.id}
+
+
+async def test_that_an_excluded_rule_is_staged_as_ruled_out_naming_its_excluder(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    harness = await matching_harness(
+        container,
+        [vip, standard],
+        rank_relevant={"VIP", "STANDARD"},
+    )
+    await harness.exclude(vip, standard)
+
+    await harness.match()
+
+    by_id = {
+        decision.rule.id: decision
+        for decision in harness.context.state.matcher.pending_rule_decisions
+    }
+    assert by_id[vip.id].selected is True
+    assert by_id[standard.id].selected is False
+    assert "exclud" in by_id[standard.id].rationale.lower()
+    assert "VIP" in by_id[standard.id].rationale
+
+
+async def test_that_a_mid_turn_excluder_drops_a_recorded_match(container: Container) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    harness = await matching_harness(container, [vip, standard], rank_relevant=set())
+    await harness.exclude(vip, standard)
+    harness.context.state.ordinary_rule_matches = [
+        RuleEvaluation(rule=standard, reasoning="matched earlier")
+    ]
+    harness.context.state.discovered_rules = {standard}
+
+    await harness.matcher._record(harness.context, [_match_usage(vip)], append=True)
+
+    assert [m.rule.id for m in harness.context.state.ordinary_rule_matches] == [vip.id]
+    assert harness.context.state.turn_excluded_rule_ids == {standard.id}
+    # Already in the working set, so it stays there for later turns.
+    assert harness.context.state.discovered_rules == {vip, standard}
+
+
+async def test_that_a_mid_turn_exclusion_of_the_excluder_reinstates_its_target(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    closed = make_rule("CLOSED")
+    harness = await matching_harness(
+        container,
+        [vip, standard, closed],
+        rank_relevant={"VIP", "STANDARD"},
+    )
+    await harness.exclude(vip, standard)
+    await harness.exclude(closed, vip)
+    await harness.match()
+
+    assert harness.context.state.turn_excluded_rule_ids == {standard.id}
+
+    await harness.matcher._record(harness.context, [_match_usage(closed)], append=True)
+
+    assert {m.rule.id for m in harness.context.state.ordinary_rule_matches} == {
+        standard.id,
+        closed.id,
+    }
+    assert harness.context.state.turn_excluded_rule_ids == {vip.id}
+    # The reinstated verdict is the original one, not a re-judgment.
+    [reinstated] = [
+        m for m in harness.context.state.ordinary_rule_matches if m.rule.id == standard.id
+    ]
+    assert reinstated.reasoning != "matched"
+
+
+async def test_that_a_mid_turn_match_of_an_excluded_rule_stays_excluded(
+    container: Container,
+) -> None:
+    vip = make_rule("VIP")
+    standard = make_rule("STANDARD")
+    harness = await matching_harness(container, [vip, standard], rank_relevant={"VIP"})
+    await harness.exclude(vip, standard)
+    await harness.match()
+
+    await harness.matcher._record(harness.context, [_match_usage(standard)], append=True)
+
+    assert [m.rule.id for m in harness.context.state.ordinary_rule_matches] == [vip.id]
+    assert harness.context.state.turn_excluded_rule_ids == {standard.id}
+    assert standard not in harness.context.state.discovered_rules

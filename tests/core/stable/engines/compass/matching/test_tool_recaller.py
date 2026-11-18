@@ -433,3 +433,53 @@ async def test_that_a_cumulative_tool_query_exceeding_the_embedder_token_budget_
 
     assert scores[refund_tool_id] > scores[hours_tool_id]
     assert all(len(text.split()) <= 32 for call in embedder.embed_calls for text in call)
+
+
+@pytest.mark.asyncio
+async def test_that_a_tool_granted_only_by_an_excluded_rule_is_not_offered() -> None:
+    excluded_rule = create_rule("customer asks about the standard lounge")
+    other_rule = create_rule("customer may need support")
+    lounge_tool = ToolId("local", "book_standard_lounge")
+    support_tool = ToolId("local", "open_ticket")
+    tools = {
+        lounge_tool: _tool("book_standard_lounge"),
+        support_tool: _tool("open_ticket"),
+    }
+    recaller = _ScoredToolRecaller(
+        [_association(excluded_rule, lounge_tool), _association(other_rule, support_tool)],
+        tools,
+        # The excluded tool scores highest, so only exclusion keeps it out.
+        scores={lounge_tool: 1.0, support_tool: 0.1},
+        max_tools=5,
+    )
+    context = _context_with_rules(excluded_rule, other_rule, discovered_rules={excluded_rule})
+    context.state.turn_excluded_rule_ids = {excluded_rule.id}
+
+    selected = await _prepare_and_select(recaller, context)
+
+    assert selected == ["open_ticket"]
+    assert "book_standard_lounge" not in context.state.tool_ids_by_name
+
+
+@pytest.mark.asyncio
+async def test_that_a_tool_also_granted_by_an_active_rule_is_still_offered() -> None:
+    excluded_rule = create_rule("customer asks about the standard lounge")
+    active_rule = create_rule("customer asks about any lounge")
+    lounge_tool = ToolId("local", "list_lounges")
+    tools = {lounge_tool: _tool("list_lounges")}
+    recaller = _ScoredToolRecaller(
+        [_association(excluded_rule, lounge_tool), _association(active_rule, lounge_tool)],
+        tools,
+        scores={lounge_tool: 0.5},
+        max_tools=5,
+    )
+    context = _context_with_rules(
+        excluded_rule,
+        active_rule,
+        discovered_rules={excluded_rule, active_rule},
+    )
+    context.state.turn_excluded_rule_ids = {excluded_rule.id}
+
+    selected = await _prepare_and_select(recaller, context)
+
+    assert selected == ["list_lounges"]

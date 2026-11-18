@@ -598,3 +598,20 @@ async def test_that_a_rejecting_tool_review_emits_a_rejected_lifecycle() -> None
     assert len(reviewed) == 1
     assert reviewed[0]["approved"] is False
     assert not any(n == "review.passed" for n, _ in tracer.recorded_events)
+
+
+def test_that_the_reviewer_system_instructions_omit_an_excluded_rule() -> None:
+    from tests.core.stable.engines.compass.matching.utils import create_rule
+
+    context = _context()
+    kept = create_rule(condition="the customer asks about ZZQ_KEPT", action="apply ZZQ_KEPT")
+    excluded = create_rule(
+        condition="the customer asks about ZZQ_EXCLUDED", action="apply ZZQ_EXCLUDED"
+    )
+    context.state.discovered_rules = {kept, excluded}
+    context.state.turn_excluded_rule_ids = {excluded.id}
+
+    instructions = _reviewer()._build_system_instructions(context)
+
+    assert "ZZQ_KEPT" in instructions
+    assert "ZZQ_EXCLUDED" not in instructions

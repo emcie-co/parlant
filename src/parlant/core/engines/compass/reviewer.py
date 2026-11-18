@@ -895,16 +895,10 @@ These calls have not been executed yet and you need to review them for correctne
         builder.add_customer_identity(context.customer, context.session)
         builder.add_context_variables(context.state.context_variables)
         builder.add_glossary(list(context.state.glossary_terms))
-        # The full instruction set: the discovered working set plus the
-        # statically-included cross-referential rules (bare, no attachments —
-        # excluded from discovery, so they must be unioned in here; see
-        # matching/common.py: "Static inclusion"). Deduped by id: a rule can
-        # be in both sets, e.g. discovered before it was flagged.
-        rendered_rules = {g.id: g for g in context.state.discovered_rules}
-        for g in context.state.statically_included_rules:
-            rendered_rules.setdefault(g.id, g)
+        # The full instruction set, minus the rules excluded this turn (see
+        # ResponseState.instruction_set_rules).
         builder.add_system_wide_rules(
-            list(rendered_rules.values()),
+            context.state.instruction_set_rules,
             context.state.tools_by_rule,
         )
 

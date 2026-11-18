@@ -13,6 +13,22 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Added
+
+- `exclude()` on rules and groups, and `except_when=[...]` on
+  `create_policy()` and `create_observation()`, add an exclusion: while the
+  excluding rule applies, the excluded one is ignored completely. Unlike
+  `prioritize_over()`, which keeps the losing policy in the agent's
+  instructions with a note to set it aside, an excluded rule is left out of
+  the prompt, its tools are not offered (unless another rule also grants
+  them), and it entails, satisfies and outranks nothing, so a rule that
+  depends on it loses too. It comes back as soon as the excluding rule stops
+  applying. An excluded rule excludes nothing in turn, and exclusion is
+  resolved before priority. Excluding itself, excluding something it depends
+  on, and loops of exclusions are refused. When an exclusion starts or stops
+  applying mid-response, the agent's system instructions are rebuilt, so that
+  step does not reuse the cached prompt prefix.
+
 ### Fixed
 
 - Rejected rule edits that remove all text now leave the original rule and its

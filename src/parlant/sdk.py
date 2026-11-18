@@ -749,6 +749,97 @@ class _CachedIndexer:
             )
 
 
+def _endpoint_id(endpoint: Rule | Group | AnyOf | AllOf) -> str:
+    if isinstance(endpoint, (AnyOf, AllOf)):
+        return str(endpoint.group.id)
+    return str(endpoint.id)
+
+
+def _describe_endpoint(endpoint: Rule | Group | AnyOf | AllOf) -> str:
+    if isinstance(endpoint, (AnyOf, AllOf)):
+        endpoint = endpoint.group
+    if isinstance(endpoint, Group):
+        return f'group "{endpoint.name}"'
+    label = endpoint.title or endpoint.condition or endpoint.content or str(endpoint.id)
+    return f'rule "{label}"'
+
+
+async def _create_exclusions(
+    store: RelationshipStore,
+    source: Rule | Group,
+    targets: Sequence[Rule | Group | AllOf],
+    create: Callable[[Rule | Group | AllOf], Awaitable[Relationship]],
+) -> Sequence[Relationship]:
+    """Validate every target first, so a refused call creates nothing."""
+    source_id = _endpoint_id(source)
+    source_label = _describe_endpoint(source)
+
+    if not targets:
+        raise SDKError(
+            f"exclude() on {source_label} needs at least one rule or group to exclude, "
+            "for example: await vip_lounge.exclude(standard_lounge)."
+        )
+
+    dependency_target_ids = {
+        str(relationship.target.id)
+        for kind in (RelationshipKind.DEPENDENCY, RelationshipKind.DEPENDENCY_ANY)
+        for relationship in await store.list_relationships(
+            kind=kind, indirect=False, source_id=cast(RuleId | GroupId, source_id)
+        )
+    }
+
+    for target in targets:
+        target_id = _endpoint_id(target)
+        if target_id == source_id:
+            raise SDKError(
+                f"{source_label} cannot exclude itself. To turn it off in some situations, "
+                "give it a narrower condition, or have the rule that covers those situations "
+                "exclude it."
+            )
+        if target_id in dependency_target_ids:
+            raise SDKError(
+                f"{source_label} depends on {_describe_endpoint(target)}, so it cannot also "
+                "exclude it: the exclusion would remove its own dependency. Remove the "
+                "depend_on() or drop the exclusion."
+            )
+
+    relationships: list[Relationship] = []
+    for target in targets:
+        try:
+            relationships.append(await create(target))
+        except ValueError as error:
+            raise SDKError(
+                f"{source_label} cannot exclude {_describe_endpoint(target)}: it already "
+                f"excludes {source_label}, directly or through a chain of exclusions, and a "
+                "loop of exclusions has no consistent answer. Keep one direction, or use "
+                "prioritize_over() if one should simply win when both apply."
+            ) from error
+
+    return relationships
+
+
+async def _refuse_depending_on_excluded(
+    store: RelationshipStore,
+    source: Rule | Group,
+    targets: Sequence[Rule | Group | AnyOf | AllOf],
+) -> None:
+    excluded_ids = {
+        str(relationship.target.id)
+        for relationship in await store.list_relationships(
+            kind=RelationshipKind.EXCLUSION,
+            indirect=False,
+            source_id=cast(RuleId | GroupId, _endpoint_id(source)),
+        )
+    }
+    for target in targets:
+        if _endpoint_id(target) in excluded_ids:
+            raise SDKError(
+                f"{_describe_endpoint(source)} excludes {_describe_endpoint(target)}, so it "
+                "cannot also depend on it: whenever it applies, its dependency would be gone. "
+                "Remove the exclude() or drop the dependency."
+            )
+
+
 @dataclass(frozen=True)
 class Group:
     """A group used to categorize and link entities."""
@@ -883,10 +974,33 @@ class Group:
 
         return [await self._create_relationship(t, RelationshipKind.PRIORITY) for t in targets]
 
+    async def exclude(self, *targets: Rule | Group | AllOf) -> Sequence[Relationship]:
+        """While any rule in this group is active, ignore the targets completely.
+
+        See ``Rule.exclude()``: the same relationship, with this group's
+        active members as the excluders. A group target excludes all of its
+        members."""
+        if self._server is None:
+            raise SDKError(
+                "Group relationships can only be created during the server startup scope."
+            )
+
+        return await _create_exclusions(
+            self._server._container[RelationshipStore],
+            self,
+            targets,
+            lambda t: self._create_relationship(t, RelationshipKind.EXCLUSION),
+        )
+
     async def depend_on(self, *targets: Rule | Group | AnyOf | AllOf) -> Sequence[Relationship]:
         """Creates dependency relationships with other rules or groups."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
+
+        if self._server is not None:
+            await _refuse_depending_on_excluded(
+                self._server._container[RelationshipStore], self, targets
+            )
 
         return [await self._create_relationship(t, RelationshipKind.DEPENDENCY) for t in targets]
 
@@ -894,6 +1008,11 @@ class Group:
         """Creates OR dependency relationships. At least one target must be active."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
+
+        if self._server is not None:
+            await _refuse_depending_on_excluded(
+                self._server._container[RelationshipStore], self, targets
+            )
 
         group_id = str(uuid.uuid4())
         return [
@@ -1117,10 +1236,50 @@ class Rule:
             for t in targets
         ]
 
+    async def exclude(self, *targets: Rule | Group | AllOf) -> Sequence[Relationship]:
+        """While this rule is active, ignore the targets completely.
+
+        A stronger ``prioritize_over()``. Priority only tells the agent not to
+        act on the losing rule this turn; exclusion removes the target from the
+        turn altogether: it is not matched, not shown anywhere in the agent's
+        instructions, its tools are not offered (unless another rule also
+        grants them), and it entails, satisfies and outranks nothing. A rule
+        that depends on an excluded rule loses too. Excluding a group
+        excludes all of its members.
+
+        "Active" means this rule matched the current turn (after its own
+        dependencies and exclusions); the moment it stops matching, the
+        targets come back. An excluded rule excludes nothing in turn, so with
+        A excluding B and B excluding C, C still applies when A does.
+
+        Use it when one situation makes another rule irrelevant or harmful,
+        not merely less important, e.g. a store-closed observation excluding
+        the in-store pickup policy. The same relationship can be declared on
+        the target with ``create_policy(..., except_when=[...])``.
+
+        Refused: excluding itself, excluding a rule it depends on, and loops
+        of exclusions (A excludes B, B excludes A)."""
+        return await _create_exclusions(
+            self._store_provider.get_store(RelationshipStore, StoreProviderHints(call_site="sdk")),
+            self,
+            targets,
+            lambda t: self._create_relationship(
+                target=t,
+                kind=RelationshipKind.EXCLUSION,
+                direction="source",
+            ),
+        )
+
     async def depend_on(self, *targets: Rule | Group | AnyOf | AllOf) -> Sequence[Relationship]:
         """Creates dependency relationships with other rules or groups."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
+
+        await _refuse_depending_on_excluded(
+            self._store_provider.get_store(RelationshipStore, StoreProviderHints(call_site="sdk")),
+            self,
+            targets,
+        )
 
         return [
             await self._create_relationship(
@@ -1135,6 +1294,12 @@ class Rule:
         """Creates OR dependency relationships. At least one target must be active."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
+
+        await _refuse_depending_on_excluded(
+            self._store_provider.get_store(RelationshipStore, StoreProviderHints(call_site="sdk")),
+            self,
+            targets,
+        )
 
         group_id = str(uuid.uuid4())
         return [
@@ -1844,6 +2009,7 @@ class Agent:
         id: RuleId | None = None,
         labels: Iterable[str] = (),
         dependencies: Sequence[Rule] = [],
+        except_when: Sequence[Rule | Group] = [],
         priority: int = 0,
         signals: Sequence[str] = [],
         anti_signals: Sequence[str] = [],
@@ -1866,6 +2032,9 @@ class Agent:
                 it, the id is derived from the authored content, so editing
                 the content creates a new identity; pass a stable id to keep
                 references (relationships, analytics) intact as you iterate.
+            except_when: Rules or groups that, while active, make this policy
+                ignored completely; the same as calling ``exclude(policy)`` on
+                each of them (see ``Rule.exclude()``).
         """
         policy = cast(
             Policy,
@@ -1899,6 +2068,9 @@ class Agent:
         if dependencies:
             await policy.depend_on(*dependencies)
 
+        for excluder in except_when:
+            await excluder.exclude(policy)
+
         return policy
 
     async def create_observation(
@@ -1919,6 +2091,7 @@ class Agent:
         title: str | None = None,
         labels: Iterable[str] = (),
         dependencies: Sequence[Rule] = [],
+        except_when: Sequence[Rule | Group] = [],
         priority: int = 0,
         signals: Sequence[str] = [],
         anti_signals: Sequence[str] = [],
@@ -1961,6 +2134,9 @@ class Agent:
 
         if dependencies:
             await observation.depend_on(*dependencies)
+
+        for excluder in except_when:
+            await excluder.exclude(observation)
 
         return observation
 

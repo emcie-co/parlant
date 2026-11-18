@@ -4035,7 +4035,12 @@ async def test_that_the_exclusion_result_does_not_depend_on_relationship_creatio
 
     result = await _exclusions(container, [*forward, *backward], [*forward, *backward])
 
-    assert result.excluded_rule_ids == {forward[1].id, forward[3].id, backward[1].id, backward[3].id}
+    assert result.excluded_rule_ids == {
+        forward[1].id,
+        forward[3].id,
+        backward[1].id,
+        backward[3].id,
+    }
 
 
 # --- Exclusion: groups -----------------------------------------------------------

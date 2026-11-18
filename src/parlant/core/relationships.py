@@ -59,6 +59,12 @@ class RelationshipKind(Enum):
     same group is also activated (OR semantics within a group).
     Groups are identified by group_id on the Relationship."""
 
+    EXCLUSION = "exclusion"
+    """While SOURCE is active this turn, TARGET is ignored completely: it is
+    neither matched nor rendered anywhere in the prompt, and it entails,
+    satisfies and outprioritizes nothing. An excluded SOURCE excludes nothing.
+    A stronger form of PRIORITY, resolved before it."""
+
     """When SOURCE is activated and two or more of the targets T ∈ {T₁, T₂, ...} are activated, ask the customer to clarify which action they want to take."""
 
     REEVALUATION = "reevaluation"

@@ -60,6 +60,21 @@ class ToolRecaller(ToolSelector):
     async def select(self, context: EngineContext) -> None:
         tools_by_id = self._tools_by_id(context.state.tools_by_rule)
 
+        # A tool only an excluded rule grants is withheld this turn; one that
+        # any other rule also grants stays in the catalog.
+        if excluded := context.state.turn_excluded_rule_ids:
+            granted_elsewhere = {
+                tool_id
+                for rule_id, pairs in context.state.tools_by_rule.items()
+                if rule_id not in excluded
+                for tool_id, _ in pairs
+            }
+            tools_by_id = {
+                tool_id: tool
+                for tool_id, tool in tools_by_id.items()
+                if tool_id in granted_elsewhere
+            }
+
         turn_tool_ids = list(
             dict.fromkeys(
                 tool_id
@@ -69,7 +84,11 @@ class ToolRecaller(ToolSelector):
             )
         )
 
-        discovered_rule_ids = {rule.id for rule in context.state.discovered_rules}
+        discovered_rule_ids = {
+            rule.id
+            for rule in context.state.discovered_rules
+            if rule.id not in context.state.turn_excluded_rule_ids
+        }
         session_tool_ids = [
             tool_id
             for rule_id in sorted(discovered_rule_ids, key=str)

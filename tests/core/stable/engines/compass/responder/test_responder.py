@@ -546,9 +546,7 @@ def test_that_the_job_rebuilds_its_system_instructions_when_the_excluded_set_cha
     assert context.state.rendered_rule_ids == {kept.id}
 
 
-def test_that_the_system_instructions_are_not_rebuilt_while_the_excluded_set_is_unchanged() -> (
-    None
-):
+def test_that_the_system_instructions_are_not_rebuilt_while_the_excluded_set_is_unchanged() -> None:
     # A rule admitted mid-turn must not re-render the cached prefix on its own;
     # only a change in exclusion justifies breaking it.
     responder = _make_responder()

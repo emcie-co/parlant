@@ -69,6 +69,7 @@ from parlant.core.engines.compass.relational_resolver import (
     RelationalResolver,
     ResolutionKind,
     ResolvedEntity,
+    TurnResolution,
 )
 from parlant.core.engines.compass.context import (
     EngineContext,
@@ -135,6 +136,11 @@ class _EvaluationRoundResult:
     code_evaluations: Sequence[RuleEvaluation]
     evaluator_results: Sequence[tuple[TurnEvaluator, Sequence[Rule], RuleEvaluationResult]]
     discovery: RuleDiscoveryResult | None
+
+
+def _describe_rule(rule: Rule) -> str:
+    """A short human label for a rule in diagnostics."""
+    return rule.title or rule.condition or rule.content or str(rule.id)
 
 
 class Matcher:
@@ -239,20 +245,23 @@ class Matcher:
         )
         # Budget initialization may have updated usage metadata.
         context.session = await self._entity_queries.read_session(context.session.id)
-        filtered = await self._resolve_admission_relationships(
+        resolution = await self._record(
             context,
             [
                 (evaluation, _ContextUsage.MATCH_CURRENT_TURN)
                 for evaluation in evaluations
                 if evaluation.is_relevant
             ],
-        )
-        context.state.early_rule_evaluations = [evaluation for evaluation, _ in filtered]
-        await self._record(
-            context,
-            filtered,
             append=False,
         )
+        # Verdicts that survived dependency gating (whatever priority made of
+        # them). Excluded ones are kept too: the full match resolves exclusion
+        # again, and their excluder may not be active by then.
+        context.state.early_rule_evaluations = [
+            *resolution.turn_matches,
+            *resolution.deprioritized,
+            *resolution.excluded_evaluations,
+        ]
 
     async def fill(self, context: EngineContext) -> None:
         """Initial preparation: match all usable rules, score the agent's tool
@@ -400,6 +409,7 @@ class Matcher:
                 or self._check_if_raises_effort(context, g)
                 or self._check_if_has_dependents(context, g)
                 or self._check_if_has_priority_relationships(context, g)
+                or self._check_if_excludes_others(context, g)
             )
             and not self._check_if_statically_included(context, g)
             and self._evaluator_registry.get(g.id) is None
@@ -782,6 +792,12 @@ class Matcher:
                 # whether there is anything to suppress.
                 return _MatcherStrategy.RANK
 
+            if self._check_if_excludes_others(context, rule):
+                # Exclusion fires only from a turn match, and recall gives no
+                # verdict: an excluder left at the recall tier would never
+                # exclude anything.
+                return _MatcherStrategy.RANK
+
             if context.state.dynamic_effort_level >= Effort.MEDIUM and self._check_if_has_tools(
                 context, rule
             ):
@@ -903,6 +919,7 @@ class Matcher:
             or self._check_if_has_tools(context, rule)
             or self._check_if_has_dependencies(context, rule)
             or self._check_if_has_priority_relationships(context, rule)
+            or self._check_if_excludes_others(context, rule)
             or self._evaluator_registry.get(rule.id) is not None
             or context.dependencies.hooks.on_rule_matched_handlers.get(rule.id)
             or context.dependencies.hooks.on_rule_discovered_handlers.get(rule.id)
@@ -995,6 +1012,28 @@ class Matcher:
             rule.id
             for rule in inventory_rules
             if rule.id in priority_rule_ids or not priority_groups.isdisjoint(rule.groups)
+        }
+
+        # Exclusion fires only from a turn-match verdict, so an excluding rule
+        # (directly or as a member of a source group) needs one. Its targets
+        # are excluded whether or not they matched, so they need none.
+        exclusion_relationships = await self._relationship_store.list_relationships(
+            kind=RelationshipKind.EXCLUSION, indirect=False
+        )
+
+        exclusion_source_rule_ids: set[RuleId] = set()
+        exclusion_source_groups: set[GroupId] = set()
+        for relationship in exclusion_relationships:
+            if relationship.source.kind == RelationshipEntityKind.RULE:
+                exclusion_source_rule_ids.add(cast(RuleId, relationship.source.id))
+            elif relationship.source.kind.is_group:
+                exclusion_source_groups.add(cast(GroupId, relationship.source.id))
+
+        context.state.rule_ids_with_exclusion_sources = {
+            rule.id
+            for rule in inventory_rules
+            if rule.id in exclusion_source_rule_ids
+            or not exclusion_source_groups.isdisjoint(rule.groups)
         }
 
         # Retain the source → targets mapping (not just the flat sets): a
@@ -1111,6 +1150,9 @@ class Matcher:
     def _check_if_has_priority_relationships(self, context: EngineContext, rule: Rule) -> bool:
         return rule.id in context.state.rule_ids_with_priority_relationships
 
+    def _check_if_excludes_others(self, context: EngineContext, rule: Rule) -> bool:
+        return rule.id in context.state.rule_ids_with_exclusion_sources
+
     async def _run_batches(
         self,
         context: EngineContext,
@@ -1174,6 +1216,7 @@ class Matcher:
                 or self._check_if_raises_effort(context, g)
                 or self._check_if_has_dependents(context, g)
                 or self._check_if_has_priority_relationships(context, g)
+                or self._check_if_excludes_others(context, g)
             )
             # Bare cross-referential rules are statically included in the
             # always-rendered instructions instead of being matched at all
@@ -1391,7 +1434,9 @@ class Matcher:
             if rule.id not in turn_matched_rule_ids
         ]
 
-        return await self._resolve_admission_relationships(context, evaluations)
+        # Raw evidence: entailment, dependencies, exclusion and priority are
+        # resolved together when it is recorded (see _resolve_turn_relationships).
+        return evaluations
 
     async def _run_evaluation_round(
         self,
@@ -1527,22 +1572,23 @@ class Matcher:
 
         return await self._rule_discoverer.discover(context, rules)
 
-    async def _resolve_admission_relationships(
+    async def _resolve_turn_relationships(
         self,
         context: EngineContext,
         evaluations: Sequence[tuple[RuleEvaluation, _ContextUsage]],
-    ) -> Sequence[tuple[RuleEvaluation, _ContextUsage]]:
-        """Expand entailments, then gate all evaluations (turn matches and
-        discovered admissions alike) on their dependencies.
+        *,
+        append: bool,
+    ) -> TurnResolution:
+        """Resolve exclusion, entailment, dependencies and priority together.
 
-        Entailment expansion runs first so that an entailed rule is itself
-        dependency-gated, and so it can satisfy the dependencies of other
-        evaluations in the same pass. An entailed evaluation inherits the
-        strongest usage among its entailing sources: it becomes a turn match
-        when any source matched this turn, otherwise a discovered admission.
+        Entailment expansion runs before dependency gating, so an entailed
+        rule is itself gated and can satisfy other evaluations in the same
+        pass. An entailed evaluation inherits the strongest usage among its
+        entailing sources: a turn match when any source matched this turn,
+        otherwise a discovered admission.
 
         A dependency is met by another match this turn (same-turn chains
-        resolve in dependency order) or by the session's matched-rule ledger —
+        resolve in dependency order) or by the session's matched-rule ledger,
         the "has ever actually matched" latch. Discovery admission never
         satisfies a dependency: recall is deliberately generous, and letting
         its false positives unlock dependents would make depend_on()
@@ -1550,166 +1596,125 @@ class Matcher:
         discovered set entirely, so it can keep being judged fresh every turn
         until its dependency arrives.
 
+        While an excluding rule is active, its targets leave the turn
+        entirely, and a rule depending on one loses too, even through the
+        ledger. Priority then keeps only the winning matches in the turn
+        state; outranked ones are demoted to discovered admission (they were
+        relevant, they just lost this turn). Relational priority resolves
+        first, then the numeric filter, from which entailed matches are
+        exempt. See RelationalResolver.resolve_turn_relationships for the
+        ordering.
+
+        On mid-turn updates (``append``), the already-recorded turn matches,
+        and the verdicts excluded earlier this turn, compete again: a rule
+        matching mid-turn can outrank or exclude them, or reinstate an
+        excluded one by excluding its excluder. That breaks the responder
+        prompt's byte-identical prefix for the rest of the turn, which is
+        accepted, since the match changes behavior just as strongly either
+        way. Recorded entailed matches are re-derived from their entailers
+        rather than passed in, so they fall away with them.
+
         Scheduler preconditions reduce unnecessary evaluation work, but this
-        resolver remains authoritative. New scheduling prerequisite providers
-        must not be relied on as the sole enforcement mechanism for a business
-        invariant.
+        resolution remains authoritative. New scheduling prerequisite
+        providers must not be relied on as the sole enforcement mechanism for
+        a business invariant.
         """
-        if not evaluations:
-            return evaluations
+        turn_inputs = [e for e, usage in evaluations if usage == _ContextUsage.MATCH_CURRENT_TURN]
+        admissions = [e for e, usage in evaluations if usage == _ContextUsage.ADMIT_TO_DISCOVERED]
 
-        usage_by_id = {evaluation.rule.id: usage for evaluation, usage in evaluations}
-
-        expanded = await self._relational_resolver.expand_entailment(
-            context.state.usable_rules,
-            [evaluation for evaluation, _ in evaluations],
-        )
-
-        entailed_pairs: list[tuple[RuleEvaluation, _ContextUsage]] = []
-        for evaluation in expanded.evaluations:
-            if evaluation.rule.id in usage_by_id:
-                continue
-
-            source_usages = {
-                usage_by_id.get(RuleId(counterpart.entity.id))
-                for resolution in expanded.resolutions.get(ResolvedEntity.rule(evaluation.rule), [])
-                if resolution.kind == ResolutionKind.ENTAILED
-                for counterpart in resolution.details.counterparts
-                if counterpart.entity_type == "rule"
-            }
-            usage = (
-                _ContextUsage.MATCH_CURRENT_TURN
-                if _ContextUsage.MATCH_CURRENT_TURN in source_usages
-                else _ContextUsage.ADMIT_TO_DISCOVERED
-            )
-            entailed_pairs.append((evaluation, usage))
-
-        all_pairs = [*evaluations, *entailed_pairs]
-
-        # Dependencies are satisfied by the matched-rule ledger ("has this
-        # ever actually applied in the session?") plus this batch's turn
-        # matches — never by discovery admission, whose embedding-level
-        # false positives would make depend_on() decorative.
-        result = await self._relational_resolver.filter_unmet_dependencies(
-            context.state.usable_rules,
-            [evaluation for evaluation, _ in all_pairs],
-            satisfied_rule_ids=context.state.rules_ever_matched_in_session,
-            same_turn_satisfier_ids={
-                evaluation.rule.id
-                for evaluation, usage in all_pairs
-                if usage == _ContextUsage.MATCH_CURRENT_TURN
-            },
-        )
-
-        surviving_ids = {evaluation.rule.id for evaluation in result.evaluations}
-
-        context.state.matcher.pending_rule_decisions.extend(
-            RuleDecision(
-                rule=evaluation.rule,
-                selected=False,
-                rationale="Ruled out: the rule's dependencies have not matched in this session.",
-            )
-            for evaluation, usage in all_pairs
-            if evaluation.rule.id not in surviving_ids
-            and usage == _ContextUsage.MATCH_CURRENT_TURN
-            and not evaluation.metadata.get("transient")
-        )
-
-        return [
-            (evaluation, usage)
-            for evaluation, usage in all_pairs
-            if evaluation.rule.id in surviving_ids
-        ]
-
-    async def _resolve_turn_priority(
-        self,
-        context: EngineContext,
-        evaluations: Sequence[tuple[RuleEvaluation, _ContextUsage]],
-        *,
-        append: bool,
-    ) -> Sequence[tuple[RuleEvaluation, _ContextUsage]]:
-        """Keep only the priority-winning matches in the turn-matched state;
-        outranked turn matches are demoted to discovered admission (they were
-        relevant — they just lost this turn).
-
-        Relational priority (PRIORITY relationships) resolves first, then the
-        numeric filter over the survivors. Entailed matches are exempt from the
-        numeric bar — they owe their activation to their entailer and must not
-        suppress it.
-
-        On mid-turn updates (``append``), the already-recorded turn matches
-        compete as well: a higher-priority rule matching mid-turn drops them
-        from the turn state. That breaks the responder prompt's byte-identical
-        prefix for the rest of the turn — accepted, since the match changes
-        behavior just as strongly either way."""
-        new_turn_matches = [
-            evaluation
-            for evaluation, usage in evaluations
-            if usage == _ContextUsage.MATCH_CURRENT_TURN
-        ]
-
-        recorded: list[RuleEvaluation] = []
         if append:
             recorded = [
-                *context.state.ordinary_rule_matches,
-                *context.state.tool_enabled_rule_matches,
-            ]
-
-        if not new_turn_matches and not recorded:
-            return evaluations
-
-        competing = [*recorded, *new_turn_matches]
-
-        relational = await self._relational_resolver.resolve_priority_relationships(
-            context.state.usable_rules,
-            competing,
-        )
-
-        entailed_rule_ids = {
-            evaluation.rule.id for evaluation in competing if evaluation.metadata.get("entailed")
-        }
-        result = self._relational_resolver.keep_highest_priority(
-            list(relational.evaluations),
-            entailed_rule_ids=entailed_rule_ids,
-        )
-        winner_ids = {evaluation.rule.id for evaluation in result.evaluations}
-
-        # Track this turn's priority losers so the responder can render an
-        # explicit "do not apply this turn" note — they remain visible in its
-        # full instruction set through the discovered working set.
-        losers = {
-            evaluation.rule.id: evaluation.rule
-            for evaluation in competing
-            if evaluation.rule.id not in winner_ids
-        }
-        if append:
-            retained = {
-                rule.id: rule
-                for rule in context.state.turn_deprioritized_rules
-                if rule.id not in winner_ids and rule.id not in losers
-            }
-            context.state.turn_deprioritized_rules = [*retained.values(), *losers.values()]
-        else:
-            context.state.turn_deprioritized_rules = list(losers.values())
-
-        if append and recorded:
-            context.state.ordinary_rule_matches = [
                 match
-                for match in context.state.ordinary_rule_matches
-                if match.rule.id in winner_ids
+                for match in chain(
+                    context.state.ordinary_rule_matches,
+                    context.state.tool_enabled_rule_matches,
+                )
+                if not match.metadata.get("entailed")
             ]
-            context.state.tool_enabled_rule_matches = {
-                match: tools
-                for match, tools in context.state.tool_enabled_rule_matches.items()
-                if match.rule.id in winner_ids
-            }
+            competing: dict[RuleId, RuleEvaluation] = {}
+            for evaluation in chain(
+                recorded,
+                context.state.turn_excluded_evaluations,
+                turn_inputs,
+            ):
+                competing.setdefault(evaluation.rule.id, evaluation)
+            turn_inputs = list(competing.values())
 
-        return [
-            (evaluation, usage)
-            if usage != _ContextUsage.MATCH_CURRENT_TURN or evaluation.rule.id in winner_ids
-            else (evaluation, _ContextUsage.ADMIT_TO_DISCOVERED)
-            for evaluation, usage in evaluations
-        ]
+        return await self._relational_resolver.resolve_turn_relationships(
+            context.state.usable_rules,
+            turn_inputs,
+            admissions,
+            satisfied_rule_ids=context.state.rules_ever_matched_in_session,
+        )
+
+    def _stage_relational_decisions(
+        self,
+        context: EngineContext,
+        resolution: TurnResolution,
+        *,
+        previously_recorded_ids: AbstractSet[RuleId],
+        previously_excluded_ids: AbstractSet[RuleId],
+    ) -> None:
+        """Stage this call's rule decisions.
+
+        Decisions mirror what persists: verdict-level matches (pre-priority,
+        so a priority-demoted rule is still "selected"), and the matches
+        ruled out by dependencies or exclusion."""
+        staged: set[RuleId] = set()
+
+        for evaluation in resolution.unmet_dependency_matches:
+            if evaluation.metadata.get("transient") or evaluation.rule.id in staged:
+                continue
+            staged.add(evaluation.rule.id)
+            context.state.matcher.pending_rule_decisions.append(
+                RuleDecision(
+                    rule=evaluation.rule,
+                    selected=False,
+                    rationale=(
+                        "Ruled out: the rule's dependencies have not matched in this session, "
+                        "or are excluded this turn."
+                    ),
+                )
+            )
+
+        for evaluation in resolution.excluded_evaluations:
+            if (
+                evaluation.metadata.get("transient")
+                or evaluation.rule.id in staged
+                or evaluation.rule.id in previously_excluded_ids
+            ):
+                continue
+            staged.add(evaluation.rule.id)
+            excluders = [
+                counterpart.entity
+                for resolved in resolution.resolutions.get(ResolvedEntity.rule(evaluation.rule), [])
+                if resolved.kind == ResolutionKind.EXCLUDED
+                for counterpart in resolved.details.counterparts
+            ]
+            names = ", ".join(f'"{_describe_rule(cast(Rule, excluder))}"' for excluder in excluders)
+            context.state.matcher.pending_rule_decisions.append(
+                RuleDecision(
+                    rule=evaluation.rule,
+                    selected=False,
+                    rationale=f"Ruled out: excluded this turn by {names or 'an active rule'}.",
+                )
+            )
+
+        for evaluation in chain(resolution.turn_matches, resolution.deprioritized):
+            if (
+                evaluation.metadata.get("transient")
+                or evaluation.rule.id in staged
+                or evaluation.rule.id in previously_recorded_ids
+            ):
+                continue
+            staged.add(evaluation.rule.id)
+            context.state.matcher.pending_rule_decisions.append(
+                RuleDecision(
+                    rule=evaluation.rule,
+                    selected=True,
+                    rationale=evaluation.reasoning,
+                )
+            )
 
     def _log_evaluations(self, evaluator_name: str, evaluated: RuleEvaluationResult) -> None:
         results = StringIO()
@@ -1746,41 +1751,36 @@ class Matcher:
         evaluations: Sequence[tuple[RuleEvaluation, _ContextUsage]],
         *,
         append: bool,
-    ) -> None:
-        # The matched-rule ledger records verdict-level matches — captured
+    ) -> TurnResolution:
+        previously_recorded_ids = self._matched_rule_ids(context) if append else set()
+        previously_excluded_ids = set(context.state.turn_excluded_rule_ids) if append else set()
+
+        resolution = await self._resolve_turn_relationships(context, evaluations, append=append)
+
+        # The matched-rule ledger records verdict-level matches, captured
         # BEFORE priority resolution, so a match demoted by priority still
-        # counts as "has matched" and keeps satisfying its dependents.
-        # Transient (tool-returned) rules are per-turn and never ledgered.
+        # counts as "has matched" and keeps satisfying its dependents. An
+        # excluded rule was ignored, so it is not ledgered. Transient
+        # (tool-returned) rules are per-turn and never ledgered.
+        verdict_matches = [*resolution.turn_matches, *resolution.deprioritized]
         verdict_match_ids = {
             evaluation.rule.id
-            for evaluation, usage in evaluations
-            if usage == _ContextUsage.MATCH_CURRENT_TURN
-            and not evaluation.metadata.get("transient")
+            for evaluation in verdict_matches
+            if not evaluation.metadata.get("transient")
         }
 
-        # Decisions mirror exactly what persists: the verdict-level match set
-        # (pre-priority), so a priority-demoted rule is still "selected".
-        staged_decision_ids = set()
-        for evaluation, usage in evaluations:
-            if (
-                usage == _ContextUsage.MATCH_CURRENT_TURN
-                and not evaluation.metadata.get("transient")
-                and evaluation.rule.id not in staged_decision_ids
-            ):
-                staged_decision_ids.add(evaluation.rule.id)
-                context.state.matcher.pending_rule_decisions.append(
-                    RuleDecision(
-                        rule=evaluation.rule,
-                        selected=True,
-                        rationale=evaluation.reasoning,
-                    )
-                )
+        self._stage_relational_decisions(
+            context,
+            resolution,
+            previously_recorded_ids=previously_recorded_ids,
+            previously_excluded_ids=previously_excluded_ids,
+        )
 
         lifting_rules = sorted(
             {
                 evaluation.rule
-                for evaluation, usage in evaluations
-                if usage == _ContextUsage.MATCH_CURRENT_TURN
+                for evaluation in verdict_matches
+                if evaluation.rule.id not in previously_recorded_ids
                 and evaluation.rule.effort is not None
                 and evaluation.rule.effort > context.state.agent_effort
             },
@@ -1793,27 +1793,62 @@ class Matcher:
                 rule_ids=[str(rule.id) for rule in lifting_rules],
             )
 
-        evaluations = await self._resolve_turn_priority(context, evaluations, append=append)
+        winner_ids = {evaluation.rule.id for evaluation in resolution.turn_matches}
+        excluded_ids = set(resolution.excluded_rule_ids)
 
-        turn_matches = [
-            evaluation
-            for evaluation in evaluations
-            if evaluation[1] == _ContextUsage.MATCH_CURRENT_TURN
-        ]
+        # Track this turn's priority losers so the responder can render an
+        # explicit "do not apply this turn" note: they remain visible in its
+        # full instruction set through the discovered working set.
+        losers = {evaluation.rule.id: evaluation.rule for evaluation in resolution.deprioritized}
+        if append:
+            retained = {
+                rule.id: rule
+                for rule in context.state.turn_deprioritized_rules
+                if rule.id not in winner_ids
+                and rule.id not in losers
+                and rule.id not in excluded_ids
+            }
+            context.state.turn_deprioritized_rules = [*retained.values(), *losers.values()]
+        else:
+            context.state.turn_deprioritized_rules = list(losers.values())
 
-        # Classify into ordinary vs tool-enabled (the latter carries the tool ids
-        # the matched rules enable).
-        tool_enabled = await self._find_tool_enabled_rule_matches(turn_matches)
-        ordinary = [m for m in turn_matches if m not in tool_enabled]
+        context.state.turn_excluded_rule_ids = excluded_ids
+        context.state.turn_excluded_evaluations = list(resolution.excluded_evaluations)
 
         if append:
             # Never reorder, so the already-rendered rules stay a
-            # byte-identical prefix.
-            context.state.ordinary_rule_matches.extend([key[0] for key in ordinary])
+            # byte-identical prefix: survivors keep their place, and new (or
+            # reinstated) winners are appended.
+            context.state.ordinary_rule_matches = [
+                match
+                for match in context.state.ordinary_rule_matches
+                if match.rule.id in winner_ids
+            ]
+            context.state.tool_enabled_rule_matches = {
+                match: tools
+                for match, tools in context.state.tool_enabled_rule_matches.items()
+                if match.rule.id in winner_ids
+            }
+            new_winners = [
+                (evaluation, _ContextUsage.MATCH_CURRENT_TURN)
+                for evaluation in resolution.turn_matches
+                if evaluation.rule.id not in previously_recorded_ids
+            ]
+            tool_enabled = await self._find_tool_enabled_rule_matches(new_winners)
+            context.state.ordinary_rule_matches.extend(
+                [key[0] for key in new_winners if key not in tool_enabled]
+            )
             context.state.tool_enabled_rule_matches.update(
                 {key[0]: tool_enabled[key] for key in tool_enabled}
             )
         else:
+            # Classify into ordinary vs tool-enabled (the latter carries the
+            # tool ids the matched rules enable).
+            turn_matches = [
+                (evaluation, _ContextUsage.MATCH_CURRENT_TURN)
+                for evaluation in resolution.turn_matches
+            ]
+            tool_enabled = await self._find_tool_enabled_rule_matches(turn_matches)
             context.state.tool_enabled_rule_matches = {
                 key[0]: tool_enabled[key] for key in tool_enabled
             }
@@ -1821,8 +1856,25 @@ class Matcher:
                 m[0] for m in set(turn_matches).difference(set(tool_enabled.keys()))
             ]
 
+        # Admit in the order the evidence arrived (entailed and demoted
+        # evaluations follow), so newly discovered rules queue predictably.
+        arrival = {evaluation.rule.id: index for index, (evaluation, _) in enumerate(evaluations)}
+        admitted = sorted(
+            [
+                *(
+                    (evaluation, _ContextUsage.MATCH_CURRENT_TURN)
+                    for evaluation in resolution.turn_matches
+                ),
+                *(
+                    (evaluation, _ContextUsage.ADMIT_TO_DISCOVERED)
+                    for evaluation in resolution.admissions
+                ),
+            ],
+            key=lambda pair: arrival.get(pair[0].rule.id, len(arrival)),
+        )
+
         try:
-            await self._store_discovered_rules(context, evaluations)
+            await self._store_discovered_rules(context, admitted)
             self._store_rules_ever_matched(context, verdict_match_ids)
         finally:
             # Pending admission is only useful while evaluation phases are in
@@ -1833,6 +1885,8 @@ class Matcher:
             context.state.matcher.pending_matched_rules.clear()
 
         context.state.invalidate_cached_properties()
+
+        return resolution
 
     async def _find_tool_enabled_rule_matches(
         self,

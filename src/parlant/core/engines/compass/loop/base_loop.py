@@ -1693,8 +1693,11 @@ class BaseLoop(Loop):
         re-run side effects), so the error propagates. The transient errors we
         retry are raised when the stream is opened, before any event."""
 
-        self._update_system_instructions(job, state)
+        # Step instructions first: building them refreshes the turn state
+        # (rematching), which can change what the system instructions render
+        # (exclusion), and this step must send the result.
         await self._update_step_instructions(job, state)
+        self._update_system_instructions(job, state)
 
         tokenizer = await self._resolve_tokenizer(job.context, step=len(state.steps))
         react = await self._resolve_react(job.context, step=len(state.steps))
@@ -2302,7 +2305,9 @@ class BaseLoop(Loop):
         state: _LoopState,
     ) -> None:
         refreshed_instructions = _system_instructions_message(
-            job.system_instructions,
+            job.system_instructions_provider(job.context)
+            if job.system_instructions_provider is not None
+            else job.system_instructions,
             job.context.session.id,
         )
 

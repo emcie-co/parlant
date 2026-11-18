@@ -285,6 +285,33 @@ saying it is revoked for this response, even when the policy is worded
 absolutely ("always", "in all circumstances"). The losing policy also still
 counts as having applied, so anything that depends on it is unblocked.
 
+**If one policy makes the other irrelevant.** Exclude it. While the
+excluding policy applies, the excluded one is ignored completely: it is
+not shown anywhere in the agent's instructions, its tools are not offered
+(unless another policy also grants them), and it entails, satisfies and
+outranks nothing. A policy that depends on it loses too. The moment the
+excluding policy stops applying, the excluded one is back:
+
+```python
+store_closed = await agent.create_observation(
+    condition="The store is closed today",
+)
+pickup = await agent.create_policy(
+    title="In-store pickup",
+    content="When the customer is ready to order, offer in-store pickup",
+    except_when=[store_closed],  # the same as: await store_closed.exclude(pickup)
+)
+```
+
+Reach for this rather than `prioritize_over` when there is nothing left for
+the agent to weigh: prioritizing still shows the losing policy to the
+agent, with a note to set it aside, while excluding takes it out of the
+prompt altogether. An excluded policy excludes nothing in turn (with A
+excluding B and B excluding C, C still applies when A does), and Parlant
+refuses a policy that excludes itself, excludes something it depends on,
+or closes a loop of exclusions. Exclusion is resolved before priority, so a
+policy that loses on priority still excludes its targets.
+
 **If one policy must win over everything.** `prioritize_over` names its
 targets one at a time. A numeric priority applies across the whole turn
 instead:

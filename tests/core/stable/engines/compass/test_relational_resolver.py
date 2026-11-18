@@ -12,18 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import replace
 from datetime import datetime, timezone
+from itertools import permutations
+from typing import Iterable, Sequence
 
 from parlant.core.container import Container
 
 from parlant.core.common import Weight
 from parlant.core.engines.rule_evaluation import RuleEvaluation
 from parlant.core.engines.compass.relational_resolver import (
+    ExclusionResult,
     RelationalResolver,
     RelationalResolverResult,
     Resolution,
     ResolutionKind,
     ResolvedEntity,
+    TurnResolution,
 )
 from parlant.core.rules import Rule, RuleId, RuleStore
 from parlant.core.loggers import Logger
@@ -3650,3 +3655,1282 @@ async def test_that_a_dropped_same_turn_satisfier_stops_satisfying(
     assert [m.rule.id for m in result.evaluations] == []
     assert_resolutions(result, g1, [ResolutionKind.UNMET_DEPENDENCY_ALL])
     assert_resolutions(result, g2, [ResolutionKind.UNMET_DEPENDENCY_ALL])
+
+
+# --- Exclusion ----------------------------------------------------------------
+#
+# A rule EXCLUDES another while, and only while, it is active this turn: the
+# target leaves the turn entirely (turn matches, working-set admission,
+# entailment, dependency satisfaction and priority), whether or not it matched.
+#
+# Exclusion is grounded: an excluded rule excludes nothing, so chains alternate
+# and a diamond reinstates its shared target. Where no consistent answer exists
+# (a cycle closed through a group, an excluder that depends on its own target),
+# every rule involved is kept and reported as unresolved: the engine never
+# quietly drops a rule it cannot justify dropping.
+#
+# Exclusion resolves before priority, so priority arbitrates among survivors
+# only, and it iterates with entailment and dependency gating until the
+# excluded set settles.
+
+
+def _ev(rule: Rule, reasoning: str = "") -> RuleEvaluation:
+    return RuleEvaluation(rule=rule, reasoning=reasoning)
+
+
+def _ids(evaluations: Iterable[RuleEvaluation]) -> set[RuleId]:
+    return {evaluation.rule.id for evaluation in evaluations}
+
+
+def _entity(endpoint: Rule | Group, *, any_of: bool = False) -> RelationshipEntity:
+    if isinstance(endpoint, Group):
+        return RelationshipEntity(
+            id=endpoint.id,
+            kind=RelationshipEntityKind.GROUP_ANY if any_of else RelationshipEntityKind.GROUP_ALL,
+        )
+    return RelationshipEntity(id=endpoint.id, kind=RelationshipEntityKind.RULE)
+
+
+async def _relate(
+    container: Container,
+    source: Rule | Group,
+    target: Rule | Group,
+    kind: RelationshipKind,
+    *,
+    any_of: bool = False,
+    group_id: str | None = None,
+) -> None:
+    await container[RelationshipStore].create_relationship(
+        source=_entity(source),
+        target=_entity(target, any_of=any_of),
+        kind=kind,
+        group_id=group_id,
+    )
+
+
+async def _exclude(container: Container, source: Rule | Group, target: Rule | Group) -> None:
+    await _relate(container, source, target, RelationshipKind.EXCLUSION)
+
+
+async def _rule(container: Container, name: str, *groups: Group, priority: int = 0) -> Rule:
+    return await container[RuleStore].create_rule(
+        condition=f"the customer mentions {name}",
+        content=f"handle {name}",
+        groups=[group.id for group in groups],
+        priority=priority,
+    )
+
+
+async def _rules(container: Container, *names: str) -> list[Rule]:
+    return [await _rule(container, name) for name in names]
+
+
+async def _group(container: Container, name: str) -> Group:
+    return await container[GroupStore].create_group(name=name)
+
+
+async def _exclusions(
+    container: Container,
+    usable: Sequence[Rule],
+    active: Sequence[Rule],
+) -> ExclusionResult:
+    return await make_resolver(container).resolve_exclusions(
+        usable_rules=usable,
+        active_evaluations=[_ev(rule) for rule in active],
+    )
+
+
+async def _turn(
+    container: Container,
+    usable: Sequence[Rule],
+    turn: Sequence[Rule | RuleEvaluation],
+    *,
+    admissions: Sequence[Rule] = (),
+    satisfied: Iterable[Rule] = (),
+) -> TurnResolution:
+    return await make_resolver(container).resolve_turn_relationships(
+        usable_rules=usable,
+        turn_matches=[item if isinstance(item, RuleEvaluation) else _ev(item) for item in turn],
+        admissions=[_ev(rule) for rule in admissions],
+        satisfied_rule_ids={rule.id for rule in satisfied},
+    )
+
+
+def _excluders(result: RelationalResolverResult, rule: Rule) -> set[str]:
+    return {
+        counterpart.entity.id
+        for resolution in get_resolutions_by_kind(result, rule, ResolutionKind.EXCLUDED)
+        for counterpart in resolution.details.counterparts
+    }
+
+
+# --- Exclusion: a single pass over the active set ------------------------------
+
+
+async def test_that_an_active_rule_excludes_its_target(container: Container) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _exclusions(container, [a, b], [a, b])
+
+    assert _ids(result.evaluations) == {a.id}
+    assert result.excluded_rule_ids == {b.id}
+    assert result.unresolved_rule_ids == set()
+    assert_resolutions(result, a, [ResolutionKind.NONE])
+    assert_resolutions(result, b, [ResolutionKind.EXCLUDED])
+
+
+async def test_that_an_inactive_rule_excludes_nothing(container: Container) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _exclusions(container, [a, b], [b])
+
+    assert _ids(result.evaluations) == {b.id}
+    assert result.excluded_rule_ids == set()
+    assert_resolutions(result, b, [ResolutionKind.NONE])
+
+
+async def test_that_a_target_is_excluded_even_when_it_did_not_match(
+    container: Container,
+) -> None:
+    # The target may sit in the working set or the static instructions without
+    # a verdict this turn; it must leave the prompt all the same.
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _exclusions(container, [a, b], [a])
+
+    assert _ids(result.evaluations) == {a.id}
+    assert result.excluded_rule_ids == {b.id}
+    assert _excluders(result, b) == {a.id}
+
+
+async def test_that_an_excluded_resolution_names_every_active_excluder(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _exclude(container, c, b)
+
+    result = await _exclusions(container, [a, b, c], [a, b, c])
+
+    assert result.excluded_rule_ids == {b.id}
+    assert len(get_resolutions_by_kind(result, b, ResolutionKind.EXCLUDED)) == 2
+    assert _excluders(result, b) == {a.id, c.id}
+    assert all(
+        resolution.details.relationship is not None
+        and resolution.details.relationship.kind == RelationshipKind.EXCLUSION
+        for resolution in get_resolutions_by_kind(result, b, ResolutionKind.EXCLUDED)
+    )
+
+
+async def test_that_an_inactive_excluder_is_not_named_alongside_an_active_one(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _exclude(container, c, b)
+
+    result = await _exclusions(container, [a, b, c], [a, b])
+
+    assert _excluders(result, b) == {a.id}
+
+
+async def test_that_exclusion_leaves_unrelated_rules_untouched(container: Container) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+
+    result = await _exclusions(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.evaluations) == {a.id, c.id}
+    assert_resolutions(result, c, [ResolutionKind.NONE])
+
+
+async def test_that_other_relationship_kinds_do_not_exclude(container: Container) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _relate(container, a, b, RelationshipKind.PRIORITY)
+    await _relate(container, a, b, RelationshipKind.ENTAILMENT)
+
+    result = await _exclusions(container, [a, b], [a, b])
+
+    assert _ids(result.evaluations) == {a.id, b.id}
+    assert result.excluded_rule_ids == set()
+
+
+async def test_that_a_self_exclusion_in_the_store_is_ignored(container: Container) -> None:
+    # The SDK refuses self-exclusion, but the store accepts the edge; a rule
+    # must never remove itself from its own turn.
+    (a,) = await _rules(container, "a")
+    await _exclude(container, a, a)
+
+    result = await _exclusions(container, [a], [a])
+
+    assert _ids(result.evaluations) == {a.id}
+    assert result.excluded_rule_ids == set()
+
+
+async def test_that_exclusion_on_an_empty_turn_excludes_nothing(container: Container) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _exclusions(container, [a, b], [])
+
+    assert list(result.evaluations) == []
+    assert result.excluded_rule_ids == set()
+
+
+# --- Exclusion: chains and ordering ---------------------------------------------
+
+
+async def test_that_an_excluded_rule_excludes_nothing(container: Container) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+
+    result = await _exclusions(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.evaluations) == {a.id, c.id}
+    assert result.excluded_rule_ids == {b.id}
+    assert_resolutions(result, c, [ResolutionKind.NONE])
+
+
+async def test_that_a_four_rule_exclusion_chain_alternates(container: Container) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+    await _exclude(container, c, d)
+
+    result = await _exclusions(container, [a, b, c, d], [a, b, c, d])
+
+    assert _ids(result.evaluations) == {a.id, c.id}
+    assert result.excluded_rule_ids == {b.id, d.id}
+    assert _excluders(result, d) == {c.id}
+
+
+async def test_that_a_chain_with_an_inactive_head_starts_from_the_first_active_rule(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+    await _exclude(container, c, d)
+
+    result = await _exclusions(container, [a, b, c, d], [b, c, d])
+
+    assert _ids(result.evaluations) == {b.id, d.id}
+    assert result.excluded_rule_ids == {c.id}
+
+
+async def test_that_exclusion_applies_only_through_direct_relationships(
+    container: Container,
+) -> None:
+    # A excludes B and B excludes C, but B never matched: A says nothing about C.
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+
+    result = await _exclusions(container, [a, b, c], [a, c])
+
+    assert _ids(result.evaluations) == {a.id, c.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_an_exclusion_diamond_reinstates_the_shared_target(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _exclude(container, a, c)
+    await _exclude(container, b, d)
+    await _exclude(container, c, d)
+
+    result = await _exclusions(container, [a, b, c, d], [a, b, c, d])
+
+    assert _ids(result.evaluations) == {a.id, d.id}
+    assert result.excluded_rule_ids == {b.id, c.id}
+
+
+async def test_that_one_active_excluder_is_enough_when_another_excluder_is_excluded(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, c)
+    await _exclude(container, b, c)
+    await _exclude(container, d, b)
+
+    result = await _exclusions(container, [a, b, c, d], [a, b, c, d])
+
+    assert _ids(result.evaluations) == {a.id, d.id}
+    assert result.excluded_rule_ids == {b.id, c.id}
+    assert _excluders(result, c) == {a.id}
+
+
+async def test_that_a_target_kept_by_its_excluders_exclusion_is_not_named_by_it(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+
+    result = await _exclusions(container, [a, b, c], [a, b, c])
+
+    assert get_resolutions_by_kind(result, c, ResolutionKind.EXCLUDED) == []
+
+
+async def test_that_the_exclusion_result_is_the_same_for_every_evaluation_order(
+    container: Container,
+) -> None:
+    a, b, c, d, e = await _rules(container, "a", "b", "c", "d", "e")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+    await _exclude(container, c, d)
+    await _exclude(container, e, c)
+
+    resolver = make_resolver(container)
+    usable = [a, b, c, d, e]
+    outcomes = set()
+
+    for order in permutations(usable):
+        result = await resolver.resolve_exclusions(
+            usable_rules=usable,
+            active_evaluations=[_ev(rule) for rule in order],
+        )
+        outcomes.add((frozenset(_ids(result.evaluations)), frozenset(result.excluded_rule_ids)))
+
+    assert outcomes == {(frozenset({a.id, d.id, e.id}), frozenset({b.id, c.id}))}
+
+
+async def test_that_the_exclusion_result_is_the_same_for_every_usable_rule_order(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _exclude(container, b, c)
+    await _exclude(container, c, d)
+
+    resolver = make_resolver(container)
+    outcomes = set()
+
+    for order in permutations([a, b, c, d]):
+        result = await resolver.resolve_exclusions(
+            usable_rules=list(order),
+            active_evaluations=[_ev(a), _ev(b), _ev(c), _ev(d)],
+        )
+        outcomes.add(frozenset(result.excluded_rule_ids))
+
+    assert outcomes == {frozenset({b.id, d.id})}
+
+
+async def test_that_the_exclusion_result_does_not_depend_on_relationship_creation_order(
+    container: Container,
+) -> None:
+    forward = await _rules(container, "f1", "f2", "f3", "f4")
+    backward = await _rules(container, "b1", "b2", "b3", "b4")
+
+    for source, target in zip(forward, forward[1:]):
+        await _exclude(container, source, target)
+    for source, target in reversed(list(zip(backward, backward[1:]))):
+        await _exclude(container, source, target)
+
+    result = await _exclusions(container, [*forward, *backward], [*forward, *backward])
+
+    assert result.excluded_rule_ids == {
+        forward[1].id,
+        forward[3].id,
+        backward[1].id,
+        backward[3].id,
+    }
+
+
+# --- Exclusion: groups -----------------------------------------------------------
+
+
+async def test_that_excluding_a_group_excludes_every_member(container: Container) -> None:
+    group = await _group(container, "returns")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    c = await _rule(container, "c", group)
+    await _exclude(container, a, group)
+
+    result = await _exclusions(container, [a, b, c], [a, b])
+
+    assert _ids(result.evaluations) == {a.id}
+    assert result.excluded_rule_ids == {b.id, c.id}
+
+
+async def test_that_a_group_target_reads_its_members_at_resolution_time(
+    container: Container,
+) -> None:
+    group = await _group(container, "returns")
+    a, late = await _rules(container, "a", "late")
+    await _exclude(container, a, group)
+
+    await container[RuleStore].upsert_group(late.id, group.id)
+    late = await container[RuleStore].read_rule(late.id)
+
+    result = await _exclusions(container, [a, late], [a, late])
+
+    assert result.excluded_rule_ids == {late.id}
+
+
+async def test_that_any_active_member_of_a_source_group_excludes_the_target(
+    container: Container,
+) -> None:
+    group = await _group(container, "vip")
+    a1 = await _rule(container, "a1", group)
+    a2 = await _rule(container, "a2", group)
+    b = await _rule(container, "b")
+    await _exclude(container, group, b)
+
+    result = await _exclusions(container, [a1, a2, b], [a2, b])
+
+    assert result.excluded_rule_ids == {b.id}
+    assert _excluders(result, b) == {a2.id}
+
+
+async def test_that_every_active_member_of_a_source_group_is_named(
+    container: Container,
+) -> None:
+    group = await _group(container, "vip")
+    a1 = await _rule(container, "a1", group)
+    a2 = await _rule(container, "a2", group)
+    b = await _rule(container, "b")
+    await _exclude(container, group, b)
+
+    result = await _exclusions(container, [a1, a2, b], [a1, a2, b])
+
+    assert _excluders(result, b) == {a1.id, a2.id}
+
+
+async def test_that_a_source_group_without_an_active_member_excludes_nothing(
+    container: Container,
+) -> None:
+    group = await _group(container, "vip")
+    a = await _rule(container, "a", group)
+    b = await _rule(container, "b")
+    await _exclude(container, group, b)
+
+    result = await _exclusions(container, [a, b], [b])
+
+    assert result.excluded_rule_ids == set()
+
+
+async def test_that_a_group_can_exclude_another_group(container: Container) -> None:
+    vip = await _group(container, "vip")
+    standard = await _group(container, "standard")
+    a = await _rule(container, "a", vip)
+    b = await _rule(container, "b", standard)
+    c = await _rule(container, "c", standard)
+    await _exclude(container, vip, standard)
+
+    result = await _exclusions(container, [a, b, c], [a, b])
+
+    assert _ids(result.evaluations) == {a.id}
+    assert result.excluded_rule_ids == {b.id, c.id}
+
+
+async def test_that_a_rule_in_both_the_source_and_target_groups_does_not_exclude_itself(
+    container: Container,
+) -> None:
+    source_group = await _group(container, "source")
+    target_group = await _group(container, "target")
+    both = await _rule(container, "both", source_group, target_group)
+    other = await _rule(container, "other", target_group)
+    await _exclude(container, source_group, target_group)
+
+    result = await _exclusions(container, [both, other], [both, other])
+
+    assert _ids(result.evaluations) == {both.id}
+    assert result.excluded_rule_ids == {other.id}
+
+
+async def test_that_members_of_both_source_and_target_groups_keep_each_other(
+    container: Container,
+) -> None:
+    source_group = await _group(container, "source")
+    target_group = await _group(container, "target")
+    first = await _rule(container, "first", source_group, target_group)
+    second = await _rule(container, "second", source_group, target_group)
+    await _exclude(container, source_group, target_group)
+
+    result = await _exclusions(container, [first, second], [first, second])
+
+    # Each attacks the other through the groups and neither is attacked from
+    # outside: no consistent answer, so both stay.
+    assert _ids(result.evaluations) == {first.id, second.id}
+    assert result.excluded_rule_ids == set()
+    assert result.unresolved_rule_ids == {first.id, second.id}
+
+
+async def test_that_an_excluded_group_member_does_not_exclude_through_its_group(
+    container: Container,
+) -> None:
+    group = await _group(container, "vip")
+    x = await _rule(container, "x")
+    a = await _rule(container, "a", group)
+    b = await _rule(container, "b")
+    await _exclude(container, x, a)
+    await _exclude(container, group, b)
+
+    result = await _exclusions(container, [x, a, b], [x, a, b])
+
+    assert _ids(result.evaluations) == {x.id, b.id}
+    assert result.excluded_rule_ids == {a.id}
+
+
+async def test_that_a_source_group_still_excludes_through_its_surviving_member(
+    container: Container,
+) -> None:
+    group = await _group(container, "vip")
+    x = await _rule(container, "x")
+    a1 = await _rule(container, "a1", group)
+    a2 = await _rule(container, "a2", group)
+    b = await _rule(container, "b")
+    await _exclude(container, x, a1)
+    await _exclude(container, group, b)
+
+    result = await _exclusions(container, [x, a1, a2, b], [x, a1, a2, b])
+
+    assert result.excluded_rule_ids == {a1.id, b.id}
+    assert _excluders(result, b) == {a2.id}
+
+
+async def test_that_a_group_exclusion_chain_alternates(container: Container) -> None:
+    g1 = await _group(container, "g1")
+    g2 = await _group(container, "g2")
+    a = await _rule(container, "a", g1)
+    b = await _rule(container, "b", g2)
+    c = await _rule(container, "c")
+    await _exclude(container, g1, g2)
+    await _exclude(container, g2, c)
+
+    result = await _exclusions(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.evaluations) == {a.id, c.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+# --- Exclusion: cycles the store cannot see ------------------------------------
+#
+# The store refuses a cycle among relationship endpoints, but a group closes a
+# cycle through membership, which it cannot see.
+
+
+async def test_that_a_group_mediated_two_cycle_excludes_neither(container: Container) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    await _exclude(container, a, group)
+    await _exclude(container, b, a)
+
+    result = await _exclusions(container, [a, b], [a, b])
+
+    assert _ids(result.evaluations) == {a.id, b.id}
+    assert result.excluded_rule_ids == set()
+    assert result.unresolved_rule_ids == {a.id, b.id}
+
+
+async def test_that_a_group_mediated_three_cycle_excludes_none_of_its_members(
+    container: Container,
+) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b")
+    c = await _rule(container, "c", group)
+    await _exclude(container, a, b)
+    await _exclude(container, b, group)
+    await _exclude(container, c, a)
+
+    result = await _exclusions(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.evaluations) == {a.id, b.id, c.id}
+    assert result.excluded_rule_ids == set()
+    assert result.unresolved_rule_ids == {a.id, b.id, c.id}
+
+
+async def test_that_a_cycle_is_resolved_when_only_one_side_is_active(
+    container: Container,
+) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    await _exclude(container, a, group)
+    await _exclude(container, b, a)
+
+    result = await _exclusions(container, [a, b], [a])
+
+    assert result.excluded_rule_ids == {b.id}
+    assert result.unresolved_rule_ids == set()
+
+
+async def test_that_a_rule_outside_a_cycle_still_excludes_its_target(
+    container: Container,
+) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    d, e = await _rules(container, "d", "e")
+    await _exclude(container, a, group)
+    await _exclude(container, b, a)
+    await _exclude(container, d, e)
+
+    result = await _exclusions(container, [a, b, d, e], [a, b, d, e])
+
+    assert result.excluded_rule_ids == {e.id}
+    assert result.unresolved_rule_ids == {a.id, b.id}
+
+
+async def test_that_a_target_of_an_unresolved_rule_is_kept(container: Container) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    t = await _rule(container, "t")
+    await _exclude(container, a, group)
+    await _exclude(container, b, a)
+    await _exclude(container, b, t)
+
+    result = await _exclusions(container, [a, b, t], [a, b, t])
+
+    assert _ids(result.evaluations) == {a.id, b.id, t.id}
+    assert result.excluded_rule_ids == set()
+    assert t.id in result.unresolved_rule_ids
+
+
+async def test_that_an_outside_excluder_breaks_a_cycle(container: Container) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    d = await _rule(container, "d")
+    await _exclude(container, a, group)
+    await _exclude(container, b, a)
+    await _exclude(container, d, a)
+
+    result = await _exclusions(container, [a, b, d], [a, b, d])
+
+    # D removes A, so B has no active excluder left and stays.
+    assert _ids(result.evaluations) == {b.id, d.id}
+    assert result.excluded_rule_ids == {a.id}
+    assert result.unresolved_rule_ids == set()
+
+
+async def test_that_exclusion_does_not_crash_on_a_transient_tool_returned_rule(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    transient = Rule(
+        id=RuleId("<tool-rule-1>"),
+        creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
+        condition="x",
+        content="y",
+        enabled=True,
+        groups=[],
+        metadata={},
+        weight=Weight.MEDIUM,
+    )
+
+    result = await make_resolver(container).resolve_exclusions(
+        usable_rules=[a, b],
+        active_evaluations=[_ev(a), _ev(b), _ev(transient)],
+    )
+
+    assert _ids(result.evaluations) == {a.id, transient.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+# --- Exclusion over a whole turn: the working set --------------------------------
+
+
+async def test_that_an_excluded_turn_match_is_neither_matched_nor_admitted(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b], [a, b])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert b.id not in _ids(result.admissions)
+    assert result.excluded_rule_ids == {b.id}
+    assert _ids(result.excluded_evaluations) == {b.id}
+
+
+async def test_that_an_excluded_discovery_admission_is_not_admitted(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b], [a], admissions=[b])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert _ids(result.admissions) == set()
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_a_discovery_admission_does_not_exclude(container: Container) -> None:
+    # Only a turn verdict makes a rule active; recall alone is too generous.
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b], [b], admissions=[a])
+
+    assert _ids(result.turn_matches) == {b.id}
+    assert _ids(result.admissions) == {a.id}
+    assert result.excluded_rule_ids == set()
+
+
+async def test_that_excluded_evaluations_keep_their_original_verdicts(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b], [_ev(a), _ev(b, reasoning="the customer asked")])
+
+    assert [evaluation.reasoning for evaluation in result.excluded_evaluations] == [
+        "the customer asked"
+    ]
+
+
+async def test_that_a_turn_without_exclusions_resolves_like_the_existing_pipeline(
+    container: Container,
+) -> None:
+    # Regression guard: entailment, dependencies and both priority filters
+    # behave exactly as before when no exclusion is configured.
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    high = await _rule(container, "high", priority=10)
+    await _relate(container, a, b, RelationshipKind.ENTAILMENT)
+    await _relate(container, c, d, RelationshipKind.DEPENDENCY)
+    await _relate(container, a, c, RelationshipKind.PRIORITY)
+
+    result = await _turn(container, [a, b, c, d, high], [a, c, high])
+
+    assert _ids(result.turn_matches) == {high.id, b.id}
+    assert _ids(result.deprioritized) == {a.id}
+    assert result.excluded_rule_ids == set()
+    assert_resolutions(result, c, [ResolutionKind.UNMET_DEPENDENCY_ALL])
+    assert_resolutions(result, b, [ResolutionKind.ENTAILED])
+
+
+async def test_that_an_entailed_rule_inherits_its_entailers_usage(container: Container) -> None:
+    a, b, d, e = await _rules(container, "a", "b", "d", "e")
+    await _relate(container, a, b, RelationshipKind.ENTAILMENT)
+    await _relate(container, d, e, RelationshipKind.ENTAILMENT)
+
+    result = await _turn(container, [a, b, d, e], [a], admissions=[d])
+
+    assert _ids(result.turn_matches) == {a.id, b.id}
+    assert _ids(result.admissions) == {d.id, e.id}
+
+
+# --- Exclusion over a whole turn: entailment ------------------------------------
+
+
+async def test_that_an_excluded_rule_does_not_entail(container: Container) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _relate(container, b, c, RelationshipKind.ENTAILMENT)
+
+    result = await _turn(container, [a, b, c], [a, b])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert c.id not in _ids(result.admissions)
+
+
+async def test_that_entailment_does_not_pass_through_an_excluded_rule(
+    container: Container,
+) -> None:
+    a, x, b, c = await _rules(container, "a", "x", "b", "c")
+    await _relate(container, x, b, RelationshipKind.ENTAILMENT)
+    await _relate(container, b, c, RelationshipKind.ENTAILMENT)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, x, b, c], [a, x])
+
+    assert _ids(result.turn_matches) == {a.id, x.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_entailment_continues_past_a_rule_that_is_not_excluded(
+    container: Container,
+) -> None:
+    a, x, b, c = await _rules(container, "a", "x", "b", "c")
+    await _relate(container, x, b, RelationshipKind.ENTAILMENT)
+    await _relate(container, b, c, RelationshipKind.ENTAILMENT)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, x, b, c], [x])
+
+    assert _ids(result.turn_matches) == {x.id, b.id, c.id}
+
+
+async def test_that_a_rule_entailed_by_an_excluded_and_an_active_rule_is_activated(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _relate(container, b, c, RelationshipKind.ENTAILMENT)
+    await _relate(container, d, c, RelationshipKind.ENTAILMENT)
+
+    result = await _turn(container, [a, b, c, d], [a, b, d])
+
+    assert _ids(result.turn_matches) == {a.id, c.id, d.id}
+    entailers = {
+        counterpart.entity.id
+        for resolution in get_resolutions_by_kind(result, c, ResolutionKind.ENTAILED)
+        for counterpart in resolution.details.counterparts
+    }
+    assert entailers == {d.id}
+
+
+async def test_that_an_entailed_rule_can_exclude(container: Container) -> None:
+    a, e, b = await _rules(container, "a", "e", "b")
+    await _relate(container, a, e, RelationshipKind.ENTAILMENT)
+    await _exclude(container, e, b)
+
+    result = await _turn(container, [a, e, b], [a, b])
+
+    assert _ids(result.turn_matches) == {a.id, e.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_an_entailed_rule_can_be_excluded(container: Container) -> None:
+    a, e, d = await _rules(container, "a", "e", "d")
+    await _relate(container, a, e, RelationshipKind.ENTAILMENT)
+    await _exclude(container, d, e)
+
+    result = await _turn(container, [a, e, d], [a, d])
+
+    assert _ids(result.turn_matches) == {a.id, d.id}
+    assert result.excluded_rule_ids == {e.id}
+
+
+async def test_that_an_entailed_excluder_that_is_itself_excluded_excludes_nothing(
+    container: Container,
+) -> None:
+    a, e, b, d = await _rules(container, "a", "e", "b", "d")
+    await _relate(container, a, e, RelationshipKind.ENTAILMENT)
+    await _exclude(container, e, b)
+    await _exclude(container, d, e)
+
+    result = await _turn(container, [a, e, b, d], [a, b, d])
+
+    assert _ids(result.turn_matches) == {a.id, b.id, d.id}
+    assert result.excluded_rule_ids == {e.id}
+
+
+async def test_that_a_group_entailed_through_an_excluded_member_skips_that_member(
+    container: Container,
+) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    m1 = await _rule(container, "m1", group)
+    m2 = await _rule(container, "m2", group)
+    d = await _rule(container, "d")
+    await _relate(container, a, group, RelationshipKind.ENTAILMENT)
+    await _exclude(container, d, m1)
+
+    result = await _turn(container, [a, m1, m2, d], [a, d])
+
+    assert _ids(result.turn_matches) == {a.id, m2.id, d.id}
+    assert result.excluded_rule_ids == {m1.id}
+
+
+# --- Exclusion over a whole turn: dependencies ----------------------------------
+
+
+async def test_that_a_dependent_of_an_excluded_rule_loses_the_turn(container: Container) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert c.id not in _ids(result.admissions)
+    assert_resolutions(result, c, [ResolutionKind.UNMET_DEPENDENCY_ALL])
+
+
+async def test_that_the_session_ledger_does_not_satisfy_a_dependency_on_an_excluded_rule(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b, c], [a, c], satisfied=[b])
+
+    assert _ids(result.turn_matches) == {a.id}
+
+
+async def test_that_the_session_ledger_satisfies_a_dependency_while_its_target_is_not_excluded(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b, c], [c], satisfied=[b])
+
+    assert _ids(result.turn_matches) == {c.id}
+
+
+async def test_that_depend_on_any_survives_when_another_target_is_active(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY_ANY, group_id="either")
+    await _relate(container, c, d, RelationshipKind.DEPENDENCY_ANY, group_id="either")
+
+    result = await _turn(container, [a, b, c, d], [a, b, c, d])
+
+    assert _ids(result.turn_matches) == {a.id, c.id, d.id}
+
+
+async def test_that_depend_on_any_fails_when_every_target_is_excluded(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _exclude(container, a, d)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY_ANY, group_id="either")
+    await _relate(container, c, d, RelationshipKind.DEPENDENCY_ANY, group_id="either")
+
+    result = await _turn(container, [a, b, c, d], [a, b, c, d])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert_resolutions(result, c, [ResolutionKind.UNMET_DEPENDENCY_ANY])
+
+
+async def test_that_an_all_of_group_dependency_fails_when_one_member_is_excluded(
+    container: Container,
+) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b1 = await _rule(container, "b1", group)
+    b2 = await _rule(container, "b2", group)
+    c = await _rule(container, "c")
+    await _exclude(container, a, b1)
+    await _relate(container, c, group, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b1, b2, c], [a, b1, b2, c])
+
+    assert _ids(result.turn_matches) == {a.id, b2.id}
+
+
+async def test_that_an_any_of_group_dependency_survives_on_another_member(
+    container: Container,
+) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b1 = await _rule(container, "b1", group)
+    b2 = await _rule(container, "b2", group)
+    c = await _rule(container, "c")
+    await _exclude(container, a, b1)
+    await _relate(container, c, group, RelationshipKind.DEPENDENCY, any_of=True)
+
+    result = await _turn(container, [a, b1, b2, c], [a, b1, b2, c])
+
+    assert _ids(result.turn_matches) == {a.id, b2.id, c.id}
+
+
+async def test_that_an_excluder_with_an_unmet_dependency_excludes_nothing(
+    container: Container,
+) -> None:
+    a, b, d = await _rules(container, "a", "b", "d")
+    await _exclude(container, a, b)
+    await _relate(container, a, d, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b, d], [a, b])
+
+    assert _ids(result.turn_matches) == {b.id}
+    assert result.excluded_rule_ids == set()
+    assert_resolutions(result, a, [ResolutionKind.UNMET_DEPENDENCY_ALL])
+
+
+async def test_that_an_excluder_whose_dependency_is_excluded_reinstates_its_target(
+    container: Container,
+) -> None:
+    a, b, c, d = await _rules(container, "a", "b", "c", "d")
+    await _exclude(container, a, b)
+    await _relate(container, a, c, RelationshipKind.DEPENDENCY)
+    await _exclude(container, d, c)
+
+    result = await _turn(container, [a, b, c, d], [a, b, c, d])
+
+    assert _ids(result.turn_matches) == {b.id, d.id}
+    assert result.excluded_rule_ids == {c.id}
+    assert result.unresolved_rule_ids == set()
+
+
+async def test_that_reinstatement_cascades_through_two_levels(container: Container) -> None:
+    # F removes E, which drops D (it depends on E), which reinstates C, which
+    # satisfies A, which then removes B.
+    a, b, c, d, e, f = await _rules(container, "a", "b", "c", "d", "e", "f")
+    await _exclude(container, a, b)
+    await _relate(container, a, c, RelationshipKind.DEPENDENCY)
+    await _exclude(container, d, c)
+    await _relate(container, d, e, RelationshipKind.DEPENDENCY)
+    await _exclude(container, f, e)
+
+    result = await _turn(container, [a, b, c, d, e, f], [a, b, c, d, e, f])
+
+    assert _ids(result.turn_matches) == {a.id, c.id, f.id}
+    assert result.excluded_rule_ids == {b.id, e.id}
+    assert result.unresolved_rule_ids == set()
+
+
+async def test_that_a_reinstated_rule_can_satisfy_a_dependent(container: Container) -> None:
+    a, b, c, d, x = await _rules(container, "a", "b", "c", "d", "x")
+    await _exclude(container, a, b)
+    await _relate(container, a, x, RelationshipKind.DEPENDENCY)
+    await _exclude(container, d, x)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b, c, d, x], [a, b, c, d, x])
+
+    # D removes X, so A loses and B comes back, which in turn satisfies C.
+    assert _ids(result.turn_matches) == {b.id, c.id, d.id}
+    assert result.excluded_rule_ids == {x.id}
+
+
+async def test_that_an_excluder_that_depends_on_its_own_target_keeps_both(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _relate(container, a, b, RelationshipKind.DEPENDENCY)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b], [a, b])
+
+    assert _ids(result.turn_matches) == {a.id, b.id}
+    assert result.excluded_rule_ids == set()
+    assert result.unresolved_rule_ids == {a.id, b.id}
+
+
+async def test_that_a_loop_through_a_dependency_chain_keeps_every_rule_it_touches(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _relate(container, a, c, RelationshipKind.DEPENDENCY)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+
+    result = await _turn(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.turn_matches) == {a.id, b.id, c.id}
+    assert result.excluded_rule_ids == set()
+    assert {a.id, b.id} <= result.unresolved_rule_ids
+
+
+async def test_that_a_settled_exclusion_still_applies_beside_an_unsettled_one(
+    container: Container,
+) -> None:
+    a, b, d, e = await _rules(container, "a", "b", "d", "e")
+    await _relate(container, a, b, RelationshipKind.DEPENDENCY)
+    await _exclude(container, a, b)
+    await _exclude(container, d, e)
+
+    result = await _turn(container, [a, b, d, e], [a, b, d, e])
+
+    assert _ids(result.turn_matches) == {a.id, b.id, d.id}
+    assert result.excluded_rule_ids == {e.id}
+    assert e.id not in result.unresolved_rule_ids
+
+
+# --- Exclusion over a whole turn: priority --------------------------------------
+
+
+async def test_that_a_deprioritized_excluder_still_excludes(container: Container) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _relate(container, c, a, RelationshipKind.PRIORITY)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.turn_matches) == {c.id}
+    assert _ids(result.deprioritized) == {a.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_a_numerically_outranked_excluder_still_excludes(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    high = await _rule(container, "high", priority=10)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b, high], [a, b, high])
+
+    assert _ids(result.turn_matches) == {high.id}
+    assert _ids(result.deprioritized) == {a.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_an_excluded_rule_does_not_deprioritize(container: Container) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _relate(container, b, c, RelationshipKind.PRIORITY)
+
+    result = await _turn(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.turn_matches) == {a.id, c.id}
+    assert _ids(result.deprioritized) == set()
+
+
+async def test_that_an_excluded_group_does_not_deprioritize(container: Container) -> None:
+    group = await _group(container, "g")
+    a = await _rule(container, "a")
+    b = await _rule(container, "b", group)
+    c = await _rule(container, "c")
+    await _exclude(container, a, b)
+    await _relate(container, group, c, RelationshipKind.PRIORITY)
+
+    result = await _turn(container, [a, b, c], [a, b, c])
+
+    assert _ids(result.turn_matches) == {a.id, c.id}
+
+
+async def test_that_an_excluded_rule_does_not_raise_the_numeric_priority_bar(
+    container: Container,
+) -> None:
+    a, c = await _rules(container, "a", "c")
+    urgent = await _rule(container, "urgent", priority=10)
+    await _exclude(container, a, urgent)
+
+    result = await _turn(container, [a, c, urgent], [a, c, urgent])
+
+    assert _ids(result.turn_matches) == {a.id, c.id}
+    assert _ids(result.deprioritized) == set()
+
+
+async def test_that_exclusion_wins_when_the_target_prioritizes_over_the_excluder(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+    await _relate(container, b, a, RelationshipKind.PRIORITY)
+
+    result = await _turn(container, [a, b], [a, b])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert _ids(result.deprioritized) == set()
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_an_excluded_rule_is_not_reported_as_deprioritized(
+    container: Container,
+) -> None:
+    b = await _rule(container, "b")
+    high = await _rule(container, "high", priority=10)
+    await _exclude(container, high, b)
+
+    result = await _turn(container, [b, high], [b, high])
+
+    assert _ids(result.turn_matches) == {high.id}
+    assert _ids(result.deprioritized) == set()
+    assert_resolutions(result, b, [ResolutionKind.EXCLUDED])
+
+
+async def test_that_priority_losers_are_admitted_but_excluded_rules_are_not(
+    container: Container,
+) -> None:
+    a, b, d = await _rules(container, "a", "b", "d")
+    high = await _rule(container, "high", priority=10)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b, d, high], [a, b, d, high])
+
+    assert _ids(result.turn_matches) == {high.id}
+    assert _ids(result.admissions) == {a.id, d.id}
+    assert result.excluded_rule_ids == {b.id}
+
+
+async def test_that_an_entailed_rule_excluded_this_turn_does_not_escape_the_priority_bar(
+    container: Container,
+) -> None:
+    # Entailed matches are exempt from the numeric bar; an excluded entailed
+    # rule must not slip back in through that exemption.
+    a, e, d = await _rules(container, "a", "e", "d")
+    high = await _rule(container, "high", priority=10)
+    await _relate(container, a, e, RelationshipKind.ENTAILMENT)
+    await _exclude(container, d, e)
+
+    result = await _turn(container, [a, e, d, high], [a, d, high])
+
+    assert e.id not in _ids(result.turn_matches)
+    assert result.excluded_rule_ids == {e.id}
+
+
+# --- Exclusion over a whole turn: mid-turn changes ------------------------------
+#
+# Mid-turn, the matcher passes the already-recorded matches (and the
+# evaluations it excluded earlier) back in alongside the new matches.
+
+
+async def test_that_a_recorded_match_is_excluded_when_its_excluder_arrives_mid_turn(
+    container: Container,
+) -> None:
+    a, b = await _rules(container, "a", "b")
+    await _exclude(container, a, b)
+
+    first = await _turn(container, [a, b], [b])
+    second = await _turn(container, [a, b], [*first.turn_matches, _ev(a)])
+
+    assert _ids(first.turn_matches) == {b.id}
+    assert _ids(second.turn_matches) == {a.id}
+    assert second.excluded_rule_ids == {b.id}
+
+
+async def test_that_an_excluded_match_is_reinstated_when_its_excluder_is_excluded_mid_turn(
+    container: Container,
+) -> None:
+    a, b, c = await _rules(container, "a", "b", "c")
+    await _exclude(container, a, b)
+    await _exclude(container, c, a)
+
+    first = await _turn(container, [a, b, c], [a, b])
+    second = await _turn(
+        container,
+        [a, b, c],
+        [*first.turn_matches, *first.excluded_evaluations, _ev(c)],
+    )
+
+    assert first.excluded_rule_ids == {b.id}
+    assert _ids(second.turn_matches) == {b.id, c.id}
+    assert second.excluded_rule_ids == {a.id}
+
+
+async def test_that_a_resolution_for_a_mixed_turn_reports_every_cause(
+    container: Container,
+) -> None:
+    a, b, c, d, e = await _rules(container, "a", "b", "c", "d", "e")
+    await _exclude(container, a, b)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+    await _relate(container, a, d, RelationshipKind.PRIORITY)
+    await _relate(container, a, e, RelationshipKind.ENTAILMENT)
+
+    result = await _turn(container, [a, b, c, d, e], [a, b, c, d])
+
+    assert _ids(result.turn_matches) == {a.id, e.id}
+    assert_resolutions(result, b, [ResolutionKind.EXCLUDED])
+    assert_resolutions(result, c, [ResolutionKind.UNMET_DEPENDENCY_ALL])
+    assert_resolutions(result, d, [ResolutionKind.DEPRIORITIZED])
+    assert_resolutions(result, e, [ResolutionKind.ENTAILED])
+    assert_resolutions(result, a, [ResolutionKind.NONE])
+
+
+async def test_that_a_rule_with_a_numeric_priority_can_be_excluded(container: Container) -> None:
+    a = await _rule(container, "a")
+    b = replace(await _rule(container, "b"), priority=5)
+    await _exclude(container, a, b)
+
+    result = await _turn(container, [a, b], [a, b])
+
+    assert _ids(result.turn_matches) == {a.id}
+    assert result.excluded_rule_ids == {b.id}

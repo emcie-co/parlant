@@ -30,7 +30,9 @@ export interface UseParlantSession {
   /** Start a brand-new conversation (forgets the stored session). */
   reset: () => void;
   /** Recover from a session or guest identity that can no longer be resumed. */
-  recover: (reason: "not-found" | "guest-expired") => void;
+  recover(reason: "guest-expired"): void;
+  recover(reason: "not-found", missingSessionId?: string): Promise<string>;
+  recover(reason: "not-found" | "guest-expired", missingSessionId?: string): void | Promise<string>;
 }
 
 export function useParlantSession(
@@ -219,8 +221,42 @@ export function useParlantSession(
   };
 
   const reset = () => startFresh(null);
-  const recover = (reason: "not-found" | "guest-expired") =>
-    startFresh(reason === "guest-expired" ? EXPIRED : NO_LONGER_AVAILABLE);
+  const missingRecovery = useRef<{
+    transport: ParlantTransport;
+    missingId: string;
+    promise: Promise<string>;
+  } | null>(null);
+  function recover(reason: "guest-expired"): void;
+  function recover(reason: "not-found", missingSessionId?: string): Promise<string>;
+  function recover(reason: "not-found" | "guest-expired", missingSessionId?: string): void | Promise<string>;
+  function recover(reason: "not-found" | "guest-expired", missingSessionId?: string): void | Promise<string> {
+    if (reason === "guest-expired") return startFresh(EXPIRED);
+    const missingId = missingSessionId ?? sessionIdRef.current;
+    if (!missingId) return start();
+    const previous = missingRecovery.current;
+    if (previous?.transport === transport && previous.missingId === missingId) return previous.promise;
+    const generation = ++bootstrapGeneration.current;
+    const promise = transport.replaceMissingSession(missingId, {
+      ...startAs.current, firstEvent: readFirstEvent,
+    }).then((id) => {
+      if (transportRef.current !== transport || bootstrapGeneration.current !== generation) {
+        throw new Error("Conversation changed during recovery");
+      }
+      identityRef.current = transport.identityId();
+      setNotice(NO_LONGER_AVAILABLE);
+      setError(null);
+      setSessionId(id);
+      return id;
+    }).catch((error: unknown) => {
+      if (transportRef.current === transport && bootstrapGeneration.current === generation) {
+        setError(error instanceof Error ? error : new Error("Failed to recover conversation"));
+      }
+      missingRecovery.current = null;
+      throw error;
+    });
+    missingRecovery.current = { transport, missingId, promise };
+    return promise;
+  }
 
   const clearNotice = useCallback(() => setNotice(null), []);
 

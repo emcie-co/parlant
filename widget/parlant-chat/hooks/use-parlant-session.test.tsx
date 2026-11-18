@@ -219,6 +219,76 @@ describe("useParlantSession", () => {
   });
 });
 
+describe("idle empty session recovery", () => {
+  function useWidget(storage: SharedStorage, locks: SharedLocks) {
+    const session = useParlantSession({ serverUrl: SERVER, agentId: "home", storage, locks });
+    const stream = useParlantStream(session.transport, session.sessionId, {
+      onSessionExpired: session.recover,
+    });
+    return { session, stream };
+  }
+
+  it("recovers the first draft after an idle empty session was removed", async () => {
+    const server = fakeParlantServer();
+    const storage = new SharedStorage();
+    const locks = new SharedLocks();
+    const { result } = renderHook(() => useWidget(storage, locks));
+    await waitFor(() => expect(result.current.stream.hydrated).toBe(true));
+    const old = result.current.session.sessionId!;
+    const identity = storedGuestToken(storage);
+    server.removeSession(old);
+
+    const attachments = [{ url: "https://files.example/room.jpg", media_type: "image/jpeg" }];
+    await act(() => result.current.stream.send("Please help me choose a plant", attachments, {
+      metadata: { source: "widget" },
+    }));
+
+    await waitFor(() => expect(server.sessionsCreated()).toBe(2));
+    const replacement = result.current.session.sessionId;
+    expect(replacement).toBeTruthy();
+    expect(replacement).not.toBe(old);
+    await waitFor(() => {
+      const sent = server.fetch.mock.calls.filter(([input, init]) =>
+        new URL(String(input)).pathname === `/sessions/${replacement}/events` && init?.method === "POST",
+      );
+      expect(sent).toHaveLength(1);
+      expect(JSON.parse(String(sent[0][1]?.body))).toMatchObject({
+        message: "Please help me choose a plant", attachments, metadata: { source: "widget" },
+      });
+    });
+    expect(storedGuestToken(storage)).toBe(identity);
+    expect(server.guestsMinted()).toBe(1);
+    expect(result.current.stream.error).toBeNull();
+  });
+
+  it("shares one recovered session across concurrent sends and preserves identity", async () => {
+    const server = fakeParlantServer();
+    const storage = new SharedStorage();
+    const locks = new SharedLocks();
+    const { result } = renderHook(() => useWidget(storage, locks));
+    await waitFor(() => expect(result.current.stream.hydrated).toBe(true));
+    const old = result.current.session.sessionId!;
+    const identity = storedGuestToken(storage);
+    server.removeSession(old);
+    await act(async () => {
+      await Promise.all([
+        result.current.stream.send("A plant for my living room"),
+        result.current.stream.send("It needs to be safe for my cat"),
+      ]);
+    });
+    await waitFor(() => expect(server.sessionsCreated()).toBe(2));
+    const replacement = result.current.session.sessionId;
+    await waitFor(() => {
+      const sent = server.fetch.mock.calls.filter(([input, init]) =>
+        new URL(String(input)).pathname === `/sessions/${replacement}/events` && init?.method === "POST",
+      ).map(([, init]) => JSON.parse(String(init?.body)).message);
+      expect(sent.sort()).toEqual(["A plant for my living room", "It needs to be safe for my cat"].sort());
+    });
+    expect(storedGuestToken(storage)).toBe(identity);
+    expect(server.guestsMinted()).toBe(1);
+  });
+});
+
 describe("guest identity across agents and tabs", () => {
   /** One widget's session and live feed, wired the way ChatWidget wires them. */
   function useWidget(

@@ -32,6 +32,7 @@ from parlant.core import metadata
 from parlant.core.persistence.common import SortDirection
 from parlant.core.session_clients import SESSION_CLIENT_METADATA_KEY, SessionClientRecorder
 from parlant.core.sessions import EventId, EventKind, EventSource, Session, SessionId
+from parlant.core.session_observability import SessionObservabilityPage, observability_limit
 from parlant.core.tunnel_handlers.common import TunnelHandlerSet
 
 
@@ -90,6 +91,8 @@ class SessionTunnelHandlers:
     def handler_set(self) -> TunnelHandlerSet:
         return TunnelHandlerSet(
             unary={
+                "observability.list": self.list_observability,
+                "observability.acknowledge": self.acknowledge_observability,
                 "sessions.create": self.create_session,
                 "sessions.read": self.read_session,
                 "sessions.list": self.list_sessions,
@@ -346,11 +349,80 @@ class SessionTunnelHandlers:
             labels=labels,
             min_modified_utc=min_modified_utc,
         )
-        return {
+        response = {
             "sessions": [self._serialize_session(s) for s in result.items],
             "total_count": result.total_count,
             "has_more": result.has_more,
             "next_cursor": encode_cursor(result.next_cursor) if result.next_cursor else None,
+        }
+        if params.get("include_observability") is True:
+            response["observability"] = await self.list_observability(
+                {
+                    "limit": params.get("observability_limit", 100),
+                }
+            )
+        return response
+
+    @staticmethod
+    def _observability_page(page: SessionObservabilityPage) -> dict[str, Any]:
+        return {
+            "records": [
+                {
+                    "id": record.id,
+                    "revision": record.revision,
+                    "kind": record.kind,
+                    "session_id": record.session_id,
+                    "agent_id": record.agent_id,
+                    "trace_id": record.trace_id,
+                    "occurred_at": record.occurred_at.isoformat(),
+                    "session_creation_utc": record.session_creation_utc.isoformat(),
+                    "is_simulation": record.is_simulation,
+                    "customer_represented_by_an_agent": record.customer_represented_by_an_agent,
+                    "payload": dict(record.payload),
+                }
+                for record in page.records
+            ],
+            "has_more": page.has_more,
+            "next_cursor": encode_cursor(page.next_cursor) if page.next_cursor else None,
+        }
+
+    async def list_observability(self, params: dict[str, Any]) -> dict[str, Any]:
+        limit = observability_limit(params.get("limit", 100))
+        cursor = None
+        if params.get("cursor") is not None:
+            try:
+                if not isinstance(params["cursor"], str):
+                    raise ValueError
+                cursor = decode_cursor(params["cursor"])
+                if cursor is None:
+                    raise ValueError
+            except Exception as error:
+                raise ValueError("cursor must be a valid observability cursor") from error
+        return self._observability_page(
+            await self._session_module.list_observability_records(
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+
+    async def acknowledge_observability(self, params: dict[str, Any]) -> dict[str, Any]:
+        records = params.get("records")
+        if not isinstance(records, list) or len(records) > 100:
+            raise ValueError("records must be a list of at most 100 acknowledgements")
+        acknowledgements = []
+        for record in records:
+            if not isinstance(record, dict):
+                raise ValueError("records must contain id/revision objects")
+            record_id, revision = record.get("id"), record.get("revision")
+            if not isinstance(record_id, str) or not record_id.strip() or len(record_id) > 256:
+                raise ValueError("id must be nonblank and at most 256 characters")
+            if type(revision) is not int or revision < 1:
+                raise ValueError("revision must be a positive integer")
+            acknowledgements.append((record_id, revision))
+        return {
+            "acknowledged": await self._session_module.acknowledge_observability_records(
+                acknowledgements,
+            )
         }
 
     async def update_session(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -470,6 +542,7 @@ class SessionTunnelHandlers:
 
     @staticmethod
     def _serialize_session(session: Any) -> dict[str, Any]:
+        lifecycle = getattr(session, "lifecycle", None)
         return {
             "session_id": session.id,
             "creation_utc": session.creation_utc.isoformat(),
@@ -481,6 +554,11 @@ class SessionTunnelHandlers:
             "metadata": _without_prepared_claim(session.metadata),
             "labels": list(session.labels),
             "customer_represented_by_an_agent": session.customer_represented_by_an_agent,
+            **(
+                {"lifecycle": {"version": 1, "state": lifecycle}}
+                if isinstance(lifecycle, str) and lifecycle in {"provisional", "established"}
+                else {}
+            ),
         }
 
     @staticmethod

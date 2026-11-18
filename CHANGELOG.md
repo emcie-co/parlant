@@ -15,6 +15,16 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Added
 
+- Unused runtime sessions are removed after thirty minutes. Set
+  `PARLANT_EMPTY_SESSION_CLEANUP_ENABLED=false` to disable automatic removal, or
+  `PARLANT_EMPTY_SESSION_CLEANUP_INCLUDE_GREETINGS=true` to include sessions
+  containing only an initial agent greeting. Customer participation, human
+  messages and work still running prevent automatic removal; greeting-only
+  sessions are preserved by default.
+  Settled model usage is kept independently of automatically removed sessions
+  for retryable dashboard ingestion; original timestamps and exact record
+  acknowledgements prevent delayed delivery from changing or duplicating costs.
+
 - `exclude()` on rules and groups, and `except_when=[...]` on
   `create_policy()` and `create_observation()`, add an exclusion: while the
   excluding rule applies, the excluded one is ignored completely. Unlike

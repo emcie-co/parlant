@@ -141,6 +141,11 @@ export function fakeParlantServer() {
     guestsMinted: () => guests,
     /** How many sessions the server has created. */
     sessionsCreated: () => sessions,
+    /** Remove an idle session without expiring the guest's identity. */
+    removeSession(sessionId: string): void {
+      sessionOwners.delete(sessionId);
+      sessionLabels.delete(sessionId);
+    },
     /** Expire a guest's token, as seven days of silence would. */
     expire(tokenToExpire: string): void {
       validTokens.delete(tokenToExpire);

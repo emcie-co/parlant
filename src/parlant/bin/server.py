@@ -66,6 +66,7 @@ from parlant.core.common import IdGenerator, generate_id
 from parlant.core.engines.compass.hooks import CompassHooks
 from parlant.core.engines.rule_evaluator_registry import RuleEvaluatorRegistry
 from parlant.core.event_loop_monitor import EventLoopMonitor
+from parlant.core.empty_session_cleanup import EmptySessionCleanup
 from parlant.core.health import HealthReporter
 from parlant.core.health.thresholds import HealthThresholds
 from parlant.core.meter import Meter, LocalMeter
@@ -861,6 +862,7 @@ async def setup_container() -> AsyncGenerator[Container, None]:
     _define_singleton(c, RequestContext, RequestContext)
 
     c[StoreProvider] = BasicStoreProvider(lambda: c)
+    _define_singleton(c, EmptySessionCleanup, EmptySessionCleanup)
 
     yield c
 
@@ -1183,11 +1185,15 @@ class _HealthMonitoredServer(uvicorn.Server):
         monitor: EventLoopMonitor,
         exit_stack: AsyncExitStack,
         pricing_report: PricingReportService | None = None,
+        cleanup: EmptySessionCleanup | None = None,
+        background_tasks: BackgroundTaskService | None = None,
     ) -> None:
         super().__init__(config)
         self._monitor = monitor
         self._exit_stack = exit_stack
         self._pricing_report = pricing_report
+        self._cleanup = cleanup
+        self._background_tasks = background_tasks
 
     async def startup(self, sockets: list[socket.socket] | None = None) -> None:
         await super().startup(sockets=sockets)
@@ -1197,6 +1203,12 @@ class _HealthMonitoredServer(uvicorn.Server):
             # SDK declarations, indexing and ASGI lifespan initialization are
             # complete. Measure serving responsiveness rather than startup work.
             await self._exit_stack.enter_async_context(self._monitor)
+            if (
+                self._cleanup is not None
+                and self._cleanup.enabled
+                and self._background_tasks is not None
+            ):
+                await self._background_tasks.start(self._cleanup.run(), tag="empty-session-cleanup")
 
 
 async def serve_app(
@@ -1235,6 +1247,8 @@ async def serve_app(
                 container[PricingReportService]
                 if PricingReportService in container.defined_types
                 else None,
+                container[EmptySessionCleanup],
+                container[BackgroundTaskService],
             )
             await server.serve()
         await asyncio.sleep(0)  # Required to trigger the possible cancellation error

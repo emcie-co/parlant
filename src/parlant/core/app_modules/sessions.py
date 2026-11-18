@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import hmac
 from datetime import datetime, timezone
-from typing import Any, Coroutine, Mapping, Sequence, Set, cast
+from typing import Any, Callable, Coroutine, Mapping, Sequence, Set, cast
 
 from parlant.core.agents import Moderation, AgentId, AgentStore
 from parlant.core.app_modules.request_context import RequestContext
@@ -18,6 +18,7 @@ from parlant.core import metadata as metadata_utils
 from parlant.core.health import HealthReporter
 from parlant.core.meter import Meter
 from parlant.core.persistence.common import Cursor, SortDirection
+from parlant.core.session_observability import SessionObservabilityPage
 from parlant.core.tracer import Tracer, session_operation_span
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
@@ -305,18 +306,38 @@ class SessionModule:
             customer_represented_by_an_agent=customer_represented_by_an_agent,
         )
 
-        # Warm the engine's caches in the background as soon as the session
-        # exists, so the first response reads them instead of building them.
-        await self._initialize_session(session)
+        release = await self._session_store.pin_session(session.id)
+        try:
+            await self._initialize_session(session)
 
-        if allow_greeting:
-            await self.dispatch_processing_task(session)
+            if allow_greeting:
+                # Only this initial dispatch is a greeting. Later proactive
+                # agent work must never be inferred to be an empty session.
+                session = await patch_internal_session_metadata(
+                    self._session_store,
+                    session.id,
+                    ("empty_session", "initial_greeting_trace_id"),
+                    self._tracer.trace_id,
+                )
+                await self.dispatch_processing_task(session)
+        finally:
+            release()
 
         return await self._session_store.read_session(session.id)
 
     async def read(self, session_id: SessionId) -> Session:
         session = await self._session_store.read_session(session_id=session_id)
         return session
+
+    async def list_observability_records(
+        self, *, limit: int = 100, cursor: Cursor | None = None
+    ) -> SessionObservabilityPage:
+        return await self._session_store.list_observability_records(limit=limit, cursor=cursor)
+
+    async def acknowledge_observability_records(
+        self, acknowledgements: Sequence[tuple[str, int]]
+    ) -> int:
+        return await self._session_store.acknowledge_observability_records(acknowledgements)
 
     async def find(
         self,
@@ -740,6 +761,14 @@ class SessionModule:
         return f"process-session({session_id})"
 
     async def dispatch_processing_task(self, session: Session) -> str:
+        release = await self._session_store.pin_session(session.id)
+        try:
+            return await self._dispatch_processing_task(session, release)
+        except BaseException:
+            release()
+            raise
+
+    async def _dispatch_processing_task(self, session: Session, release: Callable[[], None]) -> str:
         response_run = await self.response_coordinator.begin_foreground(session.id)
         tag = self._processing_task_tag(session.id)
         trace_id = self._tracer.trace_id
@@ -762,10 +791,11 @@ class SessionModule:
             response_run=response_run,
         )
         try:
-            await self._background_task_service.restart(
+            task = await self._background_task_service.restart(
                 processing,
                 tag=tag,
             )
+            task.add_done_callback(lambda _: release())
         except BaseException:
             processing.close()
             await self.response_coordinator.finish_foreground(response_run, succeeded=False)
@@ -1041,6 +1071,18 @@ class SessionModule:
         return event.kind == EventKind.MESSAGE
 
     async def _utter(
+        self,
+        session_id: SessionId,
+        requests: Sequence[UtteranceRequest],
+        response_run: ResponseRun | None = None,
+    ) -> Event:
+        release = await self._session_store.pin_session(session_id)
+        try:
+            return await self._utter_pinned(session_id, requests, response_run)
+        finally:
+            release()
+
+    async def _utter_pinned(
         self,
         session_id: SessionId,
         requests: Sequence[UtteranceRequest],

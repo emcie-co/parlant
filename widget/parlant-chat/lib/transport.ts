@@ -263,42 +263,55 @@ export class ParlantTransport {
    *  Runs under a lock shared by every widget and tab on this server, so a new visitor who
    *  opens several at once gets one guest identity, and one conversation per agent. */
   async ensureSession(options: EnsureSessionOptions = {}): Promise<string> {
+    return await this.locks.request(`parlant:session:${this.base}`, () =>
+      this.ensureSessionUnlocked(options),
+    );
+  }
+
+  /** Replace only the missing conversation, keeping the visitor's identity.
+   * Concurrent callers/tabs join the replacement under the normal session lock. */
+  async replaceMissingSession(sessionId: string, options: EnsureSessionOptions = {}): Promise<string> {
     return await this.locks.request(`parlant:session:${this.base}`, async () => {
-      const cached = this.storedSessionId();
-      if (cached) return cached;
-
-      const create = () =>
-        this.request(`${this.base}/sessions?allow_greeting=false`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            agent_id: this.agentId,
-            ...(options.representedByAnAgent ? { customer_represented_by_an_agent: true } : {}),
-          }),
-        });
-
-      let res: Response;
-      try {
-        res = await create();
-      } catch (error) {
-        // An expired stored guest token cannot resume its old sessions, but session
-        // bootstrap itself is safe to retry anonymously with a fresh guest identity.
-        if (!(error instanceof GuestIdentityExpiredError)) throw error;
-        res = await create();
-      }
-      if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
-      const session = await res.json();
-      // Still under the lock, so it lands before any tab can send into the new session.
-      const firstEvent = options.firstEvent?.();
-      if (firstEvent) {
-        await this.sendCustomEvent(session.id, firstEvent).then(
-          () => this.rememberCustomEvent(session.id, firstEvent),
-          (e) => console.warn("[parlant] failed to send the first custom event", e),
-        );
-      }
-      this.saveSession(session.id);
-      return session.id;
+      if (this.storedSessionId() === sessionId) this.resetSession();
+      return await this.ensureSessionUnlocked(options);
     });
+  }
+
+  private async ensureSessionUnlocked(options: EnsureSessionOptions): Promise<string> {
+    const cached = this.storedSessionId();
+    if (cached) return cached;
+
+    const create = () =>
+      this.request(`${this.base}/sessions?allow_greeting=false`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agent_id: this.agentId,
+          ...(options.representedByAnAgent ? { customer_represented_by_an_agent: true } : {}),
+        }),
+      });
+
+    let res: Response;
+    try {
+      res = await create();
+    } catch (error) {
+      // An expired stored guest token cannot resume its old sessions, but session
+      // bootstrap itself is safe to retry anonymously with a fresh guest identity.
+      if (!(error instanceof GuestIdentityExpiredError)) throw error;
+      res = await create();
+    }
+    if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
+    const session = await res.json();
+    // Still under the lock, so it lands before any tab can send into the new session.
+    const firstEvent = options.firstEvent?.();
+    if (firstEvent) {
+      await this.sendCustomEvent(session.id, firstEvent).then(
+        () => this.rememberCustomEvent(session.id, firstEvent),
+        (e) => console.warn("[parlant] failed to send the first custom event", e),
+      );
+    }
+    this.saveSession(session.id);
+    return session.id;
   }
 
   /** Hand this guest's session to the customer who just signed in, and carry on as them.
@@ -460,6 +473,7 @@ export class ParlantTransport {
       signal ? { signal } : undefined,
     );
     if (res.status === 403) throw new SessionForbiddenError();
+    if (res.status === 404) throw new SessionNotFoundError();
     if (!res.ok) throw new Error(`Failed to load session: ${res.status}`);
     const session = await res.json();
     const labels: unknown[] = Array.isArray(session.labels) ? session.labels : [];
@@ -486,6 +500,11 @@ export class ParlantTransport {
       body: JSON.stringify(body),
     });
     if (res.status === 403) throw new SessionForbiddenError();
+    if (res.status === 404) {
+      // A related resource can also return 404. Retry only after the parent
+      // itself confirms this send could not have been accepted.
+      await this.fetchSession(sessionId);
+    }
     if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
     return await res.json();
   }

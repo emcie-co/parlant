@@ -34,7 +34,9 @@ export interface UseParlantStreamOptions {
    *  reasoning. A caller without that permission sees "Thinking" in its place. */
   showReasoning?: boolean;
   /** Called when the session no longer exists server-side (start a fresh one). */
-  onSessionExpired?: (reason: "not-found" | "guest-expired") => void;
+  onSessionExpired?: (
+    reason: "not-found" | "guest-expired", missingSessionId?: string
+  ) => void | Promise<string>;
   /** Current server reachability (from the health check). When it recovers to true, a stale
    *  stream error is dropped so the "reconnecting" banner clears. */
   online?: boolean;
@@ -333,6 +335,10 @@ export function useParlantStream(
   const online = options.online ?? true;
 
   // Kept in a ref so the stream effect doesn't re-subscribe when the callback identity changes.
+  const recoveringFrom = useRef<string | null>(null);
+  const previousSession = useRef<{ transport: ParlantTransport; id: string | null } | null>(null);
+  const currentTransport = useRef(transport);
+  currentTransport.current = transport;
   const onExpired = useRef(options.onSessionExpired);
   onExpired.current = options.onSessionExpired;
   const onLabel = useRef(options.onLabel);
@@ -393,7 +399,22 @@ export function useParlantStream(
   useEffect(() => {
     if (!sessionId) return;
 
+    const previousStore = storeRef.current;
+    const preserveDrafts = previousSession.current?.transport === transport &&
+      previousSession.current.id === recoveringFrom.current;
     storeRef.current = freshStore();
+    if (preserveDrafts) {
+      for (const id of previousStore.pendingQueue) {
+        const message = previousStore.messages.get(id);
+        if (message && !message.failed) {
+          storeRef.current.order.push(id);
+          storeRef.current.messages.set(id, message);
+          storeRef.current.pendingQueue.push(id);
+        }
+      }
+    }
+    recoveringFrom.current = null;
+    previousSession.current = { transport, id: sessionId };
     render();
     setError(null);
 
@@ -638,7 +659,12 @@ export function useParlantStream(
             // The stored session is gone (server restarted / expired), or belongs to a guest
             // identity this browser no longer holds. Retrying can't help: start fresh — the
             // session hook will bootstrap a new one and this effect re-subscribes.
-            onExpired.current?.("not-found");
+            if (e instanceof SessionNotFoundError) recoveringFrom.current = sessionId;
+            try {
+              await onExpired.current?.("not-found");
+            } catch (error) {
+              setError(error instanceof Error ? error : new Error("Failed to recover conversation"));
+            }
             return;
           }
           console.error("[parlant] event stream error", e);
@@ -691,10 +717,17 @@ export function useParlantStream(
         try {
           await transport.sendMessage(sessionId, trimmed, attachments, options?.metadata);
         } catch (e) {
-          if (!(e instanceof SignInExpiredError)) throw e;
-          // Keep the message pending; send it once the customer has signed in again.
-          await offerSignInAgain();
-          await transport.sendMessage(sessionId, trimmed, attachments, options?.metadata);
+          if (e instanceof SessionNotFoundError && onExpired.current) {
+            recoveringFrom.current = sessionId;
+            const replacement = await onExpired.current("not-found", sessionId);
+            if (typeof replacement !== "string" || currentTransport.current !== transport) throw e;
+            await transport.sendMessage(replacement, trimmed, attachments, options?.metadata);
+          } else {
+            if (!(e instanceof SignInExpiredError)) throw e;
+            // Keep the message pending; send it once the customer has signed in again.
+            await offerSignInAgain();
+            await transport.sendMessage(sessionId, trimmed, attachments, options?.metadata);
+          }
         }
         // A session that's already manual answers a customer message with silence (the engine
         // short-circuits before emitting anything), so re-read the mode to surface the notice.
@@ -705,7 +738,11 @@ export function useParlantStream(
           return;
         }
         if (e instanceof SessionForbiddenError) {
-          onExpired.current?.("not-found");
+          try {
+            await onExpired.current?.("not-found");
+          } catch (error) {
+            setError(error instanceof Error ? error : new Error("Failed to recover conversation"));
+          }
           return;
         }
         console.error("[parlant] failed to send message", e);

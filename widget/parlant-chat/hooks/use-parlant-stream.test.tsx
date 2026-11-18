@@ -22,6 +22,39 @@ afterEach(() => {
 });
 
 describe("following a session's events", () => {
+  it.each(["timeout", "server-error", "related-item-not-found"])(
+    "does not recreate or resend on an ambiguous %s or an unrelated error",
+    async (failure) => {
+      const server = fakeParlantServer();
+      const storage = new SharedStorage();
+      const transport = new ParlantTransport({ serverUrl: SERVER, agentId: "home", storage });
+      const sessionId = await transport.ensureSession();
+      const onSessionExpired = vi.fn();
+      const { result } = renderHook(() => useParlantStream(transport, sessionId, { onSessionExpired }));
+      await waitFor(() => expect(result.current.hydrated).toBe(true));
+      if (failure !== "timeout") {
+        server.fail((request) => request.method === "POST", failure === "server-error" ? 500 : 404, 10);
+      } else {
+        const realFetch = fetch;
+        vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+          const response = await realFetch(input, init);
+          if (init?.method === "POST") {
+            // The server accepted the message, but its response was lost.
+            throw new DOMException("Connection timed out", "TimeoutError");
+          }
+          return response;
+        }));
+      }
+      await act(() => result.current.send("Please help me choose a plant"));
+      expect(result.current.error).not.toBeNull();
+      expect(onSessionExpired).not.toHaveBeenCalled();
+      expect(server.sessionsCreated()).toBe(1);
+      expect(server.requests.filter((request) => request.method === "POST" &&
+        request.path === `/sessions/${sessionId}/events`)).toHaveLength(1);
+      expect(result.current.messages.at(-1)?.text).toBe("Please help me choose a plant");
+    },
+  );
+
   it("test_that_a_local_send_echo_is_fresh_during_history_loading_but_earlier_messages_stay_silent", async () => {
     const server = fakeParlantServer();
     const storage = new SharedStorage();

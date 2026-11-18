@@ -552,6 +552,7 @@ class RelationalResolver:
                             cast(RuleId, counterpart.entity.id)
                             for counterpart in resolution.details.counterparts
                         )
+                self._warn_unresolved(exclusion.unresolved_rule_ids)
 
                 surviving = list(activation.turn_matches)
                 relational = await self.resolve_priority_relationships(usable_rules, surviving)
@@ -619,7 +620,18 @@ class RelationalResolver:
                     kind=RelationshipKind.EXCLUSION,
                     indirect=False,
                 )
-                return self._resolve_exclusions(relationships, usable_rules, active_evaluations)
+                result = self._resolve_exclusions(relationships, usable_rules, active_evaluations)
+                self._warn_unresolved(result.unresolved_rule_ids)
+                return result
+
+    def _warn_unresolved(self, unresolved: AbstractSet[RuleId]) -> None:
+        if unresolved:
+            self._logger.warning(
+                "Exclusion has no consistent answer for rule(s) "
+                f"{', '.join(sorted(unresolved))}, which exclude each other (often through a "
+                "group): keeping them all. Remove one of the exclusions, or take the rule out "
+                "of the group."
+            )
 
     def _resolve_exclusions(
         self,
@@ -692,13 +704,6 @@ class RelationalResolver:
             self._logger.debug(
                 f"Dropped (excluded): Rule {target_id} - excluded by "
                 f"{', '.join(sorted(e for e in excluders_of[target_id] if e in accepted))}"
-            )
-
-        if unresolved:
-            self._logger.warning(
-                "Exclusion has no consistent answer for rule(s) "
-                f"{', '.join(sorted(unresolved))}, which exclude each other through a group: "
-                "keeping them all. Remove one of the exclusions, or take the rule out of the group."
             )
 
         surviving = [e for e in active_evaluations if e.rule.id not in excluded]

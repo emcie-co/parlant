@@ -22,8 +22,6 @@ from dataclasses import dataclass, replace
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-import hashlib
-import json
 from dataclasses import field
 from typing import (
     Any,
@@ -83,7 +81,6 @@ from parlant.core.persistence.document_database_helper import (
 )
 
 SessionLifecycle = Literal["provisional", "established"]
-ObservabilityKind = Literal["usage", "session_deleted"]
 
 
 def _boolean_setting(name: str, default: bool) -> bool:
@@ -112,43 +109,35 @@ class SessionCleanupSettings:
 
 
 @dataclass(frozen=True)
-class SessionObservabilityRecord:
-    id: str
-    revision: int
-    kind: ObservabilityKind
-    session_id: str
-    agent_id: str
-    trace_id: str | None
-    occurred_at: datetime
+class SessionCleanupRecord:
+    """Final accounting for an automatically removed session, pending delivery."""
+
+    session_id: SessionId
+    agent_id: AgentId
     session_creation_utc: datetime
+    deleted_at: datetime
     is_simulation: bool
     customer_represented_by_an_agent: bool
-    payload: Mapping[str, JSONSerializable]
+    usage_records: Mapping[str, JSONSerializable]
 
 
 @dataclass(frozen=True)
-class SessionObservabilityPage:
-    records: Sequence[SessionObservabilityRecord]
+class SessionCleanupPage:
+    records: Sequence[SessionCleanupRecord]
     has_more: bool = False
     next_cursor: Cursor | None = None
 
 
-class SessionObservabilityDocument(BaseDocument, total=False):
-    revision: int
-    kind: ObservabilityKind
-    session_id: str
-    agent_id: str
-    trace_id: str | None
-    occurred_at: str
+class _SessionCleanupDocument(BaseDocument, total=False):
+    agent_id: AgentId
     session_creation_utc: str
+    deleted_at: str
     is_simulation: bool
     customer_represented_by_an_agent: bool
-    payload: Mapping[str, JSONSerializable]
-    fingerprint: str
-    pending: bool
+    usage_records: Mapping[str, JSONSerializable]
 
 
-def observability_limit(value: object = 100) -> int:
+def cleanup_limit(value: object = 100) -> int:
     if type(value) is not int or not 1 <= value <= 100:
         raise ValueError("limit must be an integer between 1 and 100")
     return value
@@ -477,16 +466,14 @@ class SessionListing:
 
 
 class SessionStore(ABC):
-    async def list_observability_records(
+    async def list_cleanup_records(
         self, *, limit: int = 100, cursor: Cursor | None = None
-    ) -> SessionObservabilityPage:
-        """Optional durable runtime feed. Unsupported stores expose no records."""
-        return SessionObservabilityPage(records=[])
+    ) -> SessionCleanupPage:
+        """Optional final cleanup handoff; unsupported stores expose no records."""
+        return SessionCleanupPage(records=[])
 
-    async def acknowledge_observability_records(
-        self, acknowledgements: Sequence[tuple[str, int]]
-    ) -> int:
-        """Acknowledge exact revisions only after downstream durable persistence."""
+    async def acknowledge_cleanup_records(self, session_ids: Sequence[SessionId]) -> int:
+        """Reclaim cleanup snapshots only after downstream durable persistence."""
         return 0
 
     async def list_empty_session_candidates(
@@ -785,7 +772,6 @@ class _SessionDocument(TypedDict, total=False):
     customer_represented_by_an_agent: bool
     cleanup_established: bool
     cleanup_has_greeting: bool
-    observability_dirty: bool
 
 
 class _EventDocument(TypedDict, total=False):
@@ -862,7 +848,7 @@ class SessionDocumentStore(SessionStore):
         self._database = database
         self._session_collection: DocumentCollection[_SessionDocument]
         self._event_collection: DocumentCollection[_EventDocument]
-        self._observability_collection: DocumentCollection[SessionObservabilityDocument]
+        self._cleanup_collection: DocumentCollection[_SessionCleanupDocument]
         self._allow_migration = allow_migration
         self._collections_prefix = collections_prefix
 
@@ -905,24 +891,19 @@ class SessionDocumentStore(SessionStore):
                 schema=_EventDocument,
                 document_loader=self._event_document_loader,
             )
-            self._observability_collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_session_observability"
+            self._cleanup_collection = await self._database.get_or_create_collection(
+                name=f"{self._collections_prefix}_session_cleanup"
                 if self._collections_prefix
-                else "session_observability",
-                schema=SessionObservabilityDocument,
-                document_loader=identity_loader_for(SessionObservabilityDocument),
+                else "session_cleanup",
+                schema=_SessionCleanupDocument,
+                document_loader=identity_loader_for(_SessionCleanupDocument),
             )
-            await self._observability_collection.ensure_indexes(
+            await self._cleanup_collection.ensure_indexes(
                 [
                     CollectionIndex(fields=(("id", SortDirection.ASC),), unique=True),
                     CollectionIndex(
-                        fields=(
-                            ("pending", SortDirection.ASC),
-                            ("creation_utc", SortDirection.ASC),
-                            ("id", SortDirection.ASC),
-                        )
+                        fields=(("creation_utc", SortDirection.ASC), ("id", SortDirection.ASC))
                     ),
-                    CollectionIndex(fields=(("session_id", SortDirection.ASC),)),
                 ]
             )
             await self._session_collection.ensure_indexes(
@@ -1048,7 +1029,6 @@ class SessionDocumentStore(SessionStore):
             customer_represented_by_an_agent=session.customer_represented_by_an_agent,
             cleanup_established=False,
             cleanup_has_greeting=False,
-            observability_dirty=False,
         )
 
     def _deserialize_session(
@@ -1173,9 +1153,7 @@ class SessionDocumentStore(SessionStore):
         async with self._lock.writer_lock:
             # Explicit deletion follows the existing privacy path. Automatic
             # cleanup uses the internal helper and retains its accounting.
-            records = await self._observability_collection.find({"session_id": {"$eq": session_id}})
-            for record in records:
-                await self._observability_collection.delete_one({"id": {"$eq": record["id"]}})
+            await self._cleanup_collection.delete_one({"id": {"$eq": session_id}})
             await self._delete_session_unlocked(session_id)
 
     @staticmethod
@@ -1185,134 +1163,83 @@ class SessionDocumentStore(SessionStore):
             raise ValueError("Session usage records must be a mapping")
         return records
 
-    async def _write_observability_unlocked(
-        self,
-        session: _SessionDocument,
-        kind: Literal["usage", "session_deleted"],
-        trace_id: str | None,
-        occurred_at: datetime,
-        payload: Mapping[str, JSONSerializable],
-    ) -> None:
-        identity = json.dumps([kind, session["id"], trace_id], separators=(",", ":"))
-        record_id = ObjectId(hashlib.sha256(identity.encode()).hexdigest())
-        previous = await self._observability_collection.find_one({"id": {"$eq": record_id}})
-        normalized = deepcopy(dict(payload))
-        if previous is not None:
-            occurred_at = datetime.fromisoformat(previous["occurred_at"])
-        if kind == "usage":
-            normalized["timestamp_utc"] = occurred_at.astimezone(timezone.utc).isoformat()
-        fingerprint = hashlib.sha256(
-            json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-        if previous is not None and previous["fingerprint"] == fingerprint:
-            return
-        dashboard_metadata = session["metadata"].get("__dashboard__")
-        is_simulation = (
-            isinstance(dashboard_metadata, Mapping)
-            and dashboard_metadata.get("isSimulation") is True
-        )
-        document = SessionObservabilityDocument(
-            id=record_id,
-            version=self.VERSION.to_string(),
-            creation_utc=(
-                previous["creation_utc"]
-                if previous and previous["pending"]
-                else datetime.now(timezone.utc).isoformat()
-            ),
-            revision=previous["revision"] + 1 if previous else 1,
-            kind=kind,
-            session_id=session["id"],
-            agent_id=session["agent_id"],
-            trace_id=trace_id,
-            occurred_at=occurred_at.astimezone(timezone.utc).isoformat(),
-            session_creation_utc=session["creation_utc"],
-            is_simulation=is_simulation,
-            customer_represented_by_an_agent=(
-                session.get("customer_represented_by_an_agent", False) is True
-            ),
-            payload=normalized,
-            fingerprint=fingerprint,
-            pending=True,
-        )
-        await self._observability_collection.update_one(
-            {"id": {"$eq": record_id}}, document, upsert=True
-        )
-
-    async def _capture_usage_unlocked(
-        self, session: _SessionDocument, records: Mapping[str, JSONSerializable]
-    ) -> None:
-        for trace_id, record in records.items():
-            if not isinstance(record, Mapping) or not isinstance(record.get("timestamp_utc"), str):
+    async def _prepare_cleanup_unlocked(self, session: _SessionDocument) -> None:
+        usage = deepcopy(dict(self._usage_records(session.get("metadata", {}))))
+        for record in usage.values():
+            if not isinstance(record, Mapping):
                 raise ValueError("Session usage record must include timestamp_utc")
-            occurred_at = datetime.fromisoformat(str(record["timestamp_utc"]))
-            if occurred_at.tzinfo is None:
+            timestamp = record.get("timestamp_utc")
+            if not isinstance(timestamp, str):
+                raise ValueError("Session usage record must include timestamp_utc")
+            if datetime.fromisoformat(timestamp).tzinfo is None:
                 raise ValueError("Session usage timestamp_utc must include a timezone")
-            await self._write_observability_unlocked(
-                session, "usage", trace_id, occurred_at, record
-            )
+        previous = await self._cleanup_collection.find_one({"id": {"$eq": session["id"]}})
+        now = datetime.now(timezone.utc).isoformat()
+        dashboard = session.get("metadata", {}).get("__dashboard__")
+        await self._cleanup_collection.update_one(
+            {"id": {"$eq": session["id"]}},
+            _SessionCleanupDocument(
+                id=session["id"],
+                version=self.VERSION.to_string(),
+                creation_utc=previous["creation_utc"] if previous else now,
+                agent_id=session["agent_id"],
+                session_creation_utc=session["creation_utc"],
+                deleted_at=now,
+                is_simulation=isinstance(dashboard, Mapping)
+                and dashboard.get("isSimulation") is True,
+                customer_represented_by_an_agent=(
+                    session.get("customer_represented_by_an_agent", False) is True
+                ),
+                usage_records=usage,
+            ),
+            upsert=True,
+        )
 
     @override
-    async def list_observability_records(
+    async def list_cleanup_records(
         self, *, limit: int = 100, cursor: Cursor | None = None
-    ) -> SessionObservabilityPage:
-        limit = observability_limit(limit)
+    ) -> SessionCleanupPage:
+        limit = cleanup_limit(limit)
         async with self._lock.reader_lock:
-            page = await self._observability_collection.find(
-                {"pending": {"$eq": True}},
-                limit=limit,
-                cursor=cursor,
-                sort_direction=SortDirection.ASC,
+            page = await self._cleanup_collection.find(
+                {}, limit=limit, cursor=cursor, sort_direction=SortDirection.ASC
             )
             records = []
             for doc in page:
-                if doc["kind"] == "session_deleted" and await self._session_collection.find_one(
-                    {"id": {"$eq": doc["session_id"]}}
-                ):
-                    # Prepared deletion, not a confirmed removal. Advance the
-                    # scanned cursor anyway so it cannot starve later records.
+                if await self._session_collection.find_one({"id": {"$eq": doc["id"]}}):
+                    # Preparation is durable before deletion. Never announce
+                    # removal while its parent survives a failed/partial delete.
+                    # Advance the scanned cursor so it cannot starve later work.
                     continue
                 records.append(
-                    SessionObservabilityRecord(
-                        id=doc["id"],
-                        revision=doc["revision"],
-                        kind=doc["kind"],
-                        session_id=doc["session_id"],
+                    SessionCleanupRecord(
+                        session_id=SessionId(doc["id"]),
                         agent_id=doc["agent_id"],
-                        trace_id=doc["trace_id"],
-                        occurred_at=datetime.fromisoformat(doc["occurred_at"]),
                         session_creation_utc=datetime.fromisoformat(doc["session_creation_utc"]),
+                        deleted_at=datetime.fromisoformat(doc["deleted_at"]),
                         is_simulation=doc["is_simulation"],
                         customer_represented_by_an_agent=doc["customer_represented_by_an_agent"],
-                        payload=deepcopy(doc["payload"]),
+                        usage_records=deepcopy(doc["usage_records"]),
                     )
                 )
-        return SessionObservabilityPage(
+        return SessionCleanupPage(
             records=records, has_more=page.has_more, next_cursor=page.next_cursor
         )
 
     @override
-    async def acknowledge_observability_records(
-        self, acknowledgements: Sequence[tuple[str, int]]
-    ) -> int:
-        if len(acknowledgements) > 100:
-            raise ValueError("records must contain at most 100 acknowledgements")
-        for record_id, revision in acknowledgements:
-            if not record_id or len(record_id) > 256:
-                raise ValueError("id must be nonblank and at most 256 characters")
-            if type(revision) is not int or revision < 1:
-                raise ValueError("revision must be a positive integer")
+    async def acknowledge_cleanup_records(self, session_ids: Sequence[SessionId]) -> int:
+        if len(session_ids) > 100 or any(
+            not isinstance(session_id, str) or not session_id.strip() or len(session_id) > 256
+            for session_id in session_ids
+        ):
+            raise ValueError("session_ids must contain at most 100 nonblank identities")
         acknowledged = 0
         async with self._lock.writer_lock:
-            for record_id, revision in acknowledgements:
-                result = await self._observability_collection.update_one(
-                    {
-                        "id": {"$eq": record_id},
-                        "revision": {"$eq": revision},
-                        "pending": {"$eq": True},
-                    },
-                    {"pending": False},
-                )
-                acknowledged += result.modified_count
+            for session_id in session_ids:
+                if await self._session_collection.find_one({"id": {"$eq": session_id}}):
+                    continue
+                result = await self._cleanup_collection.delete_one({"id": {"$eq": session_id}})
+                acknowledged += result.deleted_count
         return acknowledged
 
     async def _delete_session_unlocked(self, session_id: SessionId) -> None:
@@ -1447,10 +1374,7 @@ class SessionDocumentStore(SessionStore):
             ):
                 return False
             try:
-                await self._capture_usage_unlocked(doc, self._usage_records(metadata))
-                await self._write_observability_unlocked(
-                    doc, "session_deleted", None, datetime.now(timezone.utc), {}
-                )
+                await self._prepare_cleanup_unlocked(doc)
             except Exception:
                 # Metadata remains the durable retry source if capture fails.
                 # Never trade missing accounting for successful cleanup.
@@ -1525,17 +1449,6 @@ class SessionDocumentStore(SessionStore):
             raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
         if previous.get("metadata_revision", 0) != expected_revision:
             raise MetadataRevisionConflict(expected_revision)
-        incoming = self._usage_records(metadata)
-        prior = self._usage_records(previous.get("metadata", {}))
-        changed = (
-            dict(incoming)
-            if previous.get("observability_dirty")
-            else {
-                trace_id: record
-                for trace_id, record in incoming.items()
-                if prior.get(trace_id) != record
-            }
-        )
         result = await self._session_collection.update_one(
             filters={
                 "id": {"$eq": session_id},
@@ -1545,7 +1458,6 @@ class SessionDocumentStore(SessionStore):
                 "metadata": metadata,
                 "metadata_revision": expected_revision + 1,
                 "modified_utc": datetime.now(timezone.utc).isoformat(),
-                "observability_dirty": bool(changed),
             },
         )
 
@@ -1558,13 +1470,6 @@ class SessionDocumentStore(SessionStore):
             {"id": {"$eq": session_id}}
         )
         assert updated_document
-        if changed:
-            # Save the existing usage metadata first, so a journal outage
-            # leaves durable evidence and the engine does not acknowledge it.
-            await self._capture_usage_unlocked(updated_document, changed)
-            await self._session_collection.update_one(
-                {"id": {"$eq": session_id}}, {"observability_dirty": False}
-            )
         return self._deserialize_session(updated_document)
 
     @override
@@ -2270,16 +2175,14 @@ class CompositeSessionStore(SessionStore):
         self._all_stores: Sequence[SessionStore] = [writable_store, *readable_stores]
 
     @override
-    async def list_observability_records(
+    async def list_cleanup_records(
         self, *, limit: int = 100, cursor: Cursor | None = None
-    ) -> SessionObservabilityPage:
-        return await self._writable_store.list_observability_records(limit=limit, cursor=cursor)
+    ) -> SessionCleanupPage:
+        return await self._writable_store.list_cleanup_records(limit=limit, cursor=cursor)
 
     @override
-    async def acknowledge_observability_records(
-        self, acknowledgements: Sequence[tuple[str, int]]
-    ) -> int:
-        return await self._writable_store.acknowledge_observability_records(acknowledgements)
+    async def acknowledge_cleanup_records(self, session_ids: Sequence[SessionId]) -> int:
+        return await self._writable_store.acknowledge_cleanup_records(session_ids)
 
     @override
     async def pin_session(self, session_id: SessionId) -> Callable[[], None]:

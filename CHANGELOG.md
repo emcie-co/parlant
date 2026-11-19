@@ -21,9 +21,9 @@ Each entry says what changed and what it means for you, under `Added`,
   containing only an initial agent greeting. Customer participation, human
   messages and work still running prevent automatic removal; greeting-only
   sessions are preserved by default.
-  Settled model usage is kept independently of automatically removed sessions
-  for retryable dashboard ingestion; original timestamps and exact record
-  acknowledgements prevent delayed delivery from changing or duplicating costs.
+  Before removal, final model usage is saved for retryable dashboard ingestion
+  with its original timestamps. Acknowledged cleanup snapshots are removed;
+  ordinary sessions continue to report usage through their existing metadata.
 
 - `exclude()` on rules and groups, and `except_when=[...]` on
   `create_policy()` and `create_observation()`, add an exclusion: while the

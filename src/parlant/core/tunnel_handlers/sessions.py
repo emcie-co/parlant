@@ -37,8 +37,8 @@ from parlant.core.sessions import (
     EventSource,
     Session,
     SessionId,
-    SessionObservabilityPage,
-    observability_limit,
+    SessionCleanupPage,
+    cleanup_limit,
 )
 from parlant.core.tunnel_handlers.common import TunnelHandlerSet
 
@@ -98,8 +98,8 @@ class SessionTunnelHandlers:
     def handler_set(self) -> TunnelHandlerSet:
         return TunnelHandlerSet(
             unary={
-                "observability.list": self.list_observability,
-                "observability.acknowledge": self.acknowledge_observability,
+                "sessions.cleanup.list": self.list_cleanup,
+                "sessions.cleanup.acknowledge": self.acknowledge_cleanup,
                 "sessions.create": self.create_session,
                 "sessions.read": self.read_session,
                 "sessions.list": self.list_sessions,
@@ -362,30 +362,26 @@ class SessionTunnelHandlers:
             "has_more": result.has_more,
             "next_cursor": encode_cursor(result.next_cursor) if result.next_cursor else None,
         }
-        if params.get("include_observability") is True:
-            response["observability"] = await self.list_observability(
+        if params.get("include_cleanup") is True:
+            response["cleanup"] = await self.list_cleanup(
                 {
-                    "limit": params.get("observability_limit", 100),
+                    "limit": params.get("cleanup_limit", 100),
                 }
             )
         return response
 
     @staticmethod
-    def _observability_page(page: SessionObservabilityPage) -> dict[str, Any]:
+    def _cleanup_page(page: SessionCleanupPage) -> dict[str, Any]:
         return {
             "records": [
                 {
-                    "id": record.id,
-                    "revision": record.revision,
-                    "kind": record.kind,
                     "session_id": record.session_id,
                     "agent_id": record.agent_id,
-                    "trace_id": record.trace_id,
-                    "occurred_at": record.occurred_at.isoformat(),
                     "session_creation_utc": record.session_creation_utc.isoformat(),
+                    "deleted_at": record.deleted_at.isoformat(),
                     "is_simulation": record.is_simulation,
                     "customer_represented_by_an_agent": record.customer_represented_by_an_agent,
-                    "payload": dict(record.payload),
+                    "usage_records": dict(record.usage_records),
                 }
                 for record in page.records
             ],
@@ -393,8 +389,8 @@ class SessionTunnelHandlers:
             "next_cursor": encode_cursor(page.next_cursor) if page.next_cursor else None,
         }
 
-    async def list_observability(self, params: dict[str, Any]) -> dict[str, Any]:
-        limit = observability_limit(params.get("limit", 100))
+    async def list_cleanup(self, params: dict[str, Any]) -> dict[str, Any]:
+        limit = cleanup_limit(params.get("limit", 100))
         cursor = None
         if params.get("cursor") is not None:
             try:
@@ -404,31 +400,25 @@ class SessionTunnelHandlers:
                 if cursor is None:
                     raise ValueError
             except Exception as error:
-                raise ValueError("cursor must be a valid observability cursor") from error
-        return self._observability_page(
-            await self._session_module.list_observability_records(
-                limit=limit,
-                cursor=cursor,
-            )
+                raise ValueError("cursor must be a valid cleanup cursor") from error
+        return self._cleanup_page(
+            await self._session_module.list_cleanup_records(limit=limit, cursor=cursor)
         )
 
-    async def acknowledge_observability(self, params: dict[str, Any]) -> dict[str, Any]:
-        records = params.get("records")
-        if not isinstance(records, list) or len(records) > 100:
-            raise ValueError("records must be a list of at most 100 acknowledgements")
-        acknowledgements = []
-        for record in records:
-            if not isinstance(record, dict):
-                raise ValueError("records must contain id/revision objects")
-            record_id, revision = record.get("id"), record.get("revision")
-            if not isinstance(record_id, str) or not record_id.strip() or len(record_id) > 256:
-                raise ValueError("id must be nonblank and at most 256 characters")
-            if type(revision) is not int or revision < 1:
-                raise ValueError("revision must be a positive integer")
-            acknowledgements.append((record_id, revision))
+    async def acknowledge_cleanup(self, params: dict[str, Any]) -> dict[str, Any]:
+        session_ids = params.get("session_ids")
+        if (
+            not isinstance(session_ids, list)
+            or len(session_ids) > 100
+            or any(
+                not isinstance(value, str) or not value.strip() or len(value) > 256
+                for value in session_ids
+            )
+        ):
+            raise ValueError("session_ids must contain at most 100 nonblank identities")
         return {
-            "acknowledged": await self._session_module.acknowledge_observability_records(
-                acknowledgements,
+            "acknowledged": await self._session_module.acknowledge_cleanup_records(
+                [SessionId(value) for value in session_ids]
             )
         }
 

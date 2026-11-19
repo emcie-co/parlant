@@ -40,7 +40,7 @@ from parlant.core.response_coordination import (
     response_run_scope,
 )
 from parlant.core.sessions import (
-    SessionObservabilityPage,
+    SessionCleanupPage,
     AgentState,
     AttachmentRef,
     Event,
@@ -329,15 +329,13 @@ class SessionModule:
         session = await self._session_store.read_session(session_id=session_id)
         return session
 
-    async def list_observability_records(
+    async def list_cleanup_records(
         self, *, limit: int = 100, cursor: Cursor | None = None
-    ) -> SessionObservabilityPage:
-        return await self._session_store.list_observability_records(limit=limit, cursor=cursor)
+    ) -> SessionCleanupPage:
+        return await self._session_store.list_cleanup_records(limit=limit, cursor=cursor)
 
-    async def acknowledge_observability_records(
-        self, acknowledgements: Sequence[tuple[str, int]]
-    ) -> int:
-        return await self._session_store.acknowledge_observability_records(acknowledgements)
+    async def acknowledge_cleanup_records(self, session_ids: Sequence[SessionId]) -> int:
+        return await self._session_store.acknowledge_cleanup_records(session_ids)
 
     async def find(
         self,

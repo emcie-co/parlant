@@ -18,7 +18,6 @@ from parlant.core import metadata as metadata_utils
 from parlant.core.health import HealthReporter
 from parlant.core.meter import Meter
 from parlant.core.persistence.common import Cursor, SortDirection
-from parlant.core.session_observability import SessionObservabilityPage
 from parlant.core.tracer import Tracer, session_operation_span
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
@@ -41,6 +40,7 @@ from parlant.core.response_coordination import (
     response_run_scope,
 )
 from parlant.core.sessions import (
+    SessionObservabilityPage,
     AgentState,
     AttachmentRef,
     Event,

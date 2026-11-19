@@ -31,8 +31,15 @@ from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core import metadata
 from parlant.core.persistence.common import SortDirection
 from parlant.core.session_clients import SESSION_CLIENT_METADATA_KEY, SessionClientRecorder
-from parlant.core.sessions import EventId, EventKind, EventSource, Session, SessionId
-from parlant.core.session_observability import SessionObservabilityPage, observability_limit
+from parlant.core.sessions import (
+    EventId,
+    EventKind,
+    EventSource,
+    Session,
+    SessionId,
+    SessionObservabilityPage,
+    observability_limit,
+)
 from parlant.core.tunnel_handlers.common import TunnelHandlerSet
 
 

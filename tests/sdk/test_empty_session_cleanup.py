@@ -74,7 +74,7 @@ class _ConditionalCleanup(Protocol):
 
 
 def _cleanup(ctx: Context) -> _Cleanup:
-    module = import_module("parlant.core.empty_session_cleanup")
+    module = import_module("parlant.core.sessions")
     service_type = cast(type[_Cleanup], getattr(module, "EmptySessionCleanup"))
     assert service_type in ctx.container.defined_types, "SDK must register the cleanup service"
     return ctx.container[service_type]
@@ -572,7 +572,7 @@ class Test_that_disabling_cleanup_preserves_old_sessions_and_starts_no_worker(_C
 
 class Test_that_an_invalid_cleanup_toggle_gives_an_actionable_configuration_error(_CleanupSDKTest):
     async def run(self, ctx: Context) -> None:
-        module = import_module("parlant.core.empty_session_cleanup")
+        module = import_module("parlant.core.sessions")
         with pytest.MonkeyPatch.context() as environment:
             environment.setenv(_ENABLED_FLAG, "flase")
             with pytest.raises(ValueError, match=f"{_ENABLED_FLAG}.*true.*false"):

@@ -66,7 +66,6 @@ from parlant.core.common import IdGenerator, generate_id
 from parlant.core.engines.compass.hooks import CompassHooks
 from parlant.core.engines.rule_evaluator_registry import RuleEvaluatorRegistry
 from parlant.core.event_loop_monitor import EventLoopMonitor
-from parlant.core.empty_session_cleanup import EmptySessionCleanup
 from parlant.core.health import HealthReporter
 from parlant.core.health.thresholds import HealthThresholds
 from parlant.core.meter import Meter, LocalMeter
@@ -156,6 +155,7 @@ from parlant.core.services.tools.service_registry import (
     ServiceDocumentRegistry,
 )
 from parlant.core.sessions import (
+    EmptySessionCleanup,
     PollingSessionListener,
     SessionDocumentStore,
     SessionListener,

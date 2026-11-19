@@ -20,7 +20,6 @@ jobs:
     timeout-minutes: 10
     env:
       PARLANT_ENV: test
-      PARLANT_HOME: ${{ runner.temp }}/parlant-session-cleanup
       PARLANT_DATA_COLLECTION: 'false'
       GEMINI_API_KEY: cleanup-tests-not-a-real-key
     steps:
@@ -33,6 +32,7 @@ jobs:
         run: uv sync --frozen --extra gemini --extra anthropic
       - name: Real cleanup, persistence, tunnel and SDK lifecycle regressions
         env:
+          PARLANT_HOME: ${{ runner.temp }}/parlant-session-cleanup
           HTTP_PROXY: http://127.0.0.1:1
           HTTPS_PROXY: http://127.0.0.1:1
           NO_PROXY: localhost,127.0.0.1,::1

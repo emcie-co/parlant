@@ -13,6 +13,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+## [4.0.7] - 2026-11-21
+
 ### Added
 
 - `exclude()` on rules and groups, and `except_when=[...]` on

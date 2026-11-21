@@ -23,7 +23,7 @@ from parlant.core.engines.compass.hooks import CompassHooks
 from parlant.core.engines.rule_evaluation import RuleEvaluation as _RuleEvaluation
 from parlant.core.common import Weight
 from parlant.core.rules import RuleStore
-from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.relationships import RelationshipEntityKind, RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
 from parlant.core.groups import GroupIds
 from parlant.core.tools import ToolContext, ToolResult
@@ -1690,3 +1690,156 @@ class Test_that_an_excluding_policy_keeps_the_excluded_policy_out_of_the_reply(S
 
         assert "pepsi" in response.lower(), f"Expected Pepsi in response: {response}"
         assert "orange" not in response.lower(), f"Did not expect orange juice: {response}"
+
+
+class Test_that_a_rule_can_exclude_a_group(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="rules-agent-52",
+            name="Exclusion Agent",
+            instructions="Agent for testing exclusion of a group",
+        )
+
+        self.promos = await server.create_group("promos")
+        self.closed = await self.agent.create_observation("the store is closed")
+
+        self.relationships = await self.closed.exclude(self.promos)
+
+    async def run(self, ctx: Context) -> None:
+        [relationship] = self.relationships
+        stored = await ctx.container[RelationshipStore].read_relationship(
+            relationship_id=relationship.id
+        )
+
+        assert stored.kind == RelationshipKind.EXCLUSION
+        assert stored.source.id == self.closed.id
+        assert stored.source.kind == RelationshipEntityKind.RULE
+        assert stored.target.id == self.promos.id
+        assert stored.target.kind == RelationshipEntityKind.GROUP_ALL
+
+
+DRINKS_POLICY = "When the customer asks about drinks, recommend Pepsi"
+ORANGE_JUICE_POLICY = "Always, in all circumstances, mention that we have fresh orange juice"
+
+
+class _ExclusionReplyTest(SDKTest):
+    """The customer asks about drinks: the Pepsi policy applies, and the
+    orange-juice policy, which would otherwise always apply, is excluded
+    through a group."""
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What drinks do you have?",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), f"Expected Pepsi in response: {response}"
+        assert "orange" not in response.lower(), f"Did not expect orange juice: {response}"
+
+
+class Test_that_a_policy_excluding_a_group_keeps_its_members_out_of_the_reply(_ExclusionReplyTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="rules-agent-53",
+            name="Drinks Agent",
+            instructions="Agent for testing exclusion of a group in replies",
+        )
+
+        promos = await server.create_group("promos")
+        pepsi = await self.agent.create_policy(title="Recommend Pepsi", content=DRINKS_POLICY)
+        await self.agent.create_policy(
+            title="Always mention orange juice",
+            content=ORANGE_JUICE_POLICY,
+            groups=[promos],
+        )
+
+        await pepsi.exclude(promos)
+
+
+class Test_that_a_group_excluding_a_policy_keeps_it_out_of_the_reply(_ExclusionReplyTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="rules-agent-54",
+            name="Drinks Agent",
+            instructions="Agent for testing exclusion by a group in replies",
+        )
+
+        drinks = await server.create_group("drinks")
+        await self.agent.create_policy(
+            title="Recommend Pepsi", content=DRINKS_POLICY, groups=[drinks]
+        )
+        orange_juice = await self.agent.create_policy(
+            title="Always mention orange juice", content=ORANGE_JUICE_POLICY
+        )
+
+        await drinks.exclude(orange_juice)
+
+
+class Test_that_a_group_excluding_a_group_keeps_its_members_out_of_the_reply(_ExclusionReplyTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="rules-agent-55",
+            name="Drinks Agent",
+            instructions="Agent for testing group-to-group exclusion in replies",
+        )
+
+        drinks = await server.create_group("drinks")
+        promos = await server.create_group("promos")
+        await self.agent.create_policy(
+            title="Recommend Pepsi", content=DRINKS_POLICY, groups=[drinks]
+        )
+        await self.agent.create_policy(
+            title="Always mention orange juice",
+            content=ORANGE_JUICE_POLICY,
+            groups=[promos],
+        )
+
+        await drinks.exclude(promos)
+
+
+class Test_that_except_when_a_group_keeps_the_policy_out_of_the_reply(_ExclusionReplyTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="rules-agent-56",
+            name="Drinks Agent",
+            instructions="Agent for testing except_when with a group in replies",
+        )
+
+        drinks = await server.create_group("drinks")
+        await self.agent.create_policy(
+            title="Recommend Pepsi", content=DRINKS_POLICY, groups=[drinks]
+        )
+        await self.agent.create_policy(
+            title="Always mention orange juice",
+            content=ORANGE_JUICE_POLICY,
+            except_when=[drinks],
+        )
+
+
+class Test_that_a_group_exclusion_lifts_while_no_member_of_the_group_applies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="rules-agent-57",
+            name="Drinks Agent",
+            instructions="Agent for testing that a group exclusion lifts",
+        )
+
+        refunds = await server.create_group("refunds")
+        await self.agent.create_policy(
+            title="Refund timing",
+            content="When the customer asks for a refund, say refunds take 5 days",
+            groups=[refunds],
+        )
+        await self.agent.create_policy(
+            title="Always mention orange juice",
+            content=ORANGE_JUICE_POLICY,
+            except_when=[refunds],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What drinks do you have?",
+            recipient=self.agent,
+        )
+
+        assert "orange" in response.lower(), f"Expected orange juice in response: {response}"

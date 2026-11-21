@@ -4,7 +4,7 @@
   <img src="https://trendshift.io/api/badge/repositories/12768" alt="Trending" width="250" height="55" />
 </a>
 </p>
-<img alt="Parlant: Streamlined CX" src="https://github.com/emcie-co/parlant/blob/develop/docs/parlant-streamlined-cx.jpg?raw=true" width="900" />
+<img alt="Parlant: Streamlined CX" src="https://github.com/emcie-co/parlant/blob/develop/docs/parlant-streamlined-cx.jpg?raw=true" width="675" />
 
 ### Build your CX with AI: better, faster, for a fraction of the cost.
 

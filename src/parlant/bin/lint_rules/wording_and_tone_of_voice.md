@@ -42,8 +42,8 @@ await agent.create_policy(
 
 Leave this policy alone: `If the information is unavailable, tell the customer
 you don't have it.` It states a required disclosure. An attached response such
-as `I don't have that information right now.` shows how to phrase it. Replacing
-the disclosure with `use the reference wording` would drop the requirement.
+as `I don't have that information right now.` shows how to phrase it. The policy
+must still require the disclosure if the canned response is edited or removed.
 
 ## WTV002 (MEDIUM): Shape wording and tone with canned responses, not instructions or policies
 

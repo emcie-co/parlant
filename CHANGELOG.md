@@ -13,8 +13,16 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+## [4.0.9] - 2026-11-24
+
 ### Added
 
+- `ToolRecaller` takes an optional `min_relevance_score`. Tools that no
+  applying rule enabled, this turn or earlier in the session, are offered to
+  the agent only if their relevance to the conversation reaches that score,
+  so fewer unrelated tools reach the prompt. Tools enabled by rules are always
+  offered. To use it, register your own `ToolRecaller` as the `ToolSelector`
+  in the container. Without it, tool selection is unchanged.
 - `parlant dashboard agent a2a set AGENT_ID --personal-agent-simulations off`
   stops that agent's scheduled personal-agent simulations; `on` enables them.
   Both keep its saved daily number, protocols and other settings. `get` and

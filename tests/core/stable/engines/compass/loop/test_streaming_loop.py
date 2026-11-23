@@ -945,3 +945,29 @@ async def test_that_a_streamed_step_traces_its_reasoning() -> None:
     assert [a for n, a in tracer.recorded_events if n == "loop.reasoning"] == [
         {"reasoning": "The facts don't cover this, so offer a consultant.", "chunk_count": 2}
     ]
+
+
+async def test_that_the_loop_replaces_the_system_message_when_its_provider_changes_it() -> None:
+    # Exclusion can change mid-turn; the job's provider then renders different
+    # system instructions, and the next step must send them.
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "hi")])
+    context.state = ResponseState()
+    rendered = ["SYSTEM_BEFORE"]
+
+    loop = _make_streaming_loop()
+    job = LoopJob(
+        context=context,
+        system_instructions="SYSTEM_BEFORE",
+        system_instructions_provider=lambda _: rendered[0],
+    )
+
+    history, instructions_index = await loop._build_history(job)
+    state = _LoopState(history=history, instructions_index=instructions_index)
+    loop._update_system_instructions(job, state)
+    assert state.history[state.system_instructions_index].text == "SYSTEM_BEFORE"
+
+    rendered[0] = "SYSTEM_AFTER"
+    loop._update_system_instructions(job, state)
+
+    assert state.history[state.system_instructions_index].text == "SYSTEM_AFTER"
+    assert sum("SYSTEM_" in message.text for message in state.history) == 1

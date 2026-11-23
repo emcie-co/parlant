@@ -128,15 +128,48 @@ class Responder:
         context: EngineContext,
         refresh_state: RefreshState | None = None,
     ) -> LoopJob:
+        system_instructions = self._build_system_instructions(context)
+
         return LoopJob(
             context=context,
-            system_instructions=self._build_system_instructions(context),
+            system_instructions=system_instructions,
+            system_instructions_provider=self._get_system_instructions_provider(
+                context, system_instructions
+            ),
             step_instructions=self._get_step_instructions(context, refresh_state),
             reasoning_config=self._get_reasoning_config(context),
             preamble_config=self._preamble_config_provider.get(context.agent.id)
             or PreambleConfiguration.default(),
             moderation_fallback=self.moderation_fallback,
         )
+
+    def _get_system_instructions_provider(
+        self,
+        context: EngineContext,
+        initial: str,
+    ) -> Callable[[EngineContext], str]:
+        """The system instructions for each step.
+
+        They are the cacheable prefix, so they are built once per turn and
+        reused, even when the working set grows mid-turn (matched rules
+        outside the snapshot render in the step instructions instead). The
+        one exception is exclusion: a rule an excluder removed mid-turn must
+        disappear from the prompt, and one reinstated must come back, so a
+        change in the excluded set rebuilds them."""
+        rendered_for = frozenset(context.state.turn_excluded_rule_ids)
+        cached = initial
+
+        def provide(ctx: EngineContext) -> str:
+            nonlocal rendered_for, cached
+
+            excluded = frozenset(ctx.state.turn_excluded_rule_ids)
+            if excluded != rendered_for:
+                cached = self._build_system_instructions(ctx)
+                rendered_for = excluded
+
+            return cached
+
+        return provide
 
     def _get_step_instructions(
         self,
@@ -294,21 +327,17 @@ In cases of conflict, prioritize the business's values and ensure your decisions
         # instruction). The per-turn matched list (see _build_turn_instructions) then
         # just reminds the agent which of these are currently relevant.
         # The full instruction set: the discovered working set plus the
-        # statically-included cross-referential rules (bare, no attachments —
-        # excluded from discovery, so they must be unioned in here; see
-        # matching/common.py: "Static inclusion"). Deduped by id: a rule can
-        # be in both sets, e.g. discovered before it was flagged.
-        rendered_rules = {g.id: g for g in context.state.discovered_rules}
-        for g in context.state.statically_included_rules:
-            rendered_rules.setdefault(g.id, g)
+        # statically-included cross-referential rules, minus the rules excluded
+        # this turn (see ResponseState.instruction_set_rules).
+        rendered_rules = context.state.instruction_set_rules
         builder.add_system_wide_rules(
-            list(rendered_rules.values()),
+            rendered_rules,
             context.state.tools_by_rule,
         )
         # Snapshot what this build actually rendered: the step instructions use
         # it to decide whether a matched rule can be referenced by title or must
         # be rendered in full (see add_matched_rules).
-        context.state.rendered_rule_ids = set(rendered_rules.keys())
+        context.state.rendered_rule_ids = {rule.id for rule in rendered_rules}
 
         builder.add_section(
             name=PromptSections.REMINDER,
@@ -494,8 +523,11 @@ Finally, remember that this is a LIVE CONVERSATION, not email. Be simple, concis
         ]
         top_match_priority = max((rule.priority for rule in turn_matches), default=0)
 
+        excluded = context.state.turn_excluded_rule_ids
         deprioritized: dict[RuleId, Rule] = {
-            rule.id: rule for rule in context.state.turn_deprioritized_rules
+            rule.id: rule
+            for rule in context.state.turn_deprioritized_rules
+            if rule.id not in excluded
         }
         if top_match_priority > 0:
             matched_ids = {rule.id for rule in turn_matches}
@@ -505,6 +537,7 @@ Finally, remember that this is a LIVE CONVERSATION, not email. Be simple, concis
             ):
                 if (
                     standing_rule.id not in matched_ids
+                    and standing_rule.id not in excluded
                     and standing_rule.priority < top_match_priority
                 ):
                     deprioritized.setdefault(standing_rule.id, standing_rule)

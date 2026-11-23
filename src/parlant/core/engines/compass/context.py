@@ -107,6 +107,15 @@ class ResponseState:
     # visible in the responder's full instruction set — so the responder
     # renders an explicit "do not apply this turn" note for them.
     turn_deprioritized_rules: list[Rule] = field(default_factory=list)
+    # Rules EXCLUDED this turn by an active excluding rule. They are ignored
+    # completely: never a turn match, never newly admitted, never rendered in
+    # the system-wide instructions or offered tools. One already in the
+    # discovered working set stays there, hidden, so it returns once its
+    # excluder stops being active.
+    turn_excluded_rule_ids: set[RuleId] = field(default_factory=set)
+    # The verdicts of excluded turn matches, kept so that a mid-turn change
+    # (their excluder being excluded in turn) can reinstate them as judged.
+    turn_excluded_evaluations: list[RuleEvaluation] = field(default_factory=list)
     # The session's matched-rule ledger: every rule that has turn-matched at
     # least once this session (verdict-level — recorded before priority
     # resolution, so deprioritized matches count). Dependencies are satisfied
@@ -199,6 +208,10 @@ class ResponseState:
     # decides whether suppression fires, the target's whether there is
     # anything to suppress.
     rule_ids_with_priority_relationships: set[RuleId] = field(default_factory=set)
+    # Rules that EXCLUDE others (directly or via a source group). Exclusion
+    # fires only from a turn-match verdict, so they need one; their targets
+    # are excluded whether or not they matched, so targets need none.
+    rule_ids_with_exclusion_sources: set[RuleId] = field(default_factory=set)
 
     # Tools attached to a rule's action (e.g. a journey condensed into a
     # rule carries the tools of its tool-using steps). Read by turn evaluators
@@ -281,6 +294,19 @@ class ResponseState:
     @property
     def rules(self) -> list[Rule]:
         return self.ordinary_rules + self.tool_enabled_rules
+
+    @property
+    def instruction_set_rules(self) -> list[Rule]:
+        """The agent's full instruction set for this turn, as rendered in the
+        system-wide instructions: the discovered working set plus the
+        statically-included cross-referential rules (bare, no attachments,
+        excluded from discovery, so they must be unioned in here; see
+        matching/common.py: "Static inclusion"), deduped by id, minus the rules
+        excluded this turn."""
+        rules = {rule.id: rule for rule in self.discovered_rules}
+        for rule in self.statically_included_rules:
+            rules.setdefault(rule.id, rule)
+        return [rule for rule in rules.values() if rule.id not in self.turn_excluded_rule_ids]
 
     @cached_property
     def dynamic_effort_level(self) -> Effort:

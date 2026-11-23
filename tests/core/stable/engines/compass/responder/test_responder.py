@@ -468,3 +468,96 @@ def test_that_a_deprioritized_rule_without_content_is_left_out_of_the_do_not_app
     context.state.turn_deprioritized_rules = [observation]
 
     assert responder._render_deprioritized_rules(context) is None
+
+
+# --- Exclusion -----------------------------------------------------------------
+
+
+def _marked_rule(marker: str) -> Any:
+    from tests.core.stable.engines.compass.matching.utils import create_rule
+
+    return create_rule(condition=f"the customer mentions {marker}", action=f"apply {marker}")
+
+
+def test_that_the_system_instructions_omit_an_excluded_rule() -> None:
+    responder = _make_responder()
+    context = _context(MessageOutputMode.STREAM)
+    kept = _marked_rule("ZZQ_KEPT")
+    excluded = _marked_rule("ZZQ_EXCLUDED")
+    context.state.discovered_rules = {kept, excluded}
+    context.state.turn_excluded_rule_ids = {excluded.id}
+
+    instructions = responder._build_system_instructions(context)
+
+    assert "ZZQ_KEPT" in instructions
+    assert "ZZQ_EXCLUDED" not in instructions
+    assert context.state.rendered_rule_ids == {kept.id}
+
+
+def test_that_a_statically_included_rule_is_omitted_while_it_is_excluded() -> None:
+    responder = _make_responder()
+    context = _context(MessageOutputMode.STREAM)
+    bare = _bare_rule()
+    context.state.statically_included_rules = [bare]
+    context.state.turn_excluded_rule_ids = {bare.id}
+
+    instructions = responder._build_system_instructions(context)
+
+    assert "ZZQ_BARE" not in instructions
+
+
+def test_that_the_outprioritized_note_never_lists_an_excluded_rule() -> None:
+    from dataclasses import replace as _replace
+
+    from parlant.core.engines.rule_evaluation import RuleEvaluation
+
+    responder = _make_responder()
+    context = _context(MessageOutputMode.STREAM)
+    urgent = _replace(_marked_rule("ZZQ_URGENT"), priority=10)
+    standing = _marked_rule("ZZQ_STANDING")
+    excluded = _marked_rule("ZZQ_EXCLUDED")
+    context.state.ordinary_rule_matches = [RuleEvaluation(rule=urgent, reasoning="matched")]
+    context.state.discovered_rules = {urgent, standing, excluded}
+    context.state.turn_excluded_rule_ids = {excluded.id}
+
+    note = responder._render_deprioritized_rules(context)
+
+    assert note is not None
+    assert "ZZQ_STANDING" in note
+    assert "ZZQ_EXCLUDED" not in note
+
+
+def test_that_the_job_rebuilds_its_system_instructions_when_the_excluded_set_changes() -> None:
+    responder = _make_responder()
+    context = _context(MessageOutputMode.STREAM)
+    kept = _marked_rule("ZZQ_KEPT")
+    later = _marked_rule("ZZQ_LATER")
+    context.state.discovered_rules = {kept, later}
+
+    job = responder._build_job(context)
+    assert job.system_instructions_provider is not None
+
+    assert "ZZQ_LATER" in job.system_instructions_provider(context)
+
+    # An excluder matched mid-turn.
+    context.state.turn_excluded_rule_ids = {later.id}
+
+    assert "ZZQ_LATER" not in job.system_instructions_provider(context)
+    assert context.state.rendered_rule_ids == {kept.id}
+
+
+def test_that_the_system_instructions_are_not_rebuilt_while_the_excluded_set_is_unchanged() -> None:
+    # A rule admitted mid-turn must not re-render the cached prefix on its own;
+    # only a change in exclusion justifies breaking it.
+    responder = _make_responder()
+    context = _context(MessageOutputMode.STREAM)
+    kept = _marked_rule("ZZQ_KEPT")
+    context.state.discovered_rules = {kept}
+
+    job = responder._build_job(context)
+    assert job.system_instructions_provider is not None
+    first = job.system_instructions_provider(context)
+
+    context.state.discovered_rules = {kept, _marked_rule("ZZQ_ADMITTED_MID_TURN")}
+
+    assert job.system_instructions_provider(context) == first

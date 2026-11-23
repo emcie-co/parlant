@@ -4,10 +4,7 @@
   <img src="https://trendshift.io/api/badge/repositories/12768" alt="Trending" width="250" height="55" />
 </a>
 </p>
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/emcie-co/parlant/blob/develop/docs/LogoTransparentLight.png?raw=true">
-  <img alt="Parlant" src="https://github.com/emcie-co/parlant/blob/develop/docs/LogoTransparentDark.png?raw=true" width="400" />
-</picture>
+<img alt="Parlant: Streamlined CX" src="https://github.com/emcie-co/parlant/blob/develop/docs/parlant-streamlined-cx.jpg?raw=true" width="675" />
 
 ### Build your CX with AI: better, faster, for a fraction of the cost.
 
@@ -88,6 +85,14 @@ The Dashboard platform is always there for you to peek into any detail visually.
 
 <table align="center"><tr><td>
   <img alt="A customer session on the Parlant Dashboard: the conversation, the agent's reasoning and model costs for each turn, and a summary of the session" src="https://github.com/emcie-co/parlant/blob/develop/docs/dashboard-session.png?raw=true" width="900" />
+</td></tr></table>
+
+<table align="center"><tr><td>
+  <img alt="The project overview on the Parlant Dashboard: simulated and live sessions, the most active labels and sessions per day for each agent" src="https://github.com/emcie-co/parlant/blob/develop/docs/dashboard-overview.png?raw=true" width="900" />
+</td></tr></table>
+
+<table align="center"><tr><td>
+  <img alt="Model spend on the Parlant Dashboard: total and per-session spend, spend per hour by model, and the most expensive sessions" src="https://github.com/emcie-co/parlant/blob/develop/docs/dashboard-spend.png?raw=true" width="900" />
 </td></tr></table>
 
 ## Get properly introduced

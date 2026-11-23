@@ -560,3 +560,32 @@ async def test_that_creating_a_cycle_across_dependency_and_dependency_any_raises
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id="test-group",
         )
+
+
+async def test_that_creating_a_circular_exclusion_raises_an_error(
+    relationship_store: RelationshipStore,
+) -> None:
+    """A excludes B, B excludes C, then C excludes A has no consistent answer."""
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
+        kind=RelationshipKind.EXCLUSION,
+    )
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
+        kind=RelationshipKind.EXCLUSION,
+    )
+
+    with pytest.raises(ValueError, match="[Cc]ircular"):
+        await relationship_store.create_relationship(
+            source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+            kind=RelationshipKind.EXCLUSION,
+        )
+
+    assert len(await relationship_store.list_relationships(kind=RelationshipKind.EXCLUSION)) == 2

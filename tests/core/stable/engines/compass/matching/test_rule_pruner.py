@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, Mapping, cast
+from dataclasses import replace
+from typing import Any, Mapping, Sequence, cast
 
 from parlant.core.container import Container
-from pytest import fixture
+from pytest import fixture, mark
 
 from parlant.core.agents import Effort
+from parlant.core.common import Weight
 from parlant.core.nlp.prompt_routing import PromptConfigurationService
 from parlant.core.engines.compass.matching.rule_ranker import RuleRankSchema
 from parlant.core.engines.compass.matching.rule_pruner import (
@@ -29,6 +31,12 @@ from parlant.core.engines.compass.optimization_policy import CompassOptimization
 from parlant.core.rules import Rule
 from parlant.core.loggers import StdoutLogger
 from parlant.core.nlp.common import UsageInfo
+from parlant.core.nlp.decision import (
+    DecisionMaker,
+    DecisionResult,
+    Proposition,
+    PropositionAnswer,
+)
 from parlant.core.nlp.generation import SchematicGenerationResult
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import EventSource
@@ -46,12 +54,23 @@ def pruner(container: Container) -> RulePruner:
 
 
 class _FakeModelRouter:
-    def __init__(self, generator: Any, reasoning_effort: str | None) -> None:
+    def __init__(
+        self,
+        generator: Any,
+        reasoning_effort: str | None,
+        decision_maker: DecisionMaker | None = None,
+    ) -> None:
         self._generator = generator
         self._reasoning_effort = reasoning_effort
+        self._decision_maker = decision_maker
+        self.decision_lookups: list[Mapping[str, Any]] = []
 
     async def get_schematic_generator(self, **kwargs: Any) -> Any:
         return self._generator
+
+    async def get_decision_maker(self, **kwargs: Any) -> DecisionMaker | None:
+        self.decision_lookups.append(kwargs)
+        return self._decision_maker
 
     async def resolve_schematic_reasoning_effort(self, **kwargs: Any) -> str | None:
         return self._reasoning_effort
@@ -60,6 +79,8 @@ class _FakeModelRouter:
 def _make_pruner(
     generator: Any = None,
     reasoning_effort: str | None = None,
+    decision_maker: DecisionMaker | None = None,
+    router: _FakeModelRouter | None = None,
 ) -> RulePruner:
     # The prompt-building helpers only read the context, so tests that don't
     # generate can pass a None generator.
@@ -67,7 +88,9 @@ def _make_pruner(
     return RulePruner(
         logger=StdoutLogger(tracer),
         tracer=tracer,
-        model_router=cast(Any, _FakeModelRouter(generator, reasoning_effort)),
+        model_router=cast(
+            Any, router or _FakeModelRouter(generator, reasoning_effort, decision_maker)
+        ),
         prompt_config=PromptConfigurationService(),
     )
 
@@ -300,6 +323,207 @@ async def test_that_pruning_scores_map_to_still_relevant_above_the_threshold() -
     by_score = sorted(result.pruned_rules, key=lambda c: c.score)
     assert [c.is_still_relevant for c in by_score] == [False, True, True]
     assert [c.score for c in by_score] == [1 / 5, 3 / 5, 5 / 5]
+
+
+# --- Decision path ------------------------------------------------------------
+#
+# Where the ranker would ask its rules as one batched decision (no per-rule
+# explanation wanted, and a decision model configured for matching.rank), the
+# pruner does the same: one decision call for every candidate, instead of one
+# schematic call per rule.
+
+
+class _RecordingDecisionMaker(DecisionMaker):
+    """Answers every proposition from a fixed table (default 0.9), recording the asks."""
+
+    def __init__(
+        self,
+        probabilities: Sequence[float] = (),
+        fail: bool = False,
+    ) -> None:
+        self._probabilities = list(probabilities)
+        self._fail = fail
+        self.calls: list[tuple[Any, Mapping[str, Any]]] = []
+
+    async def decide(
+        self,
+        state: Any,
+        questions: Mapping[str, Any],
+        hints: Mapping[str, Any] = {},
+    ) -> DecisionResult:
+        self.calls.append((state, questions))
+        if self._fail:
+            raise RuntimeError("boom")
+        probabilities = self._probabilities or [0.9] * len(questions)
+        return DecisionResult(
+            answers={
+                name: PropositionAnswer(probability=probability)
+                for name, probability in zip(questions, probabilities)
+            },
+            info=GenerationInfo(
+                schema_name="Decision",
+                model="test-decision-model",
+                duration=0.01,
+                usage=UsageInfo(input_tokens=100, output_tokens=0, requests=1),
+            ),
+        )
+
+    @property
+    def id(self) -> str:
+        return "recording-decision-maker"
+
+    @property
+    def max_tokens(self) -> int:
+        return 32768
+
+
+class _CountingGenerator:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(
+        self,
+        prompt: Any,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[RuleRankSchema]:
+        self.calls += 1
+        return SchematicGenerationResult(
+            content=RuleRankSchema(tldr="scored", s=4),
+            info=_generation_info(),
+        )
+
+
+def _effort_context(effort: Effort) -> EngineContext:
+    context = create_engine_context(conversation=[(EventSource.CUSTOMER, "hello")])
+    context.state = ResponseState(agent_effort=effort)
+    return context
+
+
+def _rules(count: int = 3) -> list[Rule]:
+    return [create_rule(condition=f"condition {i}", action=f"action {i}") for i in range(count)]
+
+
+@mark.parametrize("effort", [Effort.MIN, Effort.LOW, Effort.MEDIUM])
+async def test_that_the_pruner_asks_every_rule_in_one_decision_up_to_medium_effort(
+    effort: Effort,
+) -> None:
+    decision_maker = _RecordingDecisionMaker()
+    generator = _CountingGenerator()
+    pruner = _make_pruner(generator, decision_maker=decision_maker)
+    rules = _rules()
+
+    result = await pruner.prune(_effort_context(effort), rules)
+
+    assert len(decision_maker.calls) == 1
+    assert generator.calls == 0  # the per-rule fan-out never ran
+    (_state, questions) = decision_maker.calls[0]
+    assert len(questions) == len(rules)
+    assert all(isinstance(q, Proposition) for q in questions.values())
+    assert {p.rule.id for p in result.pruned_rules} == {r.id for r in rules}
+
+
+async def test_that_the_pruner_keeps_the_per_rule_fan_out_at_max_effort() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    generator = _CountingGenerator()
+    router = _FakeModelRouter(generator, None, decision_maker)
+    pruner = _make_pruner(router=router)
+
+    await pruner.prune(_effort_context(Effort.MAX), _rules())
+
+    assert decision_maker.calls == []
+    assert router.decision_lookups == []  # no lookup it could not act on
+    assert generator.calls == 3
+
+
+async def test_that_at_high_effort_only_high_weight_rules_get_the_per_rule_fan_out() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    generator = _CountingGenerator()
+    pruner = _make_pruner(generator, decision_maker=decision_maker)
+    rules = [
+        replace(create_rule(condition=f"condition {i}", action="action"), weight=weight)
+        for i, weight in enumerate([Weight.LOW, Weight.MEDIUM, Weight.HIGH])
+    ]
+
+    result = await pruner.prune(_effort_context(Effort.HIGH), rules)
+
+    assert len(decision_maker.calls) == 1
+    (_state, questions) = decision_maker.calls[0]
+    assert set(questions) == {str(r.id) for r in rules if r.weight != Weight.HIGH}
+    assert generator.calls == 1
+    assert [p.rule.id for p in result.pruned_rules] == [r.id for r in rules]
+    assert result.generation_info is not None
+    assert result.generation_info.usage.requests == 2
+
+
+async def test_that_the_pruner_keeps_the_per_rule_fan_out_without_a_decision_model() -> None:
+    generator = _CountingGenerator()
+    pruner = _make_pruner(generator)
+
+    await pruner.prune(_effort_context(Effort.LOW), _rules())
+
+    assert generator.calls == 3
+
+
+async def test_that_the_pruner_looks_up_its_decision_model_on_the_matching_rank_route() -> None:
+    router = _FakeModelRouter(_CountingGenerator(), None, _RecordingDecisionMaker())
+    pruner = _make_pruner(router=router)
+
+    await pruner.prune(_effort_context(Effort.LOW), _rules())
+
+    assert [lookup["route"] for lookup in router.decision_lookups] == ["matching.rank"]
+
+
+@mark.parametrize(
+    ("probability", "still_relevant"),
+    [(0.0, False), (0.49, False), (0.5, True), (0.99, True)],
+)
+async def test_that_a_decision_probability_becomes_the_pruned_rules_score(
+    probability: float,
+    still_relevant: bool,
+) -> None:
+    pruner = _make_pruner(
+        _CountingGenerator(),
+        decision_maker=_RecordingDecisionMaker(probabilities=[probability]),
+    )
+
+    result = await pruner.prune(_effort_context(Effort.LOW), _rules(1))
+
+    (pruned,) = result.pruned_rules
+    assert pruned.score == probability
+    assert pruned.is_still_relevant is still_relevant
+    assert pruned.reasoning  # says why without a tldr
+
+
+async def test_that_the_decision_path_reports_the_decisions_usage() -> None:
+    pruner = _make_pruner(_CountingGenerator(), decision_maker=_RecordingDecisionMaker())
+
+    result = await pruner.prune(_effort_context(Effort.LOW), _rules())
+
+    assert result.generation_info is not None
+    assert result.generation_info.usage.requests == 1
+    assert result.generation_info.usage.input_tokens == 100
+
+
+async def test_that_a_failed_pruning_decision_keeps_every_rule() -> None:
+    pruner = _make_pruner(_CountingGenerator(), decision_maker=_RecordingDecisionMaker(fail=True))
+    rules = _rules()
+
+    result = await pruner.prune(_effort_context(Effort.LOW), rules)
+
+    assert {p.rule.id for p in result.pruned_rules} == {r.id for r in rules}
+    assert all(p.is_still_relevant and p.score == 1.0 for p in result.pruned_rules)
+    assert result.generation_info is None
+
+
+async def test_that_the_pruning_decision_state_asks_no_score_or_json_output() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    pruner = _make_pruner(_CountingGenerator(), decision_maker=decision_maker)
+
+    await pruner.prune(_effort_context(Effort.LOW), _rules())
+
+    (state, _questions) = decision_maker.calls[0]
+    assert "OUTPUT FORMAT" not in state
+    assert "integer score" not in state
 
 
 # --- LLM-behavioral -----------------------------------------------------------

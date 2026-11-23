@@ -20,12 +20,62 @@ Each entry says what changed and what it means for you, under `Added`,
   Both keep its saved daily number, protocols and other settings. `get` and
   `set` show the saved simulation state and daily number.
 
+### Changed
+
+- Pruning of a session's discovered rules now asks one decision-model call
+  about all the rules at once, instead of one small-model call per rule. This
+  applies at MIN, LOW and MEDIUM effort, when a decision model is configured
+  for `matching.rank` (it is by default with Gemini), the same as rule ranking.
+  At HIGH and MAX effort, or with no decision model, each rule still gets its
+  own call with a written reason. Pruning costs much less: on Gemini, about 40
+  gemini-3.1-flash-lite calls become one gemini-decision-1 call.
+- At HIGH effort, rule ranking and pruning now give a per-rule verdict, with
+  its written reason, only to HIGH-weight rules. All other rules are judged in
+  one decision-model call, when one is configured. MAX effort still gives
+  every rule its own call. HIGH-effort turns get cheaper and faster. If you
+  need a rule judged with a written reason at HIGH effort, give it HIGH weight.
+
 ### Fixed
 
+- Pruning of a session's discovered rules no longer runs before the session's
+  tenth customer message. The once-per-10-messages limit used to apply only
+  after the first pruning, so a first message that pulled in many rules could
+  set off one small-model call per rule right away. Early turns now cost less.
 - Dashboard CLI sign-in requests permission to manage A2A settings through the
   browser approval flow. Owners and Admins with an older sign-in can run
   `parlant dashboard auth login --reauthorize` to approve the added permission.
   Workspace roles still decide who may change these settings.
+
+## [4.0.8] - 2026-11-23
+
+### Fixed
+
+- `parlant lint` rule WTV001 now tells coding agents to preserve required
+  disclosures and actions when removing duplicated canned-response wording.
+
+## [4.0.7] - 2026-11-21
+
+### Added
+
+- `exclude()` on rules and groups, and `except_when=[...]` on
+  `create_policy()` and `create_observation()`, add an exclusion: while the
+  excluding rule applies, the excluded one is ignored completely. Unlike
+  `prioritize_over()`, which keeps the losing policy in the agent's
+  instructions with a note to set it aside, an excluded rule is left out of
+  the prompt, its tools are not offered (unless another rule also grants
+  them), and it entails, satisfies and outranks nothing, so a rule that
+  depends on it loses too. It comes back as soon as the excluding rule stops
+  applying. An excluded rule excludes nothing in turn, and exclusion is
+  resolved before priority. Excluding itself, excluding something it depends
+  on, and loops of exclusions are refused. When an exclusion starts or stops
+  applying mid-response, the agent's system instructions are rebuilt, so that
+  step does not reuse the cached prompt prefix.
+
+### Fixed
+
+- Rejected rule edits that remove all text now leave the original rule and its
+  search vectors unchanged. Previously an empty or whitespace-only edit could
+  fail after saving, leaving unreadable rule data or stale vectors behind.
 
 ## [4.0.6] - 2026-11-16
 

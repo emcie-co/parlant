@@ -12,14 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Optional, cast
 
 import pytest
 
 from parlant.core.agents import Effort
-from parlant.core.common import Weight, generate_id
+from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.adapters.vector_db.transient import TransientVectorDatabase
+from parlant.core.common import IdGenerator, Weight, generate_id
 from parlant.core.container import Container
+from parlant.core.groups import GroupId
+from parlant.core.loggers import CompositeLogger
+from parlant.core.nlp.embedding import Embedder, NullEmbeddingCache
+from parlant.core.tracer import LocalTracer
 
 from parlant.core.rules import (
     Rule,
@@ -50,6 +58,71 @@ def _rule(
         condition=condition,
         title=title,
     )
+
+
+@pytest.mark.parametrize(
+    ("content", "rejects_update"),
+    [
+        pytest.param("", True, id="empty"),
+        pytest.param(" \t\n", True, id="whitespace"),
+        pytest.param("Offer refunds within sixty days.", False, id="valid-partial"),
+    ],
+)
+async def test_that_rule_updates_preserve_existing_data_or_refresh_vectors(
+    content: str,
+    rejects_update: bool,
+) -> None:
+    logger = CompositeLogger([])
+    embedder = DeterministicEmbedder()
+
+    async def provide_embedder() -> Embedder:
+        return embedder
+
+    async with RuleVectorStore(
+        IdGenerator(),
+        TransientVectorDatabase(logger, LocalTracer(), NullEmbeddingCache),
+        TransientDocumentDatabase(),
+        provide_embedder,
+    ) as store:
+        original = await store.create_rule(
+            content="Offer refunds within thirty days.",
+            weight=Weight.LOW,
+            metadata={"source": "refund-policy"},
+            groups=[GroupId("refunds")],
+            labels={"refunds"},
+            priority=7,
+            signals=["I want my money back"],
+        )
+        before_document = deepcopy(await store._collection.find_one({"id": {"$eq": original.id}}))
+        before_vectors = deepcopy(
+            list(await store._vector_collection.find({"rule_id": {"$eq": original.id}}))
+        )
+
+        if rejects_update:
+            with pytest.raises(ValueError):
+                await store.update_rule(original.id, {"content": content})
+
+            assert await store._collection.find_one({"id": {"$eq": original.id}}) == (
+                before_document
+            )
+            assert (
+                list(await store._vector_collection.find({"rule_id": {"$eq": original.id}}))
+                == before_vectors
+            )
+            assert await store.read_rule(original.id) == original
+            assert list(await store.list_rules()) == [original]
+        else:
+            updated = await store.update_rule(original.id, {"content": content})
+
+            assert updated == replace(original, content=content, modified_utc=updated.modified_utc)
+            assert await store.read_rule(original.id) == updated
+            assert list(await store.list_rules()) == [updated]
+            vectors = list(await store._vector_collection.find({"rule_id": {"$eq": original.id}}))
+            assert len(vectors) == 2
+            assert {document["content"] for document in vectors} == {
+                content,
+                *original.signals,
+            }
 
 
 # ─────────────────────────── embedding format ───────────────────────────────

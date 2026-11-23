@@ -44,11 +44,13 @@ class ToolRecaller(ToolSelector):
         model_router: ModelRouter,
         embedding_cache: EmbeddingCache,
         max_tools: int = DEFAULT_MAX_TOOLS,
+        min_relevance_score: float | None = None,
     ) -> None:
         self._entity_queries = entity_queries
         self._model_router = model_router
         self._embedding_cache = embedding_cache
         self._max_tools = max_tools
+        self._min_relevance_score = min_relevance_score
 
     async def prepare(self, context: EngineContext) -> None:
         tools_by_rule = await self._load_tools_by_rule(context)
@@ -60,6 +62,21 @@ class ToolRecaller(ToolSelector):
     async def select(self, context: EngineContext) -> None:
         tools_by_id = self._tools_by_id(context.state.tools_by_rule)
 
+        # A tool only an excluded rule grants is withheld this turn; one that
+        # any other rule also grants stays in the catalog.
+        if excluded := context.state.turn_excluded_rule_ids:
+            granted_elsewhere = {
+                tool_id
+                for rule_id, pairs in context.state.tools_by_rule.items()
+                if rule_id not in excluded
+                for tool_id, _ in pairs
+            }
+            tools_by_id = {
+                tool_id: tool
+                for tool_id, tool in tools_by_id.items()
+                if tool_id in granted_elsewhere
+            }
+
         turn_tool_ids = list(
             dict.fromkeys(
                 tool_id
@@ -69,7 +86,11 @@ class ToolRecaller(ToolSelector):
             )
         )
 
-        discovered_rule_ids = {rule.id for rule in context.state.discovered_rules}
+        discovered_rule_ids = {
+            rule.id
+            for rule in context.state.discovered_rules
+            if rule.id not in context.state.turn_excluded_rule_ids
+        }
         session_tool_ids = [
             tool_id
             for rule_id in sorted(discovered_rule_ids, key=str)
@@ -161,7 +182,12 @@ class ToolRecaller(ToolSelector):
         remaining_tool_ids = [
             tool_id
             for tool_id in all_tool_ids
-            if tool_id not in turn_set and tool_id not in session_set
+            if tool_id not in turn_set
+            and tool_id not in session_set
+            and (
+                self._min_relevance_score is None
+                or scores.get(tool_id, 0.0) >= self._min_relevance_score
+            )
         ]
 
         add_bucket(turn_tool_ids)

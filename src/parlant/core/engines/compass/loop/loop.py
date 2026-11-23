@@ -33,6 +33,10 @@ class LoopJob:
     context: EngineContext
     system_instructions: str
     step_instructions: Callable[[EngineContext], Awaitable[str]] | None = None
+    # Renders the system instructions for a step when they may change mid-turn
+    # (exclusion can remove or reinstate rules). None keeps them fixed at
+    # ``system_instructions`` for the whole turn.
+    system_instructions_provider: Callable[[EngineContext], str] | None = None
     reasoning_config: ReasoningConfig | None = None
     preamble_config: PreambleConfiguration = PreambleConfiguration.default()
     # Last-resort text for a message blocked by agent moderation (see the Responder's

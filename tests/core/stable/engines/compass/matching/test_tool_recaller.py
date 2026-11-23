@@ -433,3 +433,113 @@ async def test_that_a_cumulative_tool_query_exceeding_the_embedder_token_budget_
 
     assert scores[refund_tool_id] > scores[hours_tool_id]
     assert all(len(text.split()) <= 32 for call in embedder.embed_calls for text in call)
+
+
+@pytest.mark.asyncio
+async def test_that_a_tool_granted_only_by_an_excluded_rule_is_not_offered() -> None:
+    excluded_rule = create_rule("customer asks about the standard lounge")
+    other_rule = create_rule("customer may need support")
+    lounge_tool = ToolId("local", "book_standard_lounge")
+    support_tool = ToolId("local", "open_ticket")
+    tools = {
+        lounge_tool: _tool("book_standard_lounge"),
+        support_tool: _tool("open_ticket"),
+    }
+    recaller = _ScoredToolRecaller(
+        [_association(excluded_rule, lounge_tool), _association(other_rule, support_tool)],
+        tools,
+        # The excluded tool scores highest, so only exclusion keeps it out.
+        scores={lounge_tool: 1.0, support_tool: 0.1},
+        max_tools=5,
+    )
+    context = _context_with_rules(excluded_rule, other_rule, discovered_rules={excluded_rule})
+    context.state.turn_excluded_rule_ids = {excluded_rule.id}
+
+    selected = await _prepare_and_select(recaller, context)
+
+    assert selected == ["open_ticket"]
+    assert "book_standard_lounge" not in context.state.tool_ids_by_name
+
+
+@pytest.mark.asyncio
+async def test_that_a_tool_also_granted_by_an_active_rule_is_still_offered() -> None:
+    excluded_rule = create_rule("customer asks about the standard lounge")
+    active_rule = create_rule("customer asks about any lounge")
+    lounge_tool = ToolId("local", "list_lounges")
+    tools = {lounge_tool: _tool("list_lounges")}
+    recaller = _ScoredToolRecaller(
+        [_association(excluded_rule, lounge_tool), _association(active_rule, lounge_tool)],
+        tools,
+        scores={lounge_tool: 0.5},
+        max_tools=5,
+    )
+    context = _context_with_rules(
+        excluded_rule,
+        active_rule,
+        discovered_rules={excluded_rule, active_rule},
+    )
+    context.state.turn_excluded_rule_ids = {excluded_rule.id}
+
+    selected = await _prepare_and_select(recaller, context)
+
+    assert selected == ["list_lounges"]
+
+
+def test_that_remaining_tools_below_min_relevance_score_are_filtered_out() -> None:
+    t1 = ToolId("local", "tool_high")
+    t2 = ToolId("local", "tool_borderline")
+    t3 = ToolId("local", "tool_irrelevant")
+    tools = {
+        t1: _tool("tool_high"),
+        t2: _tool("tool_borderline"),
+        t3: _tool("tool_irrelevant"),
+    }
+    scores = {
+        t1: 0.8,
+        t2: 0.1,
+        t3: -0.4,
+    }
+
+    # With default min_relevance_score=None, all remaining tools are selected
+    recaller_default = ToolRecaller(
+        entity_queries=cast(Any, None),
+        model_router=cast(Any, None),
+        embedding_cache=cast(Any, None),
+        max_tools=16,
+    )
+    selected_default = recaller_default._select_tool_ids(
+        turn_tool_ids=[],
+        session_tool_ids=[],
+        all_tool_ids=[t1, t2, t3],
+        tools_by_id=tools,
+        scores=scores,
+    )
+    assert selected_default == [t1, t2, t3]
+
+    # With min_relevance_score=0.0, negative score tools are filtered out
+    recaller_with_floor = ToolRecaller(
+        entity_queries=cast(Any, None),
+        model_router=cast(Any, None),
+        embedding_cache=cast(Any, None),
+        max_tools=16,
+        min_relevance_score=0.0,
+    )
+    selected_with_floor = recaller_with_floor._select_tool_ids(
+        turn_tool_ids=[],
+        session_tool_ids=[],
+        all_tool_ids=[t1, t2, t3],
+        tools_by_id=tools,
+        scores=scores,
+    )
+    assert selected_with_floor == [t1, t2]
+
+    # Rule-enabled tools in turn_tool_ids or session_tool_ids bypass the score floor
+    selected_rule_bypass = recaller_with_floor._select_tool_ids(
+        turn_tool_ids=[t3],
+        session_tool_ids=[],
+        all_tool_ids=[t1, t2, t3],
+        tools_by_id=tools,
+        scores=scores,
+    )
+    assert t3 in selected_rule_bypass
+

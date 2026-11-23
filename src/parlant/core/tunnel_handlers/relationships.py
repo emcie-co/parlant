@@ -34,6 +34,7 @@ _PUBLIC_RELATIONSHIP_KINDS: Mapping[str, RelationshipKind] = MappingProxyType(
         "priority": RelationshipKind.PRIORITY,
         "dependency": RelationshipKind.DEPENDENCY,
         "dependency_any": RelationshipKind.DEPENDENCY_ANY,
+        "exclusion": RelationshipKind.EXCLUSION,
         "reevaluation": RelationshipKind.REEVALUATION,
         "overlap": RelationshipKind.OVERLAP,
     }

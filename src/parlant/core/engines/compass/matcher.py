@@ -573,7 +573,8 @@ class Matcher:
         to the target — exempting HIGH-weight members and this turn's matches.
         Runs post-response (finalize), so the responder-prefix cache miss the
         eviction causes lands between turns; rate-limited to once per
-        ``_MIN_CUSTOMER_MESSAGES_BETWEEN_PRUNINGS`` customer messages. Best-effort:
+        ``_MIN_CUSTOMER_MESSAGES_BETWEEN_PRUNINGS`` customer messages, counted from
+        the start of the session before the first pruning. Best-effort:
         a pruning failure must never fail the turn.
         """
         try:
@@ -664,15 +665,16 @@ class Matcher:
             _LAST_DISCOVERED_RULE_PRUNING_OFFSET_PATH,
         )
 
-        if last_pruning_offset is None:
-            return True
+        # Before the first pruning, count from the start of the session: a turn that
+        # discovers many rules early must not buy a pruning on the first message.
+        counted_after = -1 if last_pruning_offset is None else cast(int, last_pruning_offset)
 
         new_customer_messages = sum(
             1
             for event in context.interaction.events
             if event.kind == EventKind.MESSAGE
             and event.source == EventSource.CUSTOMER
-            and event.offset > cast(int, last_pruning_offset)
+            and event.offset > counted_after
         )
 
         return new_customer_messages >= self._MIN_CUSTOMER_MESSAGES_BETWEEN_PRUNINGS

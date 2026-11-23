@@ -2,13 +2,15 @@
 
 ## WTV001 (HIGH): Don't repeat a canned response's wording in its policy
 
-Flag every policy that has canned responses attached (`canned_responses=[...]`)
-and also spells out their wording in its `content`. The canned response
-already carries the wording; repeating it in the policy makes two sources of
-truth, which drift apart the first time one of them is edited, and the
-policy's copy competes with the template when the agent writes its reply.
+Flag a policy with attached canned responses (`canned_responses=[...]`) only
+when its `content` repeats the response's exact or nearly exact phrasing as a
+script for the agent to say. The canned response already carries the wording.
+Repeating it in the policy creates two copies that can drift apart and compete
+when the agent writes its reply.
 
-In the policy, refer to the relevant "reference wording" instead of quoting it.
+When fixing a finding, keep the trigger and every required disclosure, fact,
+and action explicit in the policy. Summarize any requirements that were only
+in the quoted reply. Use the canned response as a phrasing example.
 
 Before:
 
@@ -31,11 +33,19 @@ After:
 await agent.create_policy(
     content=(
         "When a tool result confirms the refund was issued, tell the customer "
-        "it's on the way, using the reference wording"
+        "the refund was issued, give the amount, and say it should arrive "
+        "within 5 to 10 business days."
     ),
     canned_responses=[refund_started],
 )
 ```
+
+A policy can state a required disclosure in its own words and use an attached
+canned response to illustrate how to phrase it. For example, a policy might say
+`If the information is unavailable, tell the customer you don't have it.` An
+attached response could say `I don't have that information right now.` WTV001
+allows this pairing. The policy keeps the disclosure explicit if the canned
+response is edited or removed.
 
 ## WTV002 (MEDIUM): Shape wording and tone with canned responses, not instructions or policies
 

@@ -198,23 +198,50 @@ class RuleRanker(TurnEvaluator):
             t_start = time.monotonic()
 
             # Resolve a decision model only where the effort could use one, so a
-            # high-effort turn never pays for a lookup it cannot act on.
+            # MAX-effort turn never pays for a lookup it cannot act on.
             if self._may_use_decisions(context):
                 if decision_maker := await self._resolve_decision_maker(context):
                     evaluations, info = await self._decide_rules(context, rules, decision_maker)
                     CompassTracer(self._tracer).rules_ranked(evaluations)
                     return RuleEvaluationResult(evaluations=evaluations, generation_info=info)
 
-            results = await asyncio.gather(*(self._rank_rule(context, rule) for rule in rules))
+            # At HIGH effort, only HIGH-weight rules are worth a per-rule verdict
+            # with its tldr; the rest are asked as one decision, when one is set up.
+            decided: list[Rule] = []
+            high_effort_decision_maker: DecisionMaker | None = None
+            if self._decides_below_high_weight(context) and any(
+                rule.weight != Weight.HIGH for rule in rules
+            ):
+                high_effort_decision_maker = await self._resolve_decision_maker(context)
+                if high_effort_decision_maker:
+                    decided = [rule for rule in rules if rule.weight != Weight.HIGH]
+            decided_ids = {rule.id for rule in decided}
+            fanned_out = [rule for rule in rules if rule.id not in decided_ids]
+
+            async def decide() -> tuple[list[RuleEvaluation], list[GenerationInfo]]:
+                if not decided:
+                    return [], []
+                assert high_effort_decision_maker is not None
+                evaluations, info = await self._decide_rules(
+                    context, decided, high_effort_decision_maker
+                )
+                return evaluations, [info]
+
+            decision_outcome, results = await asyncio.gather(
+                decide(),
+                asyncio.gather(*(self._rank_rule(context, rule) for rule in fanned_out)),
+            )
 
             t_end = time.monotonic()
 
-            evaluations = [evaluation for evaluation, _ in results]
+            by_id = {e.rule.id: e for e in decision_outcome[0]}
+            by_id.update({evaluation.rule.id: evaluation for evaluation, _ in results})
+            evaluations = [by_id[rule.id] for rule in rules]
             CompassTracer(self._tracer).rules_ranked(evaluations)
             return RuleEvaluationResult(
                 evaluations=evaluations,
                 generation_info=aggregate_generation_info(
-                    [info for _, info in results],
+                    [*decision_outcome[1], *(info for _, info in results)],
                     total_duration=t_end - t_start,
                 ),
             )
@@ -237,6 +264,12 @@ class RuleRanker(TurnEvaluator):
         model returns no prose. Deriving it from the tldr gate rather than
         repeating an effort list keeps the two from drifting apart."""
         return not self._should_include_tldr(context)
+
+    def _decides_below_high_weight(self, context: EngineContext) -> bool:
+        """Whether this turn asks its non-HIGH-weight rules as one decision, keeping
+        the per-rule verdict (and its tldr) for HIGH-weight rules only. True at
+        HIGH effort; MAX keeps the per-rule verdict for every rule."""
+        return context.state.dynamic_effort_level == Effort.HIGH
 
     async def _resolve_decision_maker(self, context: EngineContext) -> DecisionMaker | None:
         """The decision model configured for the ranker's route, if any.
@@ -570,13 +603,25 @@ class RuleRanker(TurnEvaluator):
             weight=Weight.LOW,
         )
 
-    def _format_shots(self, context: EngineContext, shots: Sequence[RuleRankingShot]) -> str:
+    def _format_shots(
+        self,
+        context: EngineContext,
+        shots: Sequence[RuleRankingShot],
+        *,
+        for_decision: bool = False,
+    ) -> str:
         return "\n".join(
-            f"Example #{i}: ###\n{self._format_shot(context, shot)}"
+            f"Example #{i}: ###\n{self._format_shot(context, shot, for_decision=for_decision)}"
             for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(self, context: EngineContext, shot: RuleRankingShot) -> str:
+    def _format_shot(
+        self,
+        context: EngineContext,
+        shot: RuleRankingShot,
+        *,
+        for_decision: bool = False,
+    ) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
                 EventSource.CUSTOMER: "user",
@@ -608,7 +653,13 @@ class RuleRanker(TurnEvaluator):
 """
 
         expected_result = shot.expected_result.model_dump(mode="json")
-        if not self._should_include_tldr(context) or expected_result.get("tldr") is None:
+        # A decision model writes no tldr (at HIGH effort, where the per-rule
+        # verdicts do, its examples must not ask for one either).
+        if (
+            for_decision
+            or not self._should_include_tldr(context)
+            or expected_result.get("tldr") is None
+        ):
             expected_result.pop("tldr", None)
 
         formatted_shot += f"""
@@ -814,7 +865,7 @@ Important considerations:
 {formatted_shots}
 """,
             props={
-                "formatted_shots": self._format_shots(context, shots),
+                "formatted_shots": self._format_shots(context, shots, for_decision=for_decision),
                 "shots": shots,
             },
         )

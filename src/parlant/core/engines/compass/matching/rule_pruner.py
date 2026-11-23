@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from parlant.core.agents import Effort
-from parlant.core.common import JSONSerializable, to_prompt_json
+from parlant.core.common import JSONSerializable, Weight, to_prompt_json
 from parlant.core.engines.compass.prompt_builder import (
     BuiltInSection,
     EventAdaptationFormat,
@@ -147,27 +147,57 @@ class RulePruner:
             shots = await self.shots()
 
             # Resolve a decision model only where the effort could use one, so a
-            # high-effort pruning never pays for a lookup it cannot act on.
+            # MAX-effort pruning never pays for a lookup it cannot act on.
             if self._may_use_decisions(context):
                 if decision_maker := await self._resolve_decision_maker(context):
                     return await self._decide_rules(context, rules, shots, decision_maker)
 
-            # Warm-first-then-fan-out: the first call alone populates the provider's
-            # prefix cache (the shared prefix is identical across the fan-out), so
-            # the remaining calls send only their live suffixes. We're off the
-            # user-facing path, so the extra serialized round-trip is free cache money.
-            first_result = await self._prune_rule(context, rules[0], shots)
-            rest_results = await asyncio.gather(
-                *(self._prune_rule(context, g, shots) for g in rules[1:])
-            )
-            results = [first_result, *rest_results]
+            # At HIGH effort, as in the ranker, only HIGH-weight rules get a per-rule
+            # verdict; the rest are asked as one decision, when one is set up.
+            decided: list[Rule] = []
+            high_effort_decision_maker: DecisionMaker | None = None
+            if self._decides_below_high_weight(context) and any(
+                rule.weight != Weight.HIGH for rule in rules
+            ):
+                high_effort_decision_maker = await self._resolve_decision_maker(context)
+                if high_effort_decision_maker:
+                    decided = [rule for rule in rules if rule.weight != Weight.HIGH]
+            decided_ids = {rule.id for rule in decided}
+            fanned_out = [rule for rule in rules if rule.id not in decided_ids]
+
+            async def decide() -> RulePruningResult:
+                if not decided:
+                    return RulePruningResult([], None)
+                assert high_effort_decision_maker is not None
+                return await self._decide_rules(context, decided, shots, high_effort_decision_maker)
+
+            async def fan_out() -> list[tuple[PrunedRule, GenerationInfo | None]]:
+                if not fanned_out:
+                    return []
+                # Warm-first-then-fan-out: the first call alone populates the
+                # provider's prefix cache (the shared prefix is identical across the
+                # fan-out), so the remaining calls send only their live suffixes.
+                # We're off the user-facing path, so the extra serialized round-trip
+                # is free cache money.
+                first_result = await self._prune_rule(context, fanned_out[0], shots)
+                rest_results = await asyncio.gather(
+                    *(self._prune_rule(context, g, shots) for g in fanned_out[1:])
+                )
+                return [first_result, *rest_results]
+
+            decision_result, results = await asyncio.gather(decide(), fan_out())
 
             t_end = time.monotonic()
 
-            infos = [info for _, info in results if info is not None]
+            by_id = {pruned.rule.id: pruned for pruned in decision_result.pruned_rules}
+            by_id.update({pruned.rule.id: pruned for pruned, _ in results})
+            infos = [
+                *([decision_result.generation_info] if decision_result.generation_info else []),
+                *(info for _, info in results if info is not None),
+            ]
 
             return RulePruningResult(
-                pruned_rules=[pruned for pruned, _ in results],
+                pruned_rules=[by_id[rule.id] for rule in rules],
                 generation_info=aggregate_generation_info(
                     infos,
                     total_duration=t_end - t_start,
@@ -247,8 +277,16 @@ class RulePruner:
         """Whether this pruning may ask its rules as one batched decision.
 
         The same efforts at which the ranker does (MIN through MEDIUM): a decision
-        model returns no per-rule prose, and above MEDIUM that prose is wanted."""
+        model returns no per-rule prose. HIGH effort splits by weight (see
+        `_decides_below_high_weight`)."""
         return context.state.dynamic_effort_level in {Effort.MIN, Effort.LOW, Effort.MEDIUM}
+
+    def _decides_below_high_weight(self, context: EngineContext) -> bool:
+        """At HIGH effort, as in the ranker, non-HIGH-weight rules are asked as one
+        decision and only HIGH-weight rules keep a per-rule verdict. (The matcher
+        exempts HIGH-weight rules from pruning, so in practice the whole pruning is
+        one decision.) MAX keeps the per-rule verdict for every rule."""
+        return context.state.dynamic_effort_level == Effort.HIGH
 
     async def _resolve_decision_maker(self, context: EngineContext) -> DecisionMaker | None:
         """The decision model configured for `matching.rank[capability=decision]`,

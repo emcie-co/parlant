@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import asyncio
+from dataclasses import replace
 from typing import Any, Mapping, Sequence, cast
 
 from parlant.core.container import Container
 from pytest import fixture, mark
 
 from parlant.core.agents import Effort
+from parlant.core.common import Weight
 from parlant.core.nlp.prompt_routing import PromptConfigurationService
 from parlant.core.engines.compass.matching.rule_ranker import RuleRankSchema
 from parlant.core.engines.compass.matching.rule_pruner import (
@@ -420,20 +422,37 @@ async def test_that_the_pruner_asks_every_rule_in_one_decision_up_to_medium_effo
     assert {p.rule.id for p in result.pruned_rules} == {r.id for r in rules}
 
 
-@mark.parametrize("effort", [Effort.HIGH, Effort.MAX])
-async def test_that_the_pruner_keeps_the_per_rule_fan_out_above_medium_effort(
-    effort: Effort,
-) -> None:
+async def test_that_the_pruner_keeps_the_per_rule_fan_out_at_max_effort() -> None:
     decision_maker = _RecordingDecisionMaker()
     generator = _CountingGenerator()
     router = _FakeModelRouter(generator, None, decision_maker)
     pruner = _make_pruner(router=router)
 
-    await pruner.prune(_effort_context(effort), _rules())
+    await pruner.prune(_effort_context(Effort.MAX), _rules())
 
     assert decision_maker.calls == []
     assert router.decision_lookups == []  # no lookup it could not act on
     assert generator.calls == 3
+
+
+async def test_that_at_high_effort_only_high_weight_rules_get_the_per_rule_fan_out() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    generator = _CountingGenerator()
+    pruner = _make_pruner(generator, decision_maker=decision_maker)
+    rules = [
+        replace(create_rule(condition=f"condition {i}", action="action"), weight=weight)
+        for i, weight in enumerate([Weight.LOW, Weight.MEDIUM, Weight.HIGH])
+    ]
+
+    result = await pruner.prune(_effort_context(Effort.HIGH), rules)
+
+    assert len(decision_maker.calls) == 1
+    (_state, questions) = decision_maker.calls[0]
+    assert set(questions) == {str(r.id) for r in rules if r.weight != Weight.HIGH}
+    assert generator.calls == 1
+    assert [p.rule.id for p in result.pruned_rules] == [r.id for r in rules]
+    assert result.generation_info is not None
+    assert result.generation_info.usage.requests == 2
 
 
 async def test_that_the_pruner_keeps_the_per_rule_fan_out_without_a_decision_model() -> None:

@@ -36,6 +36,7 @@ from parlant.core.engines.compass.matching.rule_ranker import (
 from parlant.core.engines.compass.context import EngineContext
 from parlant.core.rules import Rule
 from parlant.core.loggers import Logger
+from parlant.core.nlp.decision import DecisionMaker, Proposition, PropositionAnswer
 from parlant.core.nlp.generation import HEDGE_TIMEOUT_HINT
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.prompt_routing import PromptConfigurationService
@@ -115,6 +116,10 @@ class RulePruner:
     """
 
     STILL_RELEVANT_SCORE_THRESHOLD = 3
+    # The decision path's equivalent: a rule stays when it is at least this likely
+    # to still be relevant. Eviction lands at the target by score either way, so
+    # this only labels the verdict; the midpoint matches the ranker's.
+    STILL_RELEVANT_PROBABILITY_THRESHOLD = 0.5
     RULE_CACHE_BREAKPOINT = "- Rule: ###"
 
     def __init__(
@@ -140,6 +145,12 @@ class RulePruner:
         with self._logger.scope("RulePruner"), self._tracer.span("compass.rule_pruner.prune"):
             t_start = time.monotonic()
             shots = await self.shots()
+
+            # Resolve a decision model only where the effort could use one, so a
+            # high-effort pruning never pays for a lookup it cannot act on.
+            if self._may_use_decisions(context):
+                if decision_maker := await self._resolve_decision_maker(context):
+                    return await self._decide_rules(context, rules, shots, decision_maker)
 
             # Warm-first-then-fan-out: the first call alone populates the provider's
             # prefix cache (the shared prefix is identical across the fan-out), so
@@ -232,6 +243,92 @@ class RulePruner:
                 None,
             )
 
+    def _may_use_decisions(self, context: EngineContext) -> bool:
+        """Whether this pruning may ask its rules as one batched decision.
+
+        The same efforts at which the ranker does (MIN through MEDIUM): a decision
+        model returns no per-rule prose, and above MEDIUM that prose is wanted."""
+        return context.state.dynamic_effort_level in {Effort.MIN, Effort.LOW, Effort.MEDIUM}
+
+    async def _resolve_decision_maker(self, context: EngineContext) -> DecisionMaker | None:
+        """The decision model configured for `matching.rank[capability=decision]`,
+        the route the pruner already shares with the ranker. With nothing
+        configured the router returns None and the per-rule fan-out stands."""
+        return await self._model_router.get_decision_maker(
+            context=context,
+            route="matching.rank",
+            qualifiers=context.state.model_route_qualifiers,
+        )
+
+    async def _decide_rules(
+        self,
+        context: EngineContext,
+        rules: Sequence[Rule],
+        shots: Sequence[RulePruningShot],
+        decision_maker: DecisionMaker,
+    ) -> RulePruningResult:
+        """Judge every candidate with a single decision.
+
+        The conversation and its context become the state, shared by all the
+        questions, so the whole pruning costs one round trip instead of one per
+        rule. Fails safe like the fan-out: if the decision fails, every rule stays."""
+        try:
+            state = self._build_shared_prompt(context, shots, for_decision=True).build()
+            questions = {str(rule.id): self._rule_question(rule) for rule in rules}
+
+            decision = await decision_maker.decide(state, questions)
+
+            pruned_rules: list[PrunedRule] = []
+            for rule in rules:
+                answer = decision.answers[str(rule.id)]
+                if not isinstance(answer, PropositionAnswer):
+                    raise TypeError(
+                        f"Expected a proposition answer for rule {rule.id}, "
+                        f"got {type(answer).__name__}"
+                    )
+                probability = answer.probability
+                pruned_rules.append(
+                    PrunedRule(
+                        rule=rule,
+                        reasoning=(
+                            f"This rule was judged {probability:.0%} likely to still be "
+                            "relevant to the conversation."
+                        ),
+                        is_still_relevant=probability >= self.STILL_RELEVANT_PROBABILITY_THRESHOLD,
+                        score=probability,
+                    )
+                )
+
+            return RulePruningResult(pruned_rules=pruned_rules, generation_info=decision.info)
+        except Exception as exc:
+            self._logger.warning(
+                f"Discovered rule pruning decision failed (keeping the rules): {exc}"
+            )
+            return RulePruningResult(
+                pruned_rules=[
+                    PrunedRule(
+                        rule=rule,
+                        reasoning="Pruning evaluation failed; keeping the rule.",
+                        is_still_relevant=True,
+                        score=1.0,
+                    )
+                    for rule in rules
+                ],
+                generation_info=None,
+            )
+
+    def _rule_question(self, rule: Rule) -> Proposition:
+        return Proposition(
+            instructions={
+                "rule": _format_rule(rule.title, rule.condition, rule.content),
+                "question": (
+                    "Is the `rule` still relevant to where the conversation stands now, "
+                    "or likely to matter again later in it? When genuinely torn, lean "
+                    "towards yes."
+                ),
+            },
+        )
+
     def _should_include_tldr(self, context: EngineContext) -> bool:
         match context.state.dynamic_effort_level:
             case Effort.MIN:
@@ -259,13 +356,25 @@ class RulePruner:
     async def shots(self) -> Sequence[RulePruningShot]:
         return await shot_collection.list()
 
-    def _format_shots(self, context: EngineContext, shots: Sequence[RulePruningShot]) -> str:
+    def _format_shots(
+        self,
+        context: EngineContext,
+        shots: Sequence[RulePruningShot],
+        *,
+        for_decision: bool = False,
+    ) -> str:
         return "\n".join(
-            f"Example #{i}: ###\n{self._format_shot(context, shot)}"
+            f"Example #{i}: ###\n{self._format_shot(context, shot, for_decision=for_decision)}"
             for i, shot in enumerate(shots, start=1)
         )
 
-    def _format_shot(self, context: EngineContext, shot: RulePruningShot) -> str:
+    def _format_shot(
+        self,
+        context: EngineContext,
+        shot: RulePruningShot,
+        *,
+        for_decision: bool = False,
+    ) -> str:
         def adapt_event(e: Event) -> JSONSerializable:
             source_map: dict[EventSource, str] = {
                 EventSource.CUSTOMER: "user",
@@ -301,6 +410,15 @@ class RulePruner:
         }
 
 """
+
+        # A decision model answers yes or no, so its examples show the verdict
+        # the score stands for rather than a 1-5 score it cannot produce.
+        if for_decision:
+            still_relevant = shot.expected_result.s >= self.STILL_RELEVANT_SCORE_THRESHOLD
+            formatted_shot += f"""
+- **Still relevant**: {"yes" if still_relevant else "no"}
+"""
+            return formatted_shot
 
         expected_result = shot.expected_result.model_dump(mode="json")
         if not self._should_include_tldr(context) or expected_result.get("tldr") is None:
@@ -348,6 +466,8 @@ class RulePruner:
         self,
         context: EngineContext,
         shots: Sequence[RulePruningShot],
+        *,
+        for_decision: bool = False,
     ) -> PromptBuilder:
         builder = self._prompt_config.create_builder(
             "matching.rank",
@@ -372,23 +492,20 @@ Rules that were found relevant at any point during a session are kept in the age
             template="""
 # Task Description
 
-The rule below was previously judged relevant at some point in this session, and currently sits in the agent's working set. The working set has grown too large, so it is being reviewed. Your task is to decide whether this rule is STILL relevant to where the conversation stands NOW, or likely to matter going forward - or whether it is stale and can be retired from the working set.
+{task_intro}
 
-Output an integer score from 1 to 5 indicating the rule's continued relevance:
-- 1 - stale: tied to a topic that has clearly concluded or been abandoned, and will not matter again in this conversation
-- 2 - essentially exhausted: its purpose was fully served and nothing suggests it will come up again
-- 3 - uncertain: the topic could plausibly resurface, or it is unclear whether the rule's purpose is done
-- 4 - still pertinent: relates to an open thread, a pending commitment, or a standing constraint on the agent's behavior
-- 5 - actively governs the current state of the conversation
-
-Scores of 1 and 2 mean the rule will be retired from the working set; 3 and above keep it.
+{verdict_instruction}
 
 Important considerations:
 1. Standing policies and constraints - rules about what the agent must always or never do, security, compliance or privacy rules, tone requirements, and other always-on instructions - remain relevant for the whole conversation unless they are explicitly scoped to a sub-task that has finished. NEVER retire a rule merely because it hasn't been mentioned recently.
 2. Weigh the session summary (if provided) together with the full interaction: a topic raised earlier may still be pending even if the last few messages moved elsewhere. A topic is only concluded when it was resolved or clearly abandoned.
-3. When in doubt, score higher - keeping a rule in the working set is cheap, while wrongly dropping one can cause the agent to break its instructions later. A human judge will review the retirements.
+3. When in doubt, {lean} - keeping a rule in the working set is cheap, while wrongly dropping one can cause the agent to break its instructions later. A human judge will review the retirements.
 """,
-            props={},
+            props={
+                "task_intro": self._task_intro(for_decision),
+                "verdict_instruction": self._verdict_instruction(for_decision),
+                "lean": "judge it still relevant" if for_decision else "score higher",
+            },
         )
         builder.add_section(
             name=PromptSections.EXAMPLES,
@@ -398,7 +515,7 @@ Important considerations:
 {formatted_shots}
 """,
             props={
-                "formatted_shots": self._format_shots(context, shots),
+                "formatted_shots": self._format_shots(context, shots, for_decision=for_decision),
                 "shots": shots,
             },
         )
@@ -415,9 +532,13 @@ Important considerations:
             else "\nRespond with ONLY the JSON object above - no explanation, reasoning, or other text."
         )
 
-        builder.add_section(
-            name=PromptSections.OUTPUT_FORMAT,
-            template="""
+        # Omitted for a decision model: it returns typed answers rather than
+        # filling in a structure, so an output format would be an instruction it
+        # structurally cannot follow.
+        if not for_decision:
+            builder.add_section(
+                name=PromptSections.OUTPUT_FORMAT,
+                template="""
 # OUTPUT FORMAT
 
 - Evaluate the rule by filling in the details in the following structure:
@@ -426,11 +547,11 @@ Important considerations:
 ```
 {json_only_note}
 """,
-            props={
-                "result_structure_text": self._format_output(context),
-                "json_only_note": json_only_note,
-            },
-        )
+                props={
+                    "result_structure_text": self._format_output(context),
+                    "json_only_note": json_only_note,
+                },
+            )
 
         builder.add_context_variables(context.state.context_variables)
         builder.add_glossary(list(context.state.glossary_terms))
@@ -445,6 +566,44 @@ Important considerations:
         )
 
         return builder
+
+    @staticmethod
+    def _task_intro(for_decision: bool) -> str:
+        subject = "Each rule you are asked about was" if for_decision else "The rule below was"
+        verb = "each rule" if for_decision else "this rule"
+        return (
+            f"{subject} previously judged relevant at some point in this session, and "
+            "currently sits in the agent's working set. The working set has grown too "
+            "large, so it is being reviewed. Your task is to decide whether "
+            f"{verb} is STILL relevant to where the conversation stands NOW, or likely "
+            "to matter going forward - or whether it is stale and can be retired from "
+            "the working set."
+        )
+
+    @staticmethod
+    def _verdict_instruction(for_decision: bool) -> str:
+        """How the pruner asks for its verdict, in the terms the model can answer.
+
+        A decision model returns a probability per rule, so the 1-5 scale would be
+        an answer format it cannot produce."""
+        if for_decision:
+            return (
+                "A rule is still relevant when it relates to an open thread, a pending "
+                "commitment or a standing constraint on the agent's behavior, actively "
+                "governs the current state of the conversation, or could plausibly come "
+                "up again. It is stale when its topic has clearly concluded or been "
+                "abandoned, or its purpose was fully served and nothing suggests it will "
+                "come up again."
+            )
+
+        return """Output an integer score from 1 to 5 indicating the rule's continued relevance:
+- 1 - stale: tied to a topic that has clearly concluded or been abandoned, and will not matter again in this conversation
+- 2 - essentially exhausted: its purpose was fully served and nothing suggests it will come up again
+- 3 - uncertain: the topic could plausibly resurface, or it is unclear whether the rule's purpose is done
+- 4 - still pertinent: relates to an open thread, a pending commitment, or a standing constraint on the agent's behavior
+- 5 - actively governs the current state of the conversation
+
+Scores of 1 and 2 mean the rule will be retired from the working set; 3 and above keep it."""
 
     def _format_output(self, context: EngineContext) -> str:
         result: dict[str, JSONSerializable] = {}

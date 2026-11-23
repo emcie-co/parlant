@@ -13,6 +13,21 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Changed
+
+- Pruning of a session's discovered rules now asks one decision-model call
+  about all the rules at once, instead of one small-model call per rule. This
+  applies at MIN, LOW and MEDIUM effort, when a decision model is configured
+  for `matching.rank` (it is by default with Gemini), the same as rule ranking.
+  At HIGH and MAX effort, or with no decision model, each rule still gets its
+  own call with a written reason. Pruning costs much less: on Gemini, about 40
+  gemini-3.1-flash-lite calls become one gemini-decision-1 call.
+- At HIGH effort, rule ranking and pruning now give a per-rule verdict, with
+  its written reason, only to HIGH-weight rules. All other rules are judged in
+  one decision-model call, when one is configured. MAX effort still gives
+  every rule its own call. HIGH-effort turns get cheaper and faster. If you
+  need a rule judged with a written reason at HIGH effort, give it HIGH weight.
+
 ### Fixed
 
 - Pruning of a session's discovered rules no longer runs before the session's

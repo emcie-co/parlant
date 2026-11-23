@@ -29,6 +29,7 @@ from parlant.core.engines.compass.matching.rule_ranker import (
 )
 from parlant.core.engines.compass.matching.common import MAX_FULL_POLICY_CONTEXT_RULES
 from parlant.core.agents import Effort
+from parlant.core.common import Weight
 from parlant.core.engines.compass.context import EngineContext, ResponseState
 from parlant.core.nlp.decision import (
     DecisionMaker,
@@ -1026,20 +1027,110 @@ async def test_that_the_ranker_uses_the_decision_maker_up_to_medium_effort(
     assert generator.calls == 0
 
 
-@mark.parametrize("effort", [Effort.HIGH, Effort.MAX])
-async def test_that_the_ranker_keeps_the_schematic_generator_above_medium_effort(
-    effort: Effort,
-) -> None:
-    # Above MEDIUM the ranker needs the tldr, which a decision model cannot produce.
+async def test_that_the_ranker_keeps_the_schematic_generator_at_max_effort() -> None:
+    # At MAX every rule gets the tldr, which a decision model cannot produce.
     decision_maker = _RecordingDecisionMaker()
     generator = _CountingGenerator()
     ranker = _decision_ranker(decision_maker, generator)
-    rules = _three_rules()
+    rules = _weighted_rules()
 
-    await ranker.evaluate(_low_effort_context(effort), rules)
+    await ranker.evaluate(_low_effort_context(Effort.MAX), rules)
 
     assert decision_maker.calls == []
     assert generator.calls == len(rules)
+
+
+def _weighted_rules() -> list[Rule]:
+    """One rule of each weight, plus a second MEDIUM one."""
+    return [
+        replace(
+            create_rule(condition=f"{weight.name} condition {i}", action="action"), weight=weight
+        )
+        for i, weight in enumerate([Weight.LOW, Weight.MEDIUM, Weight.MEDIUM, Weight.HIGH])
+    ]
+
+
+async def test_that_at_high_effort_only_high_weight_rules_get_the_schematic_generator() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    generator = _CountingGenerator()
+    ranker = _decision_ranker(decision_maker, generator)
+    rules = _weighted_rules()
+
+    result = await ranker.evaluate(_low_effort_context(Effort.HIGH), rules)
+
+    assert len(decision_maker.calls) == 1
+    (_state, questions) = decision_maker.calls[0]
+    assert set(questions) == {str(r.id) for r in rules if r.weight != Weight.HIGH}
+    assert generator.calls == 1  # the HIGH-weight rule alone
+    assert [e.rule.id for e in result.evaluations] == [r.id for r in rules]
+
+
+async def test_that_the_high_weight_rule_keeps_its_tldr_at_high_effort() -> None:
+    ranker = _decision_ranker(_RecordingDecisionMaker(), _CountingGenerator())
+    rules = _weighted_rules()
+
+    result = await ranker.evaluate(_low_effort_context(Effort.HIGH), rules)
+
+    by_weight = {e.rule.weight: e for e in result.evaluations}
+    assert by_weight[Weight.HIGH].reasoning == "because"  # the generator's tldr
+    assert "likely to be relevant" in by_weight[Weight.MEDIUM].reasoning
+
+
+async def test_that_high_effort_reports_the_usage_of_the_decision_and_the_fan_out() -> None:
+    ranker = _decision_ranker(_RecordingDecisionMaker(), _CountingGenerator())
+
+    result = await ranker.evaluate(_low_effort_context(Effort.HIGH), _weighted_rules())
+
+    assert result.generation_info is not None
+    # One decision request (input 100) and one per-rule request (input 1).
+    assert result.generation_info.usage.requests == 2
+    assert result.generation_info.usage.input_tokens == 101
+
+
+async def test_that_high_effort_makes_no_decision_when_every_rule_has_high_weight() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    generator = _CountingGenerator()
+    ranker = _decision_ranker(decision_maker, generator)
+    rules = [r for r in _weighted_rules() if r.weight == Weight.HIGH]
+
+    await ranker.evaluate(_low_effort_context(Effort.HIGH), rules)
+
+    assert decision_maker.calls == []
+    assert generator.calls == len(rules)
+
+
+async def test_that_high_effort_without_a_decision_maker_ranks_every_rule_per_rule() -> None:
+    generator = _CountingGenerator()
+    ranker = _decision_ranker(None, generator)
+    rules = _weighted_rules()
+
+    await ranker.evaluate(_low_effort_context(Effort.HIGH), rules)
+
+    assert generator.calls == len(rules)
+
+
+async def test_that_the_high_effort_decision_state_carries_no_tldr() -> None:
+    decision_maker = _RecordingDecisionMaker()
+    ranker = _decision_ranker(decision_maker, _CountingGenerator())
+
+    async def one_shot() -> Sequence[Any]:
+        return (await RuleRanker.shots(ranker))[:1]
+
+    ranker.shots = one_shot  # type: ignore[method-assign]
+
+    await ranker.evaluate(_low_effort_context(Effort.HIGH), _weighted_rules())
+
+    (state, _questions) = decision_maker.calls[0]
+    assert "OUTPUT FORMAT" not in state
+    assert "tldr" not in state
+
+
+async def test_that_high_effort_ranking_is_not_reported_as_one_request() -> None:
+    # HIGH-weight rules still fan out per rule, so the matcher keeps warming
+    # their shared prefix.
+    ranker = _decision_ranker(_RecordingDecisionMaker(), _CountingGenerator())
+
+    assert not await ranker.evaluates_batch_in_one_request(_low_effort_context(Effort.HIGH))
 
 
 async def test_that_the_ranker_keeps_the_schematic_generator_without_a_decision_maker() -> None:
@@ -1065,13 +1156,13 @@ async def test_that_the_ranker_skips_the_decision_path_for_no_rules() -> None:
     assert result.evaluations == []
 
 
-async def test_that_no_decision_model_is_looked_up_above_medium_effort() -> None:
-    # A high-effort turn cannot use a decision model, so it must not pay for the
+async def test_that_no_decision_model_is_looked_up_at_max_effort() -> None:
+    # A MAX-effort turn cannot use a decision model, so it must not pay for the
     # lookup — configuration resolution is not free.
     router = _StubRouter(_CountingGenerator(), _RecordingDecisionMaker())
     ranker = _decision_ranker(None, _CountingGenerator(), router)
 
-    await ranker.evaluate(_low_effort_context(Effort.HIGH), _three_rules())
+    await ranker.evaluate(_low_effort_context(Effort.MAX), _three_rules())
 
     assert router.decision_lookups == 0
 

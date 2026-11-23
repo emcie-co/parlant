@@ -40,10 +40,12 @@ await agent.create_policy(
 )
 ```
 
-Leave this policy alone: `If the information is unavailable, tell the customer
-you don't have it.` It states a required disclosure. An attached response such
-as `I don't have that information right now.` shows how to phrase it. The policy
-must still require the disclosure if the canned response is edited or removed.
+A policy can state a required disclosure in its own words and use an attached
+canned response to illustrate how to phrase it. For example, a policy might say
+`If the information is unavailable, tell the customer you don't have it.` An
+attached response could say `I don't have that information right now.` WTV001
+allows this pairing. The policy keeps the disclosure explicit if the canned
+response is edited or removed.
 
 ## WTV002 (MEDIUM): Shape wording and tone with canned responses, not instructions or policies
 

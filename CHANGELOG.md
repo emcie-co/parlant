@@ -13,6 +13,8 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+## [4.0.8] - 2026-11-23
+
 ### Fixed
 
 - `parlant lint` rule WTV001 now tells coding agents to preserve required

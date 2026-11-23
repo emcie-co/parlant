@@ -1893,14 +1893,9 @@ def _member_names(members: list[Rule]) -> list[str]:
     return [g.condition.split()[0].removeprefix("RANK_") for g in members]
 
 
-def _conversation_events(count: int = 3) -> list[Any]:
-    sources = [EventSource.CUSTOMER, EventSource.AI_AGENT, EventSource.CUSTOMER]
+def _customer_messages(count: int) -> list[Any]:
     return [
-        create_event_message(
-            offset=i,
-            source=sources[i % len(sources)],
-            message=f"message {i}",
-        )
+        create_event_message(offset=i, source=EventSource.CUSTOMER, message=f"message {i}")
         for i in range(count)
     ]
 
@@ -1920,7 +1915,7 @@ async def _pruning_harness(
         scores_by_name=scores_by_name,
         conversation_events=conversation_events
         if conversation_events is not None
-        else _conversation_events(),
+        else _customer_messages(Matcher._MIN_CUSTOMER_MESSAGES_BETWEEN_PRUNINGS),
         discovered_rules=set(members),
         session_metadata={
             _DISCOVERED_RULE_IDS_PATH: [str(g.id) for g in members],
@@ -2122,6 +2117,42 @@ async def test_that_pruning_runs_again_after_ten_customer_messages(
         scores_by_name=scores,
         conversation_events=events,
         extra_metadata={_LAST_DISCOVERED_RULE_PRUNING_OFFSET_PATH: 0},
+    )
+
+    await harness.matcher.prune_discovered_rules(harness.context)
+
+    assert harness.rank_generator.calls != []
+    metadata = await harness.staged_metadata()
+    assert metadata_utils.internal_value(metadata, _EVICTED_DISCOVERED_RULES_PATH) is not None
+
+
+async def test_that_the_first_pruning_waits_for_ten_customer_messages(
+    container: Container,
+) -> None:
+    members = _members(Matcher._DISCOVERED_RULES_HIGH_WATER_MARK + 1)
+    # No pruning has run yet, and only 9 customer messages arrived.
+    harness = await _pruning_harness(
+        container,
+        members,
+        scores_by_name={name: 1 for name in _member_names(members)},
+        conversation_events=_customer_messages(9),
+    )
+
+    await harness.matcher.prune_discovered_rules(harness.context)
+
+    assert harness.rank_generator.calls == []
+    assert harness.context.state.discovered_rules == set(members)
+
+
+async def test_that_the_first_pruning_runs_at_ten_customer_messages(
+    container: Container,
+) -> None:
+    members = _members(Matcher._DISCOVERED_RULES_HIGH_WATER_MARK + 1)
+    harness = await _pruning_harness(
+        container,
+        members,
+        scores_by_name={name: 1 for name in _member_names(members)},
+        conversation_events=_customer_messages(10),
     )
 
     await harness.matcher.prune_discovered_rules(harness.context)

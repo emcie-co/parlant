@@ -13,6 +13,13 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Fixed
+
+- Pruning of a session's discovered rules no longer runs before the session's
+  tenth customer message. The once-per-10-messages limit used to apply only
+  after the first pruning, so a first message that pulled in many rules could
+  set off one small-model call per rule right away. Early turns now cost less.
+
 ## [4.0.8] - 2026-11-23
 
 ### Fixed

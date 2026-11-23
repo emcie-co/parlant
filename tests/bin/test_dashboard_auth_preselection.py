@@ -110,6 +110,27 @@ def test_that_device_authorization_sends_saved_session_references(
         env.http.close()
 
 
+def test_that_device_authorization_requests_consent_to_manage_agent_a2a_settings(
+    tmp_path: Path,
+    device_server: tuple[str, list[dict[str, object]]],
+) -> None:
+    host, bodies = device_server
+    env = runtime(tmp_path, host, PriorCredentials())
+    try:
+        start_device_authorization(env)
+        assert set(str(bodies[0]["scope"]).split()) == {
+            "workspace.read",
+            "projects.read",
+            "projects.create",
+            "projects.update",
+            "sessions.read",
+            "agents.read",
+            "agents.a2a.manage",
+        }
+    finally:
+        env.http.close()
+
+
 def test_that_device_authorization_never_sends_refresh_tokens_or_other_host_sign_ins(
     tmp_path: Path,
     device_server: tuple[str, list[dict[str, object]]],

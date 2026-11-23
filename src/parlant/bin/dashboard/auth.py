@@ -51,7 +51,7 @@ from parlant.bin.dashboard.runtime import DashboardRuntime
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 REFRESH_GRANT = "refresh_token"
 
-SCOPE = "workspace.read projects.read projects.create projects.update sessions.read agents.read"
+SCOPE = "workspace.read projects.read projects.create projects.update sessions.read agents.read agents.a2a.manage"
 
 SLOW_DOWN_INCREMENT_SECONDS = 5
 

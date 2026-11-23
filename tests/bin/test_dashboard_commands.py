@@ -549,6 +549,9 @@ class _A2ADashboard:
                 "limits": body.get("limits", {}),
                 "replyTimeoutSeconds": body.get("replyTimeoutSeconds"),
             }
+            for field in ("signInUrl", "protocols", "personalAgentSimulations"):
+                if field in body:
+                    self.endpoint[field] = body[field]
             return httpx.Response(200, json=_a2a_agent("home", "Home", self.endpoint))
         return httpx.Response(500, json={"message": f"{req.method} {req.url}"})
 
@@ -690,6 +693,92 @@ def test_that_agent_a2a_set_without_any_option_says_which_options_exist(
     assert dashboard.puts == []
     for option in ("--site", "--description", "--organization"):
         assert option in result.output
+
+
+@pytest.mark.parametrize(("choice", "enabled"), [("off", False), ("on", True)])
+@pytest.mark.parametrize("per_day", [None, 9])
+def test_that_agent_a2a_set_changes_personal_agent_simulations_and_preserves_settings(
+    monkeypatch: pytest.MonkeyPatch, choice: str, enabled: bool, per_day: int | None
+) -> None:
+    endpoint = _a2a_saved_endpoint(
+        enabled=False,
+        signInUrl=SIGN_IN_PAGE,
+        protocols={"poppy": {"enabled": False}, "a2a": {"enabled": True}},
+        personalAgentSimulations={"enabled": not enabled, "perDay": per_day, "effectivePerDay": 0},
+    )
+    dashboard = _A2ADashboard(endpoint)
+
+    result = _a2a(monkeypatch, dashboard, "set", "home", "--personal-agent-simulations", choice)
+
+    assert result.exit_code == 0, result.output
+    assert dashboard.puts == [
+        {
+            **{
+                field: endpoint[field]
+                for field in (
+                    "enabled",
+                    "slug",
+                    "callers",
+                    "site",
+                    "signInUrl",
+                    "card",
+                    "guestLimits",
+                    "limits",
+                    "replyTimeoutSeconds",
+                    "protocols",
+                )
+            },
+            "personalAgentSimulations": {"enabled": enabled, "perDay": per_day},
+        }
+    ]
+    assert _field(result.output, "PERSONAL AGENT SIMULATIONS") == choice
+    readback = _a2a(monkeypatch, dashboard, "get", "home")
+    assert readback.exit_code == 0, readback.output
+    assert _field(readback.output, "PERSONAL AGENT SIMULATIONS") == choice
+    assert _field(readback.output, "SIMULATIONS PER DAY") == (
+        str(per_day) if per_day is not None else "default"
+    )
+
+
+def test_that_agent_a2a_set_preserves_simulations_when_changing_another_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dashboard = _A2ADashboard(
+        _a2a_saved_endpoint(
+            protocols={"poppy": {"enabled": False}},
+            personalAgentSimulations={"enabled": False, "perDay": 9, "effectivePerDay": 0},
+        )
+    )
+
+    result = _a2a(monkeypatch, dashboard, "set", "home", "--site", "shop.acme.com")
+
+    assert result.exit_code == 0, result.output
+    assert dashboard.puts[0]["personalAgentSimulations"] == {"enabled": False, "perDay": 9}
+    assert dashboard.puts[0]["protocols"] == {"poppy": {"enabled": False}}
+
+
+def test_that_agent_a2a_set_disables_simulations_without_pinning_an_unset_daily_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dashboard = _A2ADashboard(_a2a_saved_endpoint())
+
+    result = _a2a(monkeypatch, dashboard, "set", "home", "--personal-agent-simulations", "off")
+
+    assert result.exit_code == 0, result.output
+    assert dashboard.puts[0]["personalAgentSimulations"] == {"enabled": False}
+
+
+def test_that_agent_a2a_set_rejects_invalid_simulation_choice_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dashboard = _A2ADashboard(_a2a_saved_endpoint())
+
+    result = _a2a(monkeypatch, dashboard, "set", "home", "--personal-agent-simulations", "maybe")
+
+    assert result.exit_code != 0
+    assert "Invalid value" in result.output
+    assert "on" in result.output and "off" in result.output
+    assert dashboard.puts == []
 
 
 # --- A2A: the sign-in page for the person behind an AI agent ----------------

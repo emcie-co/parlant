@@ -328,6 +328,7 @@ def agent_a2a_get(ctx: click.Context, agent_id: str) -> None:
         '--description "Answers questions about Acme\'s orders and returns."',
         'parlant dashboard agent a2a set AGENT_ID --site ""',
         "parlant dashboard agent a2a set AGENT_ID --skills skills.json",
+        "parlant dashboard agent a2a set AGENT_ID --personal-agent-simulations off",
     ),
 )
 @click.argument("agent_id")
@@ -355,6 +356,11 @@ def agent_a2a_get(ctx: click.Context, agent_id: str) -> None:
     ),
 )
 @click.option(
+    "--personal-agent-simulations",
+    type=click.Choice(["on", "off"]),
+    help="Turn scheduled personal-agent simulations on or off. Keeps the saved daily number and all other settings.",
+)
+@click.option(
     "--sign-in-url",
     "sign_in_url",
     help=(
@@ -371,6 +377,7 @@ def agent_a2a_set(
     organization: str | None,
     sign_in_url: str | None,
     skills_file: str | None,
+    personal_agent_simulations: str | None,
 ) -> None:
     """Change the agent's A2A settings, and print them as saved.
 
@@ -389,6 +396,8 @@ def agent_a2a_set(
     }
     if skills_file is not None:
         changes["skills"] = read_skills(skills_file.strip())
+    if personal_agent_simulations is not None:
+        changes["personalAgentSimulations"] = personal_agent_simulations == "on"
 
     if not changes:
         raise click.UsageError("Give at least one of " + ", ".join(SETTINGS_OPTIONS.values()) + ".")

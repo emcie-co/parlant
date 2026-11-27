@@ -13,6 +13,47 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Changed
+
+- The engine now asks for the relationships of the rules and tools in a
+  turn, not for every agent's, and for the groups a dependency names rather
+  than every group. Results are unchanged; with many agents in one server, a
+  turn no longer reads more relationships as other agents are added.
+  `RelationshipStore.list_relationships` takes an optional `entity_ids` (only
+  relationships whose source or target is one of them; it applies when no
+  `source_id` or `target_id` is given) and `GroupStore.list_groups` an
+  optional `ids`. Without them both return everything, as before, and an
+  empty list returns nothing. If you implement `RelationshipStore` or
+  `GroupStore` yourself, add the parameter and filter by it.
+
+- The engine now asks for the tool associations of the rules in a turn, not
+  for every agent's. `RuleToolAssociationStore.list_associations` and
+  `EntityQueries.find_rule_tool_associations` take an optional `rule_ids`;
+  without it they return every association, as before. If you implement
+  `RuleToolAssociationStore` yourself, add the parameter and filter by it.
+
+- The in-memory document database (`TransientDocumentDatabase`, which backs
+  agents, rules, relationships, glossary, canned responses, variables, groups
+  and tool associations in SDK mode) now honours the indexes stores declare
+  through `ensure_indexes`, and always indexes `id`. A lookup that pins an
+  indexed field to a value examines only the documents holding that value;
+  every other query examines each document, as before. Results are unchanged.
+  With many agents in one server, reading one agent's records no longer
+  costs more as other agents are added.
+- The rule, relationship, agent, glossary, canned-response, context-variable,
+  group, tool-association and model-route stores now declare the fields they
+  look documents up by. On MongoDB this creates the matching single-field
+  indexes the next time the server starts; there is nothing to migrate.
+
+### Added
+
+- `TransientDocumentCollection.examined_document_count` and
+  `reset_examined_document_count()`: how many documents queries have
+  evaluated against a filter, so a test or a diagnostic can tell an indexed
+  lookup from a full scan.
+- `parlant.core.persistence.document_database.single_field_indexes(*fields)`:
+  shorthand for declaring one index per field.
+
 ## [4.0.9] - 2026-11-24
 
 ### Added

@@ -51,6 +51,7 @@ from parlant.core.relationships import (
     RelationshipId,
     RelationshipKind,
     RelationshipStore,
+    relationship_entity_ids_of,
 )
 from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.groups import Group, GroupId, GroupStore
@@ -229,9 +230,6 @@ class RelationalResolver:
                 for evaluation in evaluations:
                     rules_by_id.setdefault(evaluation.rule.id, evaluation.rule)
 
-                tags_by_id: dict[GroupId, Group] = {
-                    group.id: group for group in await self._group_store.list_groups()
-                }
                 rules_by_tag: dict[GroupId, list[Rule]] = defaultdict(list)
                 for rule in usable_rules:
                     for group_id in rule.groups:
@@ -242,7 +240,6 @@ class RelationalResolver:
                     cache,
                     rules_by_tag,
                     rules_by_id,
-                    tags_by_id,
                     resolutions,
                     satisfied_rule_ids,
                     same_turn_satisfier_ids,
@@ -481,10 +478,20 @@ class RelationalResolver:
            excluder still excludes."""
         with self._logger.scope("RelationalResolver"):
             with self._tracer.span("compass.relational_resolver.turn"):
+                # Only an active rule excludes, as itself or through one of
+                # its groups, and every rule that can be active this turn is
+                # among these.
                 exclusion_relationships = list(
                     await self._relationship_store.list_relationships(
                         kind=RelationshipKind.EXCLUSION,
                         indirect=False,
+                        entity_ids=relationship_entity_ids_of(
+                            [
+                                *usable_rules,
+                                *(evaluation.rule for evaluation in turn_matches),
+                                *(evaluation.rule for evaluation in admissions),
+                            ]
+                        ),
                     )
                 )
 
@@ -616,9 +623,17 @@ class RelationalResolver:
         ``unresolved_rule_ids``."""
         with self._logger.scope("RelationalResolver"):
             with self._tracer.span("compass.relational_resolver.exclusion"):
+                # Only an active rule excludes, as itself or through one of
+                # its groups.
                 relationships = await self._relationship_store.list_relationships(
                     kind=RelationshipKind.EXCLUSION,
                     indirect=False,
+                    entity_ids=relationship_entity_ids_of(
+                        [
+                            *usable_rules,
+                            *(evaluation.rule for evaluation in active_evaluations),
+                        ]
+                    ),
                 )
                 result = self._resolve_exclusions(relationships, usable_rules, active_evaluations)
                 self._warn_unresolved(result.unresolved_rule_ids)
@@ -1031,7 +1046,6 @@ class RelationalResolver:
         cache: _RelationshipCache,
         rules_by_tag: dict[GroupId, list[Rule]],
         rules_by_id: dict[RuleId, Rule],
-        tags_by_id: dict[GroupId, Group],
         resolutions: dict[ResolvedEntity, list[Resolution]],
         satisfied_rule_ids: AbstractSet[RuleId] = frozenset(),
         same_turn_satisfier_ids: AbstractSet[RuleId] | None = None,
@@ -1058,6 +1072,9 @@ class RelationalResolver:
         topo_edges: dict[RuleId, set[RuleId]] = {
             evaluation.rule.id: set() for evaluation in evaluations
         }
+        # An unmet target is reported as the rule or the group it names. The
+        # rules are in hand; any other target is looked up among the groups.
+        group_target_ids: set[GroupId] = set()
 
         for evaluation in evaluations:
             gid: RuleId = evaluation.rule.id
@@ -1076,6 +1093,8 @@ class RelationalResolver:
                     rules_by_tag,
                     topo_edges,
                 )
+                if target.target_id is not None and target.target_id not in rules_by_id:
+                    group_target_ids.add(cast(GroupId, target.target_id))
                 if relationship.kind == RelationshipKind.DEPENDENCY_ANY and relationship.group_id:
                     gid_or.setdefault(relationship.group_id, []).append(target)
                 else:
@@ -1084,6 +1103,11 @@ class RelationalResolver:
             and_deps[gid] = gid_and
             if gid_or:
                 or_groups[gid] = gid_or
+
+        tags_by_id: dict[GroupId, Group] = {
+            group.id: group
+            for group in await self._group_store.list_groups(ids=sorted(group_target_ids))
+        }
 
         topo_order = self._topological_sort(topo_edges)
         # ``surviving`` is the satisfaction pool; ``dropped`` tracks gated-out

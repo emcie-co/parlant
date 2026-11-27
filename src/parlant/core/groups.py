@@ -25,6 +25,7 @@ from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import ItemNotFoundError, try_or_none, IdGenerator, UniqueId
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
+    single_field_indexes,
     BaseDocument,
     DocumentCollection,
     DocumentDatabase,
@@ -110,7 +111,14 @@ class GroupStore(ABC):
     async def list_groups(
         self,
         name: Optional[str] = None,
-    ) -> Sequence[Group]: ...
+        ids: Optional[Sequence[GroupId]] = None,
+    ) -> Sequence[Group]:
+        """List groups, optionally only those with the given ``name`` and only
+        those among the given ``ids``.
+
+        An empty ``ids`` returns no groups; leave it out to list every group.
+        Ids that match no group are skipped."""
+        ...
 
     @abstractmethod
     async def delete_group(
@@ -163,6 +171,9 @@ class GroupDocumentStore(GroupStore):
                 document_loader=self._document_loader,
             )
 
+        # The fields this store looks documents up by, so a database can answer
+        # those lookups without examining every document.
+        await self._collection.ensure_indexes(single_field_indexes("id", "name"))
         return self
 
     async def __aexit__(
@@ -266,11 +277,25 @@ class GroupDocumentStore(GroupStore):
     async def list_groups(
         self,
         name: Optional[str] = None,
+        ids: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[Group]:
-        filters: Where = {}
+        if ids is not None and not ids:
+            return []
+
+        conditions: list[Where] = []
 
         if name is not None:
-            filters = {"name": {"$eq": name}}
+            conditions.append({"name": {"$eq": name}})
+
+        if ids is not None:
+            conditions.append({"id": {"$in": sorted(set(ids))}})
+
+        filters: Where = {}
+
+        if len(conditions) == 1:
+            filters = conditions[0]
+        elif conditions:
+            filters = {"$and": conditions}
 
         async with self._lock.reader_lock:
             return [self._deserialize(doc) for doc in await self._collection.find(filters)]
@@ -331,8 +356,11 @@ class CompositeGroupStore(GroupStore):
     async def list_groups(
         self,
         name: Optional[str] = None,
+        ids: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[Group]:
-        results = await safe_gather(*[store.list_groups(name=name) for store in self._all_stores])
+        results = await safe_gather(
+            *[store.list_groups(name=name, ids=ids) for store in self._all_stores]
+        )
         return list(chain.from_iterable(results))
 
     @override

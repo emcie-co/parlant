@@ -43,6 +43,7 @@ from parlant.core.persistence.vector_database_helper import (
     query_chunks,
 )
 from parlant.core.persistence.document_database import (
+    single_field_indexes,
     DocumentCollection,
     DocumentDatabase,
     BaseDocument,
@@ -232,6 +233,11 @@ class GlossaryVectorStore(GlossaryStore):
                 document_loader=self._association_document_loader,
             )
 
+        # The fields this store looks documents up by, so a database can answer
+        # those lookups without examining every document.
+        await self._association_collection.ensure_indexes(
+            single_field_indexes("term_id", "group_id")
+        )
         return self
 
     async def __aexit__(

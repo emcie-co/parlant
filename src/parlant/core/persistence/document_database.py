@@ -112,6 +112,11 @@ class CollectionIndex:
     unique: bool = False
 
 
+def single_field_indexes(*fields: str) -> Sequence[CollectionIndex]:
+    """One index per field: the fields a store looks its documents up by."""
+    return [CollectionIndex(fields=((field, SortDirection.ASC),)) for field in fields]
+
+
 async def identity_loader(doc: BaseDocument) -> BaseDocument:
     return doc
 

@@ -130,7 +130,9 @@ class ToolRecaller(ToolSelector):
         usable_rule_ids = {rule.id for rule in context.state.usable_rules}
         tools_by_rule: dict[RuleId, set[tuple[ToolId, Tool]]] = defaultdict(set)
 
-        associations = await self._entity_queries.find_rule_tool_associations()
+        associations = await self._entity_queries.find_rule_tool_associations(
+            rule_ids=sorted(usable_rule_ids)
+        )
 
         for association in associations:
             if association.rule_id not in usable_rule_ids:

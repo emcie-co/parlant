@@ -3304,6 +3304,8 @@ class Server:
             RuleId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedIndexer.RuleIndexingResult]]],
         ] = {}
+        # The agent each pending rule was created for (None: no single agent).
+        self._rule_indexing_agent_ids: dict[RuleId, AgentId | None] = {}
 
         # Rules created during setup are indexed once, at startup. Rules created
         # after that are indexed by a background task (see
@@ -3533,6 +3535,7 @@ class Server:
             # From here on, a rule that gets created is indexed in the background.
             for rule_id in startup_rule_ids:
                 self._rule_indexing_requests.pop(rule_id, None)
+                self._rule_indexing_agent_ids.pop(rule_id, None)
 
             self._startup_indexing_done = True
 
@@ -3644,6 +3647,7 @@ class Server:
             ),
             self._cached_indexer.index_rule,
         )
+        self._rule_indexing_agent_ids[rule_id] = agent_id
         self._rule_indexing_generation += 1
 
     async def wait_for_indexing(self) -> None:
@@ -3700,9 +3704,10 @@ class Server:
                 await self._wait_for_rule_creation_burst_to_end()
 
                 requests = dict(self._rule_indexing_requests)
+                agent_ids = {self._rule_indexing_agent_ids[rule_id] for rule_id in requests}
 
                 try:
-                    await self._index_rules_and_train_their_agents(requests)
+                    await self._index_rules_and_train_their_agents(requests, agent_ids)
                 except Exception as exc:
                     self._container[Logger].error(
                         f"Background rule indexing failed: {exc}\n\n"
@@ -3712,6 +3717,7 @@ class Server:
                     for rule_id, request in requests.items():
                         if self._rule_indexing_requests.get(rule_id) is request:
                             del self._rule_indexing_requests[rule_id]
+                            del self._rule_indexing_agent_ids[rule_id]
         finally:
             self._background_rule_indexing_active = False
             self._background_rule_indexing_idle.set()
@@ -3733,6 +3739,7 @@ class Server:
             RuleId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedIndexer.RuleIndexingResult]]],
         ],
+        agent_ids: set[AgentId | None],
     ) -> None:
         logger = self._container[Logger]
 
@@ -3756,9 +3763,6 @@ class Server:
         )
 
         # Retrain now that indexing has populated the rules' signals, as startup does.
-        # (The arguments are those gathered by _add_rule_indexing_request.)
-        agent_ids: set[AgentId | None] = {args[3] for args, _ in requests.values()}
-
         if None in agent_ids:
             # A rule that belongs to no single agent can apply to any of them.
             agent_store = self._store_provider.get_store(

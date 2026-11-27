@@ -3576,9 +3576,26 @@ class Server:
             self._hot_reload_task.cancel()
         self._hot_reload_task = None
 
+    def _health_check_url(self) -> str:
+        """The URL this process polls to learn that its own server is up.
+
+        A wildcard bind address is not something to connect to, so it becomes
+        the matching loopback address, and an IPv6 literal is bracketed so the
+        port is not read as part of the address."""
+        if self.host in ("0.0.0.0", "127.0.0.1"):
+            host = "localhost"
+        elif self.host == "::":
+            host = "[::1]"
+        elif ":" in self.host:
+            host = f"[{self.host}]"
+        else:
+            host = self.host
+
+        return f"http://{host}:{self.port}/healthz"
+
     # Start background task to poll health endpoint and set ready event
     async def _poll_health_endpoint(self) -> None:
-        url = f"http://{self.host if self.host not in ['0.0.0.0', '127.0.0.1'] else 'localhost'}:{self.port}/healthz"
+        url = self._health_check_url()
 
         async with httpx.AsyncClient() as client:
             while True:

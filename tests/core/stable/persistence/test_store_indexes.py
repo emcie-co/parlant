@@ -137,3 +137,55 @@ async def test_that_reading_one_tool_association_examines_only_that_association(
 
         assert association.rule_id == "rule-117"
         assert _examined(store._collection) == 1
+
+
+async def test_that_the_tool_associations_of_some_rules_examine_only_those_rules() -> None:
+    async with RuleToolAssociationDocumentStore(
+        IdGenerator(), TransientDocumentDatabase()
+    ) as store:
+        for number in range(AGENTS):
+            for tool in ("lookup", "save"):
+                await store.create_association(
+                    rule_id=RuleId(f"rule-{number}"),
+                    tool_id=ToolId(service_name="service", tool_name=tool),
+                )
+        _examined(store._collection)
+
+        associations = await store.list_associations(
+            rule_ids=[RuleId("rule-117"), RuleId("rule-3"), RuleId("rule-without-tools")]
+        )
+
+        assert sorted((a.rule_id, a.tool_id.tool_name) for a in associations) == [
+            ("rule-117", "lookup"),
+            ("rule-117", "save"),
+            ("rule-3", "lookup"),
+            ("rule-3", "save"),
+        ]
+        assert _examined(store._collection) == 4
+
+
+async def test_that_asking_for_the_tool_associations_of_no_rules_returns_none_of_them() -> None:
+    async with RuleToolAssociationDocumentStore(
+        IdGenerator(), TransientDocumentDatabase()
+    ) as store:
+        await store.create_association(
+            rule_id=RuleId("rule-1"),
+            tool_id=ToolId(service_name="service", tool_name="lookup"),
+        )
+        _examined(store._collection)
+
+        assert await store.list_associations(rule_ids=[]) == []
+        assert _examined(store._collection) == 0
+
+
+async def test_that_listing_tool_associations_without_rules_still_returns_all_of_them() -> None:
+    async with RuleToolAssociationDocumentStore(
+        IdGenerator(), TransientDocumentDatabase()
+    ) as store:
+        for number in range(3):
+            await store.create_association(
+                rule_id=RuleId(f"rule-{number}"),
+                tool_id=ToolId(service_name="service", tool_name="lookup"),
+            )
+
+        assert len(await store.list_associations()) == 3

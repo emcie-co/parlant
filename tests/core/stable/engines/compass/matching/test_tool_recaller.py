@@ -30,7 +30,7 @@ from parlant.core.rule_tool_associations import (
     RuleToolAssociation,
     RuleToolAssociationId,
 )
-from parlant.core.rules import Rule
+from parlant.core.rules import Rule, RuleId
 from parlant.core.sessions import EventSource
 from parlant.core.tools import Tool, ToolContext, ToolId, ToolOverlap, ToolResult, ToolService
 
@@ -105,6 +105,7 @@ class _FakeEntityQueries:
         tools: Mapping[ToolId, Tool],
     ) -> None:
         self._associations = list(associations)
+        self.requested_rule_ids: list[set[RuleId] | None] = []
         self._services = {
             service_name: _FakeToolService(
                 [tool for tool_id, tool in tools.items() if tool_id.service_name == service_name]
@@ -112,8 +113,16 @@ class _FakeEntityQueries:
             for service_name in {tool_id.service_name for tool_id in tools}
         }
 
-    async def find_rule_tool_associations(self) -> Sequence[RuleToolAssociation]:
-        return self._associations
+    async def find_rule_tool_associations(
+        self,
+        rule_ids: Sequence[RuleId] | None = None,
+    ) -> Sequence[RuleToolAssociation]:
+        self.requested_rule_ids.append(None if rule_ids is None else set(rule_ids))
+
+        if rule_ids is None:
+            return self._associations
+
+        return [a for a in self._associations if a.rule_id in set(rule_ids)]
 
     async def read_tool_service(self, service_name: str) -> ToolService:
         return self._services[service_name]
@@ -543,3 +552,23 @@ def test_that_remaining_tools_below_min_relevance_score_are_filtered_out() -> No
     )
     assert t3 in selected_rule_bypass
 
+
+@pytest.mark.asyncio
+async def test_that_the_tool_recaller_asks_only_for_the_tool_associations_of_usable_rules() -> None:
+    usable_rule = create_rule("customer needs account lookup")
+    other_agents_rule = create_rule("another agent checks stock")
+    usable_tool = ToolId("local", "account_lookup")
+    other_tool = ToolId("local", "stock_check")
+    recaller = _ScoredToolRecaller(
+        [_association(usable_rule, usable_tool), _association(other_agents_rule, other_tool)],
+        {usable_tool: _tool("account_lookup"), other_tool: _tool("stock_check")},
+        scores={usable_tool: 1.0, other_tool: 1.0},
+        max_tools=5,
+    )
+    context = _context_with_rules(usable_rule)
+
+    selected = await _prepare_and_select(recaller, context)
+
+    assert selected == ["account_lookup"]
+    entity_queries = cast(_FakeEntityQueries, recaller._entity_queries)
+    assert entity_queries.requested_rule_ids == [{usable_rule.id}]

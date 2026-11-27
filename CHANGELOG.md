@@ -15,6 +15,12 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- The engine now asks for the tool associations of the rules in a turn, not
+  for every agent's. `RuleToolAssociationStore.list_associations` and
+  `EntityQueries.find_rule_tool_associations` take an optional `rule_ids`;
+  without it they return every association, as before. If you implement
+  `RuleToolAssociationStore` yourself, add the parameter and filter by it.
+
 - The in-memory document database (`TransientDocumentDatabase`, which backs
   agents, rules, relationships, glossary, canned responses, variables, groups
   and tool associations in SDK mode) now honours the indexes stores declare

@@ -22,7 +22,7 @@ from typing_extensions import override, TypedDict, Self
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import ItemNotFoundError, try_or_none, Version, IdGenerator, UniqueId
 from parlant.core.rules import RuleId
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     single_field_indexes,
     BaseDocument,
@@ -75,7 +75,16 @@ class RuleToolAssociationStore(ABC):
     ) -> None: ...
 
     @abstractmethod
-    async def list_associations(self) -> Sequence[RuleToolAssociation]: ...
+    async def list_associations(
+        self,
+        rule_ids: Optional[Sequence[RuleId]] = None,
+    ) -> Sequence[RuleToolAssociation]:
+        """The associations of ``rule_ids``, or every association when omitted.
+
+        Pass the rules in hand whenever they are known: with many agents in one
+        server, listing every agent's associations to keep a few costs more
+        with each agent added."""
+        ...
 
 
 class _RuleToolAssociationDocument(TypedDict, total=False):
@@ -211,9 +220,19 @@ class RuleToolAssociationDocumentStore(RuleToolAssociationStore):
             raise ItemNotFoundError(item_id=UniqueId(association_id))
 
     @override
-    async def list_associations(self) -> Sequence[RuleToolAssociation]:
+    async def list_associations(
+        self,
+        rule_ids: Optional[Sequence[RuleId]] = None,
+    ) -> Sequence[RuleToolAssociation]:
+        if rule_ids is not None and not rule_ids:
+            return []
+
+        filters: Where = (
+            {} if rule_ids is None else {"rule_id": {"$in": [str(rule_id) for rule_id in rule_ids]}}
+        )
+
         async with self._lock.reader_lock:
-            return [self._deserialize(d) for d in await self._collection.find(filters={})]
+            return [self._deserialize(d) for d in await self._collection.find(filters=filters)]
 
 
 class CompositeRuleToolAssociationStore(RuleToolAssociationStore):
@@ -259,6 +278,11 @@ class CompositeRuleToolAssociationStore(RuleToolAssociationStore):
         return await self._writable_store.delete_association(association_id)
 
     @override
-    async def list_associations(self) -> Sequence[RuleToolAssociation]:
-        results = await safe_gather(*[store.list_associations() for store in self._all_stores])
+    async def list_associations(
+        self,
+        rule_ids: Optional[Sequence[RuleId]] = None,
+    ) -> Sequence[RuleToolAssociation]:
+        results = await safe_gather(
+            *[store.list_associations(rule_ids=rule_ids) for store in self._all_stores]
+        )
         return list(chain.from_iterable(results))

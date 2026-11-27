@@ -35,6 +35,7 @@ from parlant.core.persistence.common import (
     ObjectId,
 )
 from parlant.core.persistence.document_database import (
+    single_field_indexes,
     BaseDocument,
     DocumentDatabase,
     DocumentCollection,
@@ -278,6 +279,12 @@ class AgentDocumentStore(AgentStore):
                 document_loader=self._association_document_loader,
             )
 
+        # The fields this store looks documents up by, so a database can answer
+        # those lookups without examining every document.
+        await self._agents_collection.ensure_indexes(single_field_indexes("id"))
+        await self._tag_association_collection.ensure_indexes(
+            single_field_indexes("agent_id", "group_id")
+        )
         return self
 
     async def __aexit__(

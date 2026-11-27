@@ -56,6 +56,7 @@ from parlant.core.nlp.generation import (
     REASONING_EFFORT_HINT,
     T,
     BaseSchematicGenerator,
+    GenerationRefusedError,
     ReasoningEffort,
     SchematicGenerationResult,
 )
@@ -339,6 +340,21 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
             response = await self._client.messages.create(**create_kwargs)
 
         t_end = time.time()
+
+        if getattr(response, "stop_reason", None) == "refusal":
+            # The provider declined the request itself. Asking again gets the same
+            # answer, so this must not go through the no-JSON retry below.
+            category = getattr(getattr(response, "stop_details", None), "category", None)
+            self.logger.warning(
+                f"{self.model_name} refused the {self.schema.__name__} request "
+                f"(category={category})"
+            )
+            raise GenerationRefusedError(
+                f"{self.model_name} refused the request for schema {self.schema.__name__} "
+                f"(category={category}).",
+                model=self.model_name,
+                category=category,
+            )
 
         # With structured outputs the JSON arrives as a text block (possibly after a
         # thinking block), so pick the first text block rather than content[0].

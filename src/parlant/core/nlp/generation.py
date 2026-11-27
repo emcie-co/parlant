@@ -51,6 +51,25 @@ REASONING_EFFORT_HINT = "reasoning_effort"
 HEDGE_TIMEOUT_HINT = "hedge_timeout"
 
 
+class GenerationRefusedError(Exception):
+    """The provider declined to answer the request (a safety or policy refusal).
+
+    This is the provider's decision about the request itself, so sending the
+    same request again gets the same answer: it is never retried. ``category``
+    carries the provider's own label for the refusal when it gives one."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str,
+        category: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.category = category
+
+
 # ============================================================================
 # Schematic Generator
 # ============================================================================

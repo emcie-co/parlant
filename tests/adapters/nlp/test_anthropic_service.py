@@ -1756,3 +1756,42 @@ async def test_that_live_schematic_generation_with_a_reasoning_effort_succeeds_o
     )
 
     assert "Paris" in result.content.capital
+
+
+class _RefusingMessages:
+    """Stands in for the Anthropic messages API and declines every request."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def create(self, **kwargs: Any) -> Any:
+        from types import SimpleNamespace
+
+        self.calls += 1
+        return SimpleNamespace(
+            content=[],
+            stop_reason="refusal",
+            stop_details=SimpleNamespace(
+                type="refusal",
+                category="reasoning_extraction",
+                explanation="This request was blocked.",
+            ),
+            usage=SimpleNamespace(input_tokens=10, output_tokens=0),
+        )
+
+
+async def test_that_a_refused_structured_request_raises_a_refusal_and_is_not_retried(
+    logger: Logger,
+) -> None:
+    from parlant.core.nlp.generation import GenerationRefusedError
+
+    generator = _offline_schematic(logger, "claude-haiku-5-5")
+    messages = _RefusingMessages()
+    generator._client.messages = messages  # type: ignore[misc,assignment]
+
+    with pytest.raises(GenerationRefusedError) as raised:
+        await generator.generate("What is the capital of France?")
+
+    assert messages.calls == 1
+    assert raised.value.model == "claude-haiku-5-5"
+    assert raised.value.category == "reasoning_extraction"

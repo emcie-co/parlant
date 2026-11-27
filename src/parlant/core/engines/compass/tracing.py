@@ -791,6 +791,22 @@ class CompassTracer:
             },
         )
 
+    def tool_review_declined(
+        self,
+        review_ref: str,
+        reason: str,
+        category: str | None,
+    ) -> None:
+        """The review did not happen, so the tool calls proceed unreviewed."""
+        self.event(
+            "review.declined",
+            {
+                "review_ref": review_ref,
+                "reason": reason,
+                "category": category or "",
+            },
+        )
+
     def tool_review(
         self,
         review_ref: str,

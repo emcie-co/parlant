@@ -13,6 +13,25 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Fixed
+
+- A message review or tool review that the model provider refuses no longer
+  fails the customer's turn. On Anthropic models a review request can come
+  back with `stop_reason: "refusal"`. The adapter used to treat that as
+  malformed JSON, retry the same request, and then end the turn with an
+  error, so the customer got no reply. The adapter now raises
+  `GenerationRefusedError` at once, without retrying, and the reviewer
+  declines the review: the step proceeds unreviewed, a warning names the
+  model and the provider's refusal category, and tool reviews record a
+  `review.declined` trace event. If you rely on reviews with a model that
+  refuses them, route `review.*` to a model that accepts them.
+
+### Added
+
+- `parlant.core.nlp.generation.GenerationRefusedError`: raised by a schematic
+  generator when the provider declines the request. It carries `model` and the
+  provider's `category`, and is never retried.
+
 ## [4.0.9] - 2026-11-24
 
 ### Added

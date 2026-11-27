@@ -42,7 +42,7 @@ from parlant.core.entity_cq import (
     select_turn_canned_responses,
 )
 from parlant.core.loggers import Logger
-from parlant.core.nlp.generation import HEDGE_TIMEOUT_HINT
+from parlant.core.nlp.generation import HEDGE_TIMEOUT_HINT, GenerationRefusedError
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.prompt_routing import PromptConfigurationService
 from parlant.core.nlp.model_routing import ModelRouter
@@ -177,7 +177,19 @@ class BasicReviewer(Reviewer):
             review_ref = str(generate_id())
             compass_tracer.tool_review_started(review_ref, tool_calls)
 
-            result, is_constructive = await self._do_review(context, reasoning, tool_calls, effort)
+            try:
+                result, is_constructive = await self._do_review(
+                    context, reasoning, tool_calls, effort
+                )
+            except GenerationRefusedError as refusal:
+                # The review could not be had at all. Per the port's contract the
+                # reviewer declines, and the loop proceeds as if none was requested,
+                # rather than failing the customer's turn over a check that never ran.
+                self._warn_review_refused("tool", refusal)
+                compass_tracer.tool_review_declined(
+                    review_ref, reason="provider_refusal", category=refusal.category
+                )
+                return None
 
             compass_tracer.tool_review(
                 review_ref,
@@ -198,6 +210,14 @@ class BasicReviewer(Reviewer):
                 )
 
             return result
+
+    def _warn_review_refused(self, kind: str, refusal: GenerationRefusedError) -> None:
+        self._logger.warning(
+            f"{self.__class__.__name__}: {refusal.model} refused the {kind} review request "
+            f"(category={refusal.category}), so this step proceeds unreviewed. "
+            "If this repeats, route 'review.*' to a model that accepts review requests, "
+            "or turn the review off."
+        )
 
     async def _do_review(
         self,
@@ -296,9 +316,13 @@ class BasicReviewer(Reviewer):
         message: str,
     ) -> MessageReviewResult | None:
         with self._logger.scope("Reviewer"), self._tracer.span("compass.reviewer.review_message"):
-            result, is_constructive = await self._do_review_message(
-                context, message, context.state.dynamic_effort_level
-            )
+            try:
+                result, is_constructive = await self._do_review_message(
+                    context, message, context.state.dynamic_effort_level
+                )
+            except GenerationRefusedError as refusal:
+                self._warn_review_refused("message", refusal)
+                return None
 
             if is_constructive and result is not None:
                 self._logger.debug(

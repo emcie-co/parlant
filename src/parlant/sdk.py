@@ -32,6 +32,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 import sys
 import signal
+import traceback
 import watchfiles
 import rich
 from rich.console import Group as RichGroup
@@ -113,6 +114,7 @@ from parlant.api.authorization import (
 
 
 from parlant.core import async_utils
+from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.application import Application as _Application
 from parlant.core.agents import (
     Moderation,
@@ -3233,6 +3235,10 @@ class Server:
         "parlant_current_server", default=None
     )
 
+    # How long the queue of rules created while serving must stay unchanged
+    # before they are indexed, so that a burst of rules is indexed together.
+    _RULE_INDEXING_QUIET_PERIOD = 1.0
+
     def __init__(
         self,
         *,
@@ -3298,6 +3304,16 @@ class Server:
             RuleId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedIndexer.RuleIndexingResult]]],
         ] = {}
+
+        # Rules created during setup are indexed once, at startup. Rules created
+        # after that are indexed by a background task (see
+        # _schedule_background_rule_indexing), which this state coordinates.
+        self._startup_indexing_done = False
+        self._background_rule_indexing_active = False
+        self._background_rule_indexing_idle = asyncio.Event()
+        self._background_rule_indexing_idle.set()
+        self._rule_indexing_generation = 0
+        self._rule_creations_in_flight = 0
 
         # TRACE is firehose mode: raw logs are the progress display, so no
         # Rich bars compete with them (mirrors the rule-indexing bars).
@@ -3498,6 +3514,8 @@ class Server:
             return False
 
         try:
+            startup_rule_ids = list(self._rule_indexing_requests)
+
             with self._container[Tracer].span(
                 "startup.indexing.enrichment",
                 attributes={"scope": "Indexing enrichment"},
@@ -3511,6 +3529,15 @@ class Server:
                 attributes={"scope": "Training"},
             ):
                 await self._process_training()
+
+            # From here on, a rule that gets created is indexed in the background.
+            for rule_id in startup_rule_ids:
+                self._rule_indexing_requests.pop(rule_id, None)
+
+            self._startup_indexing_done = True
+
+            if self._rule_indexing_requests:
+                await self._schedule_background_rule_indexing()
 
             print()
 
@@ -3617,6 +3644,141 @@ class Server:
             ),
             self._cached_indexer.index_rule,
         )
+        self._rule_indexing_generation += 1
+
+    async def wait_for_indexing(self) -> None:
+        """Waits until every rule created so far is indexed and trained for recall.
+
+        Rules created inside the ``async with p.Server(...)`` block are indexed
+        before the server starts serving. A policy or observation created after
+        that, while the server is serving, is usable right away, and the server
+        then indexes it in the background: it generates the rule's signals,
+        anti-signals and title, and retrains the recall classifier of the rule's
+        agent. Until that finishes, the rule is recalled less accurately.
+
+        You never need to call this for indexing to happen. Call it when your
+        code must not continue before the rules it just created are fully
+        indexed, for example in a test, or before routing a new agent's first
+        conversation to it. It returns immediately when nothing is pending. If
+        indexing fails, the failure is logged as an error and this still returns.
+        """
+        await self._background_rule_indexing_idle.wait()
+
+    async def _schedule_background_rule_indexing(self) -> None:
+        self._background_rule_indexing_idle.clear()
+
+        if self._background_rule_indexing_active:
+            # The running task picks up every request queued before it finishes.
+            return
+
+        self._background_rule_indexing_active = True
+        indexing = self._index_rules_in_background()
+
+        try:
+            await self._container[BackgroundTaskService].start(
+                indexing,
+                tag="sdk-background-rule-indexing",
+            )
+        except BaseException as exc:
+            indexing.close()
+            self._background_rule_indexing_active = False
+            self._background_rule_indexing_idle.set()
+
+            if not isinstance(exc, Exception):
+                raise
+
+            # The rules were created and stay in use; their requests stay queued
+            # and are indexed along with the next rule that gets created.
+            self._container[Logger].error(
+                f"Failed to start background rule indexing: {exc}\n\n"
+                f"{''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}"
+            )
+
+    async def _index_rules_in_background(self) -> None:
+        try:
+            while self._rule_indexing_requests:
+                await self._wait_for_rule_creation_burst_to_end()
+
+                requests = dict(self._rule_indexing_requests)
+
+                try:
+                    await self._index_rules_and_train_their_agents(requests)
+                except Exception as exc:
+                    self._container[Logger].error(
+                        f"Background rule indexing failed: {exc}\n\n"
+                        f"{''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}"
+                    )
+                finally:
+                    for rule_id, request in requests.items():
+                        if self._rule_indexing_requests.get(rule_id) is request:
+                            del self._rule_indexing_requests[rule_id]
+        finally:
+            self._background_rule_indexing_active = False
+            self._background_rule_indexing_idle.set()
+
+    async def _wait_for_rule_creation_burst_to_end(self) -> None:
+        # Rules tend to arrive in bursts (a new agent with its policies). Indexing
+        # them together retrains each agent once, rather than once per rule.
+        while True:
+            generation = self._rule_indexing_generation
+
+            await asyncio.sleep(self._RULE_INDEXING_QUIET_PERIOD)
+
+            if generation == self._rule_indexing_generation and self._rule_creations_in_flight == 0:
+                return
+
+    async def _index_rules_and_train_their_agents(
+        self,
+        requests: Mapping[
+            RuleId,
+            tuple[Any, Callable[..., Coroutine[Any, Any, _CachedIndexer.RuleIndexingResult]]],
+        ],
+    ) -> None:
+        logger = self._container[Logger]
+
+        async def index_and_apply(
+            rule_id: RuleId,
+            indexing: Coroutine[Any, Any, _CachedIndexer.RuleIndexingResult],
+        ) -> None:
+            # One rule failing must not cost the other rules their indexing.
+            try:
+                await self._apply_single_indexing_result(rule_id, await indexing)
+            except Exception as exc:
+                logger.error(
+                    f"Failed to index rule '{rule_id}', which was created while the server "
+                    "was serving. The rule stays in use, without generated signals, "
+                    f"anti-signals or title: {exc}\n\n"
+                    f"{''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}"
+                )
+
+        await async_utils.safe_gather(
+            *(index_and_apply(rule_id, func(*args)) for rule_id, (args, func) in requests.items())
+        )
+
+        # Retrain now that indexing has populated the rules' signals, as startup does.
+        # (The arguments are those gathered by _add_rule_indexing_request.)
+        agent_ids: set[AgentId | None] = {args[3] for args, _ in requests.values()}
+
+        if None in agent_ids:
+            # A rule that belongs to no single agent can apply to any of them.
+            agent_store = self._store_provider.get_store(
+                AgentStore, StoreProviderHints(call_site="sdk")
+            )
+            agent_ids = {a.id for a in await agent_store.list_agents()}
+
+        for agent_id in agent_ids:
+            if agent_id is None:
+                continue
+
+            try:
+                await self._container[TrainingService].train_agent(agent_id)
+            except Exception as exc:
+                logger.error(
+                    f"Failed to retrain rule recall for agent '{agent_id}' after rules were "
+                    "created while the server was serving. Its conversations keep working; "
+                    f"recall is trained again when another rule is created for it: {exc}\n\n"
+                    f"{''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}"
+                )
 
     @staticmethod
     async def _create_rule_handler_shim(
@@ -3706,53 +3868,63 @@ class Server:
         """Internal method to create a rule with common logic."""
         self._advance_creation_progress()
 
-        tools_list = list(tools)
+        # Counted so that background indexing can tell a burst of rule creations
+        # is still under way (see _wait_for_rule_creation_burst_to_end).
+        self._rule_creations_in_flight += 1
 
-        await _enable_tool_refs(self._plugin_server, tools_list)
+        try:
+            tools_list = list(tools)
 
-        rule = await self._store_provider.get_store(
-            RuleStore, StoreProviderHints(call_site="sdk")
-        ).create_rule(
-            content=content,
-            condition=condition,
-            title=title,
-            weight=weight,
-            metadata=metadata,
-            effort=effort,
-            id=id,
-            groups=groups,
-            labels=set(labels) if labels else None,
-            priority=priority,
-            signals=signals,
-            anti_signals=anti_signals,
-            message_review=message_review,
-            tool_review=tool_review,
-        )
+            await _enable_tool_refs(self._plugin_server, tools_list)
 
-        if canned_responses:
-            group_id = GroupIds.for_rule_id(rule.id)
+            rule = await self._store_provider.get_store(
+                RuleStore, StoreProviderHints(call_site="sdk")
+            ).create_rule(
+                content=content,
+                condition=condition,
+                title=title,
+                weight=weight,
+                metadata=metadata,
+                effort=effort,
+                id=id,
+                groups=groups,
+                labels=set(labels) if labels else None,
+                priority=priority,
+                signals=signals,
+                anti_signals=anti_signals,
+                message_review=message_review,
+                tool_review=tool_review,
+            )
 
-            for canrep_id in canned_responses:
-                await self._store_provider.get_store(
-                    CannedResponseStore, StoreProviderHints(call_site="sdk")
-                ).upsert_group(
-                    canned_response_id=canrep_id,
-                    group_id=group_id,
+            if canned_responses:
+                group_id = GroupIds.for_rule_id(rule.id)
+
+                for canrep_id in canned_responses:
+                    await self._store_provider.get_store(
+                        CannedResponseStore, StoreProviderHints(call_site="sdk")
+                    ).upsert_group(
+                        canned_response_id=canrep_id,
+                        group_id=group_id,
+                    )
+
+            # Evaluate what evaluator to use if a custom evaluation function isn't specified.
+            needs_title_proposition = rule_kind == "policy" and not title
+
+            if evaluation_func is None or needs_title_proposition:
+                self._add_rule_indexing_request(
+                    rule.id,
+                    _RuleText(content=content, condition=condition),
+                    title=title,
+                    agent_id=agent_id,
+                    title_proposition=needs_title_proposition,
+                    relativity_proposition=evaluation_func is None,
+                    signal_proposition=evaluation_func is None,
                 )
 
-        # Evaluate what evaluator to use if a custom evaluation function isn't specified.
-        needs_title_proposition = rule_kind == "policy" and not title
-
-        if evaluation_func is None or needs_title_proposition:
-            self._add_rule_indexing_request(
-                rule.id,
-                _RuleText(content=content, condition=condition),
-                title=title,
-                agent_id=agent_id,
-                title_proposition=needs_title_proposition,
-                relativity_proposition=evaluation_func is None,
-                signal_proposition=evaluation_func is None,
-            )
+                if self._startup_indexing_done:
+                    await self._schedule_background_rule_indexing()
+        finally:
+            self._rule_creations_in_flight -= 1
 
         # Create relationship if target group specified
         if relationship_target_group_id is not None:

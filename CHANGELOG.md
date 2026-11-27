@@ -13,6 +13,27 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Added
+
+- `await server.wait_for_indexing()` returns once every rule created so far is
+  indexed and its agent's recall classifier is trained. You never need it for
+  indexing to happen. Use it where your code must not continue before then,
+  such as a test, or before a newly created agent takes its first conversation.
+
+### Fixed
+
+- A policy or observation created after the server started serving is now
+  indexed like one created during setup: it gets generated signals,
+  anti-signals and a title, and its agent's recall classifier is retrained to
+  cover it. Before, this happened only for rules created inside the
+  `async with p.Server(...)` block, so an application that creates agents or
+  rules on demand, such as one agent per tenant, had rules that were recalled
+  less accurately, and each such agent's classifier was trained during a
+  customer's turn. The work runs in the background, a burst of new rules is
+  indexed together, and each affected agent is retrained once. Creating a rule
+  does not wait for it. A failure is logged as an error and the rule stays in
+  use. Startup indexing is unchanged.
+
 ## [4.0.9] - 2026-11-24
 
 ### Added

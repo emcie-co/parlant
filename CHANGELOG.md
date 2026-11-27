@@ -13,6 +13,16 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Fixed
+
+- `Server(host="::")`, or any other IPv6 address, no longer breaks the
+  server's own readiness check. The check built its URL without brackets
+  around the address (`http://:::8800/healthz`), which raised
+  `httpx.InvalidURL` in a background task: `server.ready` was never set,
+  "Server is ready to accept requests." was never logged, and the error only
+  surfaced as a traceback at shutdown. The server itself served requests
+  throughout. Nothing to change on your side.
+
 ## [4.0.9] - 2026-11-24
 
 ### Added

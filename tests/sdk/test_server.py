@@ -35,6 +35,29 @@ def test_that_server_defaults_to_openrouter() -> None:
     assert server._models == {"*": "openrouter"}
 
 
+@pytest.mark.parametrize(
+    ("host", "expected_host"),
+    [
+        ("0.0.0.0", "localhost"),
+        ("127.0.0.1", "localhost"),
+        ("::", "[::1]"),
+        ("::1", "[::1]"),
+        ("fd00::8", "[fd00::8]"),
+        ("agent.internal", "agent.internal"),
+    ],
+)
+def test_that_the_health_check_polls_a_valid_url_for_the_host_the_server_binds(
+    host: str,
+    expected_host: str,
+) -> None:
+    server = p.Server(host=host, hot_reload=False)
+
+    url = httpx.URL(server._health_check_url())
+
+    assert str(url) == f"http://{expected_host}:{server.port}/healthz"
+    assert url.port == server.port
+
+
 class Test_that_server_exposes_api_property_with_fastapi_app(SDKTest):
     async def setup(self, server: p.Server) -> None:
         pass

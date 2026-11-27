@@ -150,6 +150,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
     RelationshipStore,
+    relationship_entity_ids_of,
 )
 from parlant.core.rules import Rule, RuleId
 from parlant.core import metadata
@@ -378,14 +379,19 @@ class DependencyEvaluationPreconditionProvider(EvaluationPreconditionProvider):
     ) -> Mapping[RuleId, Sequence[EvaluationPrecondition]]:
         del context
 
+        # A dependency gates a rule only when its source is that rule or one of
+        # its groups, so only the relationships of these rules are read.
+        entity_ids = relationship_entity_ids_of(rules)
         relationships = [
             *await self._relationship_store.list_relationships(
                 kind=RelationshipKind.DEPENDENCY,
                 indirect=False,
+                entity_ids=entity_ids,
             ),
             *await self._relationship_store.list_relationships(
                 kind=RelationshipKind.DEPENDENCY_ANY,
                 indirect=False,
+                entity_ids=entity_ids,
             ),
         ]
         if not relationships:

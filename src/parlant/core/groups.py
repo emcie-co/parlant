@@ -111,7 +111,14 @@ class GroupStore(ABC):
     async def list_groups(
         self,
         name: Optional[str] = None,
-    ) -> Sequence[Group]: ...
+        ids: Optional[Sequence[GroupId]] = None,
+    ) -> Sequence[Group]:
+        """List groups, optionally only those with the given ``name`` and only
+        those among the given ``ids``.
+
+        An empty ``ids`` returns no groups; leave it out to list every group.
+        Ids that match no group are skipped."""
+        ...
 
     @abstractmethod
     async def delete_group(
@@ -270,11 +277,25 @@ class GroupDocumentStore(GroupStore):
     async def list_groups(
         self,
         name: Optional[str] = None,
+        ids: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[Group]:
-        filters: Where = {}
+        if ids is not None and not ids:
+            return []
+
+        conditions: list[Where] = []
 
         if name is not None:
-            filters = {"name": {"$eq": name}}
+            conditions.append({"name": {"$eq": name}})
+
+        if ids is not None:
+            conditions.append({"id": {"$in": sorted(set(ids))}})
+
+        filters: Where = {}
+
+        if len(conditions) == 1:
+            filters = conditions[0]
+        elif conditions:
+            filters = {"$and": conditions}
 
         async with self._lock.reader_lock:
             return [self._deserialize(doc) for doc in await self._collection.find(filters)]
@@ -335,8 +356,11 @@ class CompositeGroupStore(GroupStore):
     async def list_groups(
         self,
         name: Optional[str] = None,
+        ids: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[Group]:
-        results = await safe_gather(*[store.list_groups(name=name) for store in self._all_stores])
+        results = await safe_gather(
+            *[store.list_groups(name=name, ids=ids) for store in self._all_stores]
+        )
         return list(chain.from_iterable(results))
 
     @override

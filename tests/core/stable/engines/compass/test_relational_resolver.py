@@ -15,8 +15,9 @@
 from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import permutations
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence, cast
 
+from parlant.adapters.db.transient import TransientDocumentCollection
 from parlant.core.container import Container
 
 from parlant.core.common import Weight
@@ -33,13 +34,14 @@ from parlant.core.engines.compass.relational_resolver import (
 from parlant.core.rules import Rule, RuleId, RuleStore
 from parlant.core.loggers import Logger
 from parlant.core.relationships import (
+    RelationshipDocumentStore,
     RelationshipEntity,
     RelationshipEntityKind,
     RelationshipKind,
     RelationshipStore,
 )
 from parlant.core.store_provider import StoreProvider
-from parlant.core.groups import Group, GroupId, GroupStore
+from parlant.core.groups import Group, GroupDocumentStore, GroupId, GroupStore
 from parlant.core.tracer import Tracer
 
 
@@ -4934,3 +4936,86 @@ async def test_that_a_rule_with_a_numeric_priority_can_be_excluded(container: Co
 
     assert _ids(result.turn_matches) == {a.id}
     assert result.excluded_rule_ids == {b.id}
+
+
+# --- With many agents in one server, a turn reads only its own rules' records ---
+
+_OTHER_AGENTS = 50
+
+
+def _examined(collection: Any) -> int:
+    transient = cast(TransientDocumentCollection[Any], collection)
+    examined = transient.examined_document_count
+    transient.reset_examined_document_count()
+    return examined
+
+
+def _relationship_documents(container: Container) -> Any:
+    return cast(RelationshipDocumentStore, container[RelationshipStore])._collection
+
+
+async def _exclusions_between_the_rules_of_other_agents(container: Container) -> None:
+    for number in range(_OTHER_AGENTS):
+        excluder, excluded = await _rules(container, f"other-{number}-a", f"other-{number}-b")
+        await _exclude(container, excluder, excluded)
+
+
+async def test_that_exclusion_is_resolved_from_the_relationships_of_the_rules_in_hand(
+    container: Container,
+) -> None:
+    group = await _group(container, "in-hand")
+    a, b = await _rules(container, "a", "b")
+    member = await _rule(container, "member", group)
+    c = await _rule(container, "c")
+    await _exclude(container, a, b)
+    await _exclude(container, group, c)
+    await _exclusions_between_the_rules_of_other_agents(container)
+    _examined(_relationship_documents(container))
+
+    result = await _exclusions(container, [a, b, c, member], [a, member])
+
+    assert result.excluded_rule_ids == {b.id, c.id}
+    assert _examined(_relationship_documents(container)) == 2
+
+
+async def test_that_a_turn_is_resolved_from_the_relationships_of_the_rules_in_hand(
+    container: Container,
+) -> None:
+    a, b, c, d, e = await _rules(container, "a", "b", "c", "d", "e")
+    await _exclude(container, a, b)
+    await _relate(container, c, b, RelationshipKind.DEPENDENCY)
+    await _relate(container, a, d, RelationshipKind.PRIORITY)
+    await _relate(container, a, e, RelationshipKind.ENTAILMENT)
+    await _exclusions_between_the_rules_of_other_agents(container)
+    _examined(_relationship_documents(container))
+
+    result = await _turn(container, [a, b, c, d, e], [a, b, c, d])
+
+    assert _ids(result.turn_matches) == {a.id, e.id}
+    assert result.excluded_rule_ids == {b.id}
+    assert_resolutions(result, c, [ResolutionKind.UNMET_DEPENDENCY_ALL])
+    assert_resolutions(result, d, [ResolutionKind.DEPRIORITIZED])
+    assert _examined(_relationship_documents(container)) < _OTHER_AGENTS
+
+
+async def test_that_an_unmet_group_dependency_reads_only_the_group_it_names(
+    container: Container,
+) -> None:
+    for number in range(_OTHER_AGENTS):
+        await _group(container, f"other-{number}")
+    group = await _group(container, "required")
+    own_group = await _group(container, "own")
+    dependent = await _rule(container, "dependent", own_group)
+    await _relate(container, dependent, group, RelationshipKind.DEPENDENCY)
+    group_documents = cast(GroupDocumentStore, container[GroupStore])._collection
+    _examined(group_documents)
+
+    result = await make_resolver(container).filter_unmet_dependencies(
+        [dependent],
+        [_ev(dependent)],
+    )
+
+    assert result.evaluations == []
+    (resolution,) = get_resolutions_by_kind(result, dependent, ResolutionKind.UNMET_DEPENDENCY_ALL)
+    assert resolution.details.counterparts == (ResolvedEntity.group(group),)
+    assert _examined(group_documents) == 1

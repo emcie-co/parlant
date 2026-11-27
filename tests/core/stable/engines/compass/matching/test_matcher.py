@@ -62,7 +62,7 @@ from parlant.core.engines.compass.context import (
     ResponseState,
 )
 from parlant.core.groups import GroupId, GroupStore
-from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.adapters.db.transient import TransientDocumentCollection, TransientDocumentDatabase
 from parlant.core.relationships import (
     RelationshipDocumentStore,
     RelationshipEntity,
@@ -1243,6 +1243,82 @@ async def test_that_dependency_targets_are_resolved_from_the_full_inventory(
     assert dependency.id in harness.context.state.rule_ids_with_dependents
 
 
+async def test_that_strategy_signals_are_loaded_from_the_relationships_of_the_rules_in_hand(
+    container: Container,
+) -> None:
+    dependent = make_rule("DEPENDENT")
+    dependency = make_rule("DEPENDENCY")
+    group_dependent = make_rule("GROUP_DEPENDENT")
+    group_member = replace(make_rule("GROUP_MEMBER"), groups=[GroupId("scope-group")])
+    winner = make_rule("WINNER")
+    loser = make_rule("LOSER")
+    excluder = make_rule("EXCLUDER")
+    excluded = make_rule("EXCLUDED")
+    entailer = make_rule("ENTAILER")
+    entailed = make_rule("ENTAILED")
+    rules = [
+        dependent,
+        dependency,
+        group_dependent,
+        group_member,
+        winner,
+        loser,
+        excluder,
+        excluded,
+        entailer,
+        entailed,
+    ]
+    harness = await matching_harness(
+        container,
+        rules,
+        rank_relevant=set(),
+        effort=Effort.MEDIUM,
+    )
+    await harness.depend(dependent, dependency)
+    await harness.depend_on_group(
+        group_dependent,
+        GroupId("scope-group"),
+        target_kind=RelationshipEntityKind.GROUP_ALL,
+    )
+    await harness.depend(winner, loser, kind=RelationshipKind.PRIORITY)
+    await harness.exclude(excluder, excluded)
+    await harness.entail(entailer, entailed)
+
+    # The rules of other agents in the same server, related among themselves.
+    other_agents = 50
+    for number in range(other_agents):
+        other_source = make_rule(f"OTHER_{number}_SOURCE")
+        other_target = make_rule(f"OTHER_{number}_TARGET")
+        await harness.depend(other_source, other_target)
+        await harness.depend(other_source, other_target, kind=RelationshipKind.PRIORITY)
+        await harness.exclude(other_source, other_target)
+        await harness.entail(other_source, other_target)
+    relationship_documents = cast(
+        TransientDocumentCollection[Any],
+        cast(RelationshipDocumentStore, harness.relationship_store)._collection,
+    )
+    relationship_documents.reset_examined_document_count()
+
+    await harness.matcher._load_strategy_choice_signals(harness.context, rules)
+
+    state = harness.context.state
+    assert state.rule_ids_with_dependencies == {
+        dependent.id,
+        dependency.id,
+        group_dependent.id,
+        group_member.id,
+    }
+    assert state.rule_ids_with_dependents == {dependency.id, group_member.id}
+    assert state.rule_ids_with_priority_relationships == {winner.id, loser.id}
+    assert state.rule_ids_with_exclusion_sources == {excluder.id}
+    assert state.dependency_targets_by_rule == {
+        dependent.id: [dependency],
+        group_dependent.id: [group_member],
+    }
+    assert state.entailing_rules_by_rule == {entailed.id: [entailer]}
+    assert relationship_documents.examined_document_count < other_agents
+
+
 async def test_that_entailing_rules_are_mapped_per_entailed_rule(
     container: Container,
 ) -> None:
@@ -2406,6 +2482,42 @@ async def test_that_overlap_relationships_among_available_tools_are_collected() 
     await matcher._select_tools(context, log_delta_from_fill=True)
 
     assert context.state.overlapping_tool_ids == [(search_all, search_narrow)]
+
+
+@pytest.mark.asyncio
+async def test_that_overlaps_are_collected_from_the_relationships_of_the_available_tools() -> None:
+    search_all = ToolId("local", "search_all")
+    search_narrow = ToolId("local", "search_narrow")
+    matcher = await _overlap_seam_matcher(
+        [
+            (search_narrow, search_all),
+            # The tools of other agents in the same server.
+            *[
+                (ToolId(f"other_{number}", "narrow"), ToolId(f"other_{number}", "all"))
+                for number in range(50)
+            ],
+        ]
+    )
+    context = _seam_context()
+    context.state.available_tools = [
+        replace(_tool("search_all"), overlap=ToolOverlap.AUTO),
+        replace(_tool("search_narrow"), overlap=ToolOverlap.AUTO),
+    ]
+    context.state.tool_ids_by_name = {
+        "search_all": search_all,
+        "search_narrow": search_narrow,
+    }
+    context.state.fill_available_tool_ids = {search_all, search_narrow}
+    relationship_documents = cast(
+        TransientDocumentCollection[Any],
+        cast(RelationshipDocumentStore, matcher._relationship_store)._collection,
+    )
+    relationship_documents.reset_examined_document_count()
+
+    await matcher._select_tools(context, log_delta_from_fill=True)
+
+    assert context.state.overlapping_tool_ids == [(search_all, search_narrow)]
+    assert relationship_documents.examined_document_count == 1
 
 
 @pytest.mark.asyncio

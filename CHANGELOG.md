@@ -15,6 +15,17 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ### Changed
 
+- The engine now asks for the relationships of the rules and tools in a
+  turn, not for every agent's, and for the groups a dependency names rather
+  than every group. Results are unchanged; with many agents in one server, a
+  turn no longer reads more relationships as other agents are added.
+  `RelationshipStore.list_relationships` takes an optional `entity_ids` (only
+  relationships whose source or target is one of them; it applies when no
+  `source_id` or `target_id` is given) and `GroupStore.list_groups` an
+  optional `ids`. Without them both return everything, as before, and an
+  empty list returns nothing. If you implement `RelationshipStore` or
+  `GroupStore` yourself, add the parameter and filter by it.
+
 - The engine now asks for the tool associations of the rules in a turn, not
   for every agent's. `RuleToolAssociationStore.list_associations` and
   `EntityQueries.find_rule_tool_associations` take an optional `rule_ids`;

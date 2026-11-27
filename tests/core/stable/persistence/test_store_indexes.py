@@ -189,3 +189,122 @@ async def test_that_listing_tool_associations_without_rules_still_returns_all_of
             )
 
         assert len(await store.list_associations()) == 3
+
+
+def _rule_entity(rule_id: str) -> RelationshipEntity:
+    return RelationshipEntity(id=RuleId(rule_id), kind=RelationshipEntityKind.RULE)
+
+
+async def test_that_the_relationships_of_some_entities_examine_only_those_entities() -> None:
+    async with RelationshipDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        for number in range(AGENTS):
+            await store.create_relationship(
+                source=_rule_entity(f"rule-{number}-a"),
+                target=_rule_entity(f"rule-{number}-b"),
+                kind=RelationshipKind.PRIORITY,
+            )
+        await store.create_relationship(
+            source=_rule_entity("rule-117-a"),
+            target=RelationshipEntity(
+                id=GroupId("group-117"), kind=RelationshipEntityKind.GROUP_ALL
+            ),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+        await store.create_relationship(
+            source=RelationshipEntity(
+                id=ToolId(service_name="service", tool_name="lookup"),
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            target=RelationshipEntity(
+                id=ToolId(service_name="service", tool_name="search"),
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            kind=RelationshipKind.OVERLAP,
+        )
+        _examined(store._collection)
+
+        of_any_kind = await store.list_relationships(
+            entity_ids=[RuleId("rule-117-a"), RuleId("rule-3-b"), RuleId("rule-without-any")],
+        )
+        examined_of_any_kind = _examined(store._collection)
+        of_one_kind = await store.list_relationships(
+            kind=RelationshipKind.PRIORITY,
+            indirect=False,
+            entity_ids=[RuleId("rule-117-a"), RuleId("rule-3-b"), GroupId("group-117")],
+        )
+        examined_of_one_kind = _examined(store._collection)
+        of_a_tool = await store.list_relationships(
+            kind=RelationshipKind.OVERLAP,
+            entity_ids=[ToolId(service_name="service", tool_name="search")],
+        )
+        examined_of_a_tool = _examined(store._collection)
+
+        assert sorted((r.source.id, r.target.id, r.kind) for r in of_any_kind) == [
+            ("rule-117-a", "group-117", RelationshipKind.DEPENDENCY),
+            ("rule-117-a", "rule-117-b", RelationshipKind.PRIORITY),
+            ("rule-3-a", "rule-3-b", RelationshipKind.PRIORITY),
+        ]
+        assert examined_of_any_kind == 3
+        assert sorted((r.source.id, r.target.id) for r in of_one_kind) == [
+            ("rule-117-a", "rule-117-b"),
+            ("rule-3-a", "rule-3-b"),
+        ]
+        assert examined_of_one_kind == 3
+        assert [r.source.id_to_string() for r in of_a_tool] == ["service:lookup"]
+        assert examined_of_a_tool == 1
+
+
+async def test_that_asking_for_the_relationships_of_no_entities_returns_none_of_them() -> None:
+    async with RelationshipDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        await store.create_relationship(
+            source=_rule_entity("rule-a"),
+            target=_rule_entity("rule-b"),
+            kind=RelationshipKind.PRIORITY,
+        )
+        _examined(store._collection)
+
+        assert await store.list_relationships(entity_ids=[]) == []
+        assert await store.list_relationships(kind=RelationshipKind.PRIORITY, entity_ids=[]) == []
+        assert _examined(store._collection) == 0
+
+
+async def test_that_listing_relationships_without_entities_still_returns_all_of_them() -> None:
+    async with RelationshipDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        for number in range(3):
+            await store.create_relationship(
+                source=_rule_entity(f"rule-{number}-a"),
+                target=_rule_entity(f"rule-{number}-b"),
+                kind=RelationshipKind.PRIORITY,
+            )
+
+        assert len(await store.list_relationships()) == 3
+        assert len(await store.list_relationships(kind=RelationshipKind.PRIORITY)) == 3
+
+
+async def test_that_listing_some_groups_by_id_examines_only_those_groups() -> None:
+    async with GroupDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        groups = [await store.create_group(name=f"Group {number}") for number in range(AGENTS)]
+        _examined(store._collection)
+
+        found = await store.list_groups(ids=[groups[117].id, groups[3].id, GroupId("no-group")])
+        examined = _examined(store._collection)
+
+        assert sorted(group.name for group in found) == ["Group 117", "Group 3"]
+        assert examined == 2
+
+
+async def test_that_asking_for_no_groups_by_id_returns_none_of_them() -> None:
+    async with GroupDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        await store.create_group(name="Group")
+        _examined(store._collection)
+
+        assert await store.list_groups(ids=[]) == []
+        assert _examined(store._collection) == 0
+
+
+async def test_that_listing_groups_without_ids_still_returns_all_of_them() -> None:
+    async with GroupDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        for number in range(3):
+            await store.create_group(name=f"Group {number}")
+
+        assert len(await store.list_groups()) == 3

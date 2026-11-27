@@ -88,6 +88,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
     RelationshipStore,
+    relationship_entity_ids_of,
 )
 from parlant.core.sessions import EventKind, EventSource, ToolEventData
 from parlant.core.groups import GroupId
@@ -959,12 +960,18 @@ class Matcher:
         # usable inventory, not merely the current evaluation batch: reevaluation
         # and early-evaluation paths intentionally pass partial batches, but their
         # model prompts still need the complete dependency context.
+        inventory_rules = context.state.usable_rules or list(rules)
+
+        # Every signal below is about an inventory rule, reached through its
+        # own id or one of its groups, so only those relationships are read.
+        entity_ids = relationship_entity_ids_of(inventory_rules)
+
         dependency_relationships = [
             *await self._relationship_store.list_relationships(
-                kind=RelationshipKind.DEPENDENCY, indirect=False
+                kind=RelationshipKind.DEPENDENCY, indirect=False, entity_ids=entity_ids
             ),
             *await self._relationship_store.list_relationships(
-                kind=RelationshipKind.DEPENDENCY_ANY, indirect=False
+                kind=RelationshipKind.DEPENDENCY_ANY, indirect=False, entity_ids=entity_ids
             ),
         ]
 
@@ -984,8 +991,6 @@ class Matcher:
             elif relationship.target.kind.is_group:
                 target_groups.add(cast(GroupId, relationship.target.id))
 
-        inventory_rules = context.state.usable_rules or list(rules)
-
         context.state.rule_ids_with_dependencies = {
             rule.id
             for rule in inventory_rules
@@ -1002,7 +1007,7 @@ class Matcher:
         # the source's verdict decides whether suppression fires, the
         # target's whether there is anything to suppress.
         priority_relationships = await self._relationship_store.list_relationships(
-            kind=RelationshipKind.PRIORITY, indirect=False
+            kind=RelationshipKind.PRIORITY, indirect=False, entity_ids=entity_ids
         )
 
         priority_rule_ids: set[RuleId] = set()
@@ -1024,7 +1029,7 @@ class Matcher:
         # (directly or as a member of a source group) needs one. Its targets
         # are excluded whether or not they matched, so they need none.
         exclusion_relationships = await self._relationship_store.list_relationships(
-            kind=RelationshipKind.EXCLUSION, indirect=False
+            kind=RelationshipKind.EXCLUSION, indirect=False, entity_ids=entity_ids
         )
 
         exclusion_source_rule_ids: set[RuleId] = set()
@@ -1075,7 +1080,7 @@ class Matcher:
         # through a chain (C -> A -> B gives B both A and C), so it is ranked
         # with them in view. Context only: entailment never gates the rule.
         entailment_relationships = await self._relationship_store.list_relationships(
-            kind=RelationshipKind.ENTAILMENT, indirect=False
+            kind=RelationshipKind.ENTAILMENT, indirect=False, entity_ids=entity_ids
         )
 
         direct_entailers: dict[RuleId, dict[RuleId, Rule]] = {}
@@ -2025,8 +2030,11 @@ class Matcher:
                         admit(key, other_key)
 
         if len(eligible) > 1:
+            # A pair needs both of its tools eligible, so only the overlaps
+            # of the eligible tools are read.
             declared = await self._relationship_store.list_relationships(
-                kind=RelationshipKind.OVERLAP
+                kind=RelationshipKind.OVERLAP,
+                entity_ids=list(eligible.values()),
             )
             for relationship in declared:
                 if (

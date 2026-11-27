@@ -17,14 +17,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from itertools import chain
-from typing import NewType, Optional, Sequence, Union, cast
+from typing import Iterable, NewType, Optional, Sequence, Union, cast
 from typing_extensions import override, TypedDict, Self
 
 import networkx  # type: ignore
 
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import ItemNotFoundError, try_or_none, UniqueId, Version, IdGenerator
-from parlant.core.rules import RuleId
+from parlant.core.rules import Rule, RuleId
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     single_field_indexes,
@@ -157,7 +157,33 @@ class RelationshipStore(ABC):
         indirect: bool = False,
         source_id: Optional[RelationshipEntityId] = None,
         target_id: Optional[RelationshipEntityId] = None,
-    ) -> Sequence[Relationship]: ...
+        entity_ids: Optional[Sequence[RelationshipEntityId]] = None,
+    ) -> Sequence[Relationship]:
+        """List relationships, optionally narrowed.
+
+        ``source_id`` and ``target_id`` follow the relationships of one entity
+        (through intermediaries too when ``indirect`` is set).
+
+        ``entity_ids`` applies when neither is given: only the direct
+        relationships whose source or target is one of these entities are
+        returned, and an empty sequence returns none. Leave it out to list the
+        relationships of every entity. With many agents in one server, pass the
+        entities of the turn (see ``relationship_entity_ids_of``) so that the
+        listing does not grow with the other agents."""
+        ...
+
+
+def relationship_entity_ids_of(rules: Iterable[Rule]) -> Sequence[RelationshipEntityId]:
+    """The ids a relationship can name these rules by: their own, and those
+    of the groups they belong to.
+
+    Pass the result as ``entity_ids`` to ``RelationshipStore.list_relationships``
+    to read only the relationships that can concern these rules."""
+    ids: set[RuleId | GroupId] = set()
+    for rule in rules:
+        ids.add(rule.id)
+        ids.update(rule.groups)
+    return sorted(ids)
 
 
 class RelationshipDocument(TypedDict, total=False):
@@ -466,6 +492,7 @@ class RelationshipDocumentStore(RelationshipStore):
         indirect: bool = True,
         source_id: Optional[RelationshipEntityId] = None,
         target_id: Optional[RelationshipEntityId] = None,
+        entity_ids: Optional[Sequence[RelationshipEntityId]] = None,
     ) -> Sequence[Relationship]:
         async def get_node_relationships_by_kind(
             source_id: RelationshipEntityId,
@@ -495,11 +522,32 @@ class RelationshipDocumentStore(RelationshipStore):
 
         async with self._lock.reader_lock:
             if not source_id and not target_id:
-                filters = {**({"kind": {"$eq": kind.value}} if kind else {})}
-                return [
-                    self._deserialize(d)
-                    for d in await self._collection.find(filters=cast(Where, filters))
-                ]
+                of_kind: Where = {"kind": {"$eq": kind.value}} if kind else {}
+
+                if entity_ids is None:
+                    filters = of_kind
+                elif not entity_ids:
+                    return []
+                else:
+                    # Endpoints are stored as strings (a tool id in its
+                    # "service:tool" form), and both fields are indexed.
+                    endpoints = sorted(
+                        {
+                            entity_id.to_string()
+                            if isinstance(entity_id, ToolId)
+                            else str(entity_id)
+                            for entity_id in entity_ids
+                        }
+                    )
+                    of_entities: Where = {
+                        "$or": [
+                            {"source": {"$in": list(endpoints)}},
+                            {"target": {"$in": list(endpoints)}},
+                        ]
+                    }
+                    filters = {"$and": [of_kind, of_entities]} if kind else of_entities
+
+                return [self._deserialize(d) for d in await self._collection.find(filters=filters)]
 
             relationships: list[Relationship] = []
 
@@ -614,6 +662,7 @@ class CompositeRelationshipStore(RelationshipStore):
         indirect: bool = False,
         source_id: Optional[RelationshipEntityId] = None,
         target_id: Optional[RelationshipEntityId] = None,
+        entity_ids: Optional[Sequence[RelationshipEntityId]] = None,
     ) -> Sequence[Relationship]:
         results = await safe_gather(
             *[
@@ -622,6 +671,7 @@ class CompositeRelationshipStore(RelationshipStore):
                     indirect=indirect,
                     source_id=source_id,
                     target_id=target_id,
+                    entity_ids=entity_ids,
                 )
                 for store in self._all_stores
             ]

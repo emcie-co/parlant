@@ -32,10 +32,13 @@ from parlant.core.engines.compass.matching.evaluation_scheduler import (
     EvaluationScheduler,
     EvaluationSchedulingPolicy,
 )
+from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.core.common import IdGenerator
 from parlant.core.rules import Rule, RuleId
 from parlant.core.groups import GroupId
 from parlant.core.relationships import (
     Relationship,
+    RelationshipDocumentStore,
     RelationshipEntity,
     RelationshipEntityKind,
     RelationshipId,
@@ -66,13 +69,20 @@ class _RelationshipStore:
     def __init__(self, relationships=()):
         self.relationships = list(relationships)
 
-    async def list_relationships(self, kind=None, indirect=False, source_id=None, target_id=None):
+    async def list_relationships(
+        self, kind=None, indirect=False, source_id=None, target_id=None, entity_ids=None
+    ):
         return [
             relationship
             for relationship in self.relationships
             if (kind is None or relationship.kind == kind)
             and (source_id is None or relationship.source.id == source_id)
             and (target_id is None or relationship.target.id == target_id)
+            and (
+                entity_ids is None
+                or relationship.source.id in entity_ids
+                or relationship.target.id in entity_ids
+            )
         ]
 
 
@@ -173,6 +183,78 @@ async def test_that_fewer_than_the_threshold_uses_one_round() -> None:
 
     assert not plan.enabled
     assert set(plan.next_round()) == {dependent, dependency}
+
+
+@pytest.mark.asyncio
+async def test_that_dependency_preconditions_come_from_the_relationships_of_the_rules_in_hand() -> (
+    None
+):
+    dependency = create_rule("dependency")
+    dependent = create_rule("dependent")
+    group_dependency = create_rule("group dependency")
+    group_dependent = create_rule("group dependent", groups=[GroupId("dependents")])
+    alternative = create_rule("alternative")
+    rules = [dependent, dependency, group_dependent, group_dependency, alternative]
+
+    def entity(rule: Rule) -> RelationshipEntity:
+        return RelationshipEntity(rule.id, RelationshipEntityKind.RULE)
+
+    async with RelationshipDocumentStore(IdGenerator(), TransientDocumentDatabase()) as store:
+        await store.create_relationship(
+            source=entity(dependent),
+            target=entity(dependency),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+        await store.create_relationship(
+            source=RelationshipEntity(GroupId("dependents"), RelationshipEntityKind.GROUP_ALL),
+            target=entity(group_dependency),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+        await store.create_relationship(
+            source=entity(dependent),
+            target=entity(alternative),
+            kind=RelationshipKind.DEPENDENCY_ANY,
+            group_id="alternatives",
+        )
+        # The rules of other agents in the same server, depending on each other.
+        other_agents = 50
+        for _ in range(other_agents):
+            await store.create_relationship(
+                source=entity(create_rule("other dependent")),
+                target=entity(create_rule("other dependency")),
+                kind=RelationshipKind.DEPENDENCY,
+            )
+        store._collection.reset_examined_document_count()
+
+        preconditions = await DependencyEvaluationPreconditionProvider(store).provide(
+            create_engine_context(conversation=[]),
+            rules,
+        )
+
+        assert set(preconditions) == {dependent.id, group_dependent.id}
+        (of_dependent,) = preconditions[dependent.id]
+        (of_group_dependent,) = preconditions[group_dependent.id]
+        known = {rule.id for rule in rules}
+        only_the_dependencies = EvaluationEvidence(
+            satisfied_rule_ids={dependency.id, group_dependency.id},
+            rejected_rule_ids={alternative.id},
+            known_rule_ids=known,
+        )
+        with_the_alternative = EvaluationEvidence(
+            satisfied_rule_ids={dependency.id, group_dependency.id, alternative.id},
+            rejected_rule_ids=set(),
+            known_rule_ids=known,
+        )
+        assert of_dependent.evaluate(only_the_dependencies) == (
+            EvaluationPreconditionState.UNSATISFIED
+        )
+        assert of_dependent.evaluate(with_the_alternative) == (
+            EvaluationPreconditionState.SATISFIED
+        )
+        assert of_group_dependent.evaluate(only_the_dependencies) == (
+            EvaluationPreconditionState.SATISFIED
+        )
+        assert store._collection.examined_document_count < other_agents
 
 
 @pytest.mark.asyncio

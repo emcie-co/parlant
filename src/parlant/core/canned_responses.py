@@ -55,6 +55,7 @@ from parlant.core.common import (
 )
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
+    single_field_indexes,
     BaseDocument,
     DocumentDatabase,
     DocumentCollection,
@@ -322,6 +323,12 @@ class CannedResponseVectorStore(CannedResponseStore):
                 document_loader=self._association_document_loader,
             )
 
+        # The fields this store looks documents up by, so a database can answer
+        # those lookups without examining every document.
+        await self._canreps_collection.ensure_indexes(single_field_indexes("id"))
+        await self._canrep_tag_association_collection.ensure_indexes(
+            single_field_indexes("canned_response_id", "group_id")
+        )
         return self
 
     async def __aexit__(

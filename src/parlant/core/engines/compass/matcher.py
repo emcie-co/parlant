@@ -935,7 +935,11 @@ class Matcher:
         context: EngineContext,
         rules: Sequence[Rule],
     ) -> None:
-        associations = await self._entity_queries.find_rule_tool_associations()
+        # Only this turn's rules can be asked about, so only theirs are fetched.
+        rule_ids = {rule.id for rule in chain(rules, context.state.usable_rules)}
+        associations = await self._entity_queries.find_rule_tool_associations(
+            rule_ids=sorted(rule_ids)
+        )
         context.state.rule_ids_with_tools = {a.rule_id for a in associations}
 
         # One lookup per batch, never per rule: `_get_strategy` reads the answer
@@ -1900,7 +1904,9 @@ class Matcher:
             list
         )
 
-        for association in await self._entity_queries.find_rule_tool_associations():
+        for association in await self._entity_queries.find_rule_tool_associations(
+            rule_ids=sorted(matches_by_id)
+        ):
             if association.rule_id in matches_by_id:
                 tools_for_rules[matches_by_id[association.rule_id]].append(association.tool_id)
 

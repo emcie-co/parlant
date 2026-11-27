@@ -28,6 +28,7 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.rules import (
+    RuleId,
     Rule,
     RuleStore,
 )
@@ -318,8 +319,10 @@ class EntityQueries:
 
     async def find_rule_tool_associations(
         self,
+        rule_ids: Optional[Sequence[RuleId]] = None,
     ) -> Sequence[RuleToolAssociation]:
-        return await self._rule_tool_association_store.list_associations()
+        """The tool associations of ``rule_ids``; of every rule when omitted."""
+        return await self._rule_tool_association_store.list_associations(rule_ids=rule_ids)
 
     async def find_glossary_terms_for_context(
         self,

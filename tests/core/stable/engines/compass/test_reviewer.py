@@ -39,7 +39,7 @@ from parlant.core.engines.compass.reviewer import (
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger, StdoutLogger
 from parlant.core.nlp.common import UsageInfo
-from parlant.core.nlp.generation import SchematicGenerationResult
+from parlant.core.nlp.generation import GenerationRefusedError, SchematicGenerationResult
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.model_routing import ModelRouter
 from parlant.core.nlp.react import ToolCallPart
@@ -615,3 +615,52 @@ def test_that_the_reviewer_system_instructions_omit_an_excluded_rule() -> None:
 
     assert "ZZQ_KEPT" in instructions
     assert "ZZQ_EXCLUDED" not in instructions
+
+
+class _RefusingReviewGenerator:
+    """A review model whose provider declines the review request."""
+
+    async def generate(
+        self,
+        prompt: Any,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[ReviewSchema]:
+        raise GenerationRefusedError(
+            "the provider declined the request",
+            model="fake",
+            category="reasoning_extraction",
+        )
+
+
+async def test_that_a_tool_review_the_provider_refuses_is_declined_instead_of_failing() -> None:
+    tracer = _EventRecordingTracer()
+    reviewer = _reviewer(cast(Any, _RefusingReviewGenerator()), tracer=tracer)
+
+    result = await reviewer.review_tool_calls(
+        _context(effort=Effort.HIGH), "checking the price", _tool_calls()
+    )
+
+    assert result is None
+
+    started = [a for n, a in tracer.recorded_events if n == "review.started"]
+    declined = [a for n, a in tracer.recorded_events if n == "review.declined"]
+
+    assert len(started) == 1
+    assert len(declined) == 1
+    assert started[0]["review_ref"] == declined[0]["review_ref"]
+    assert declined[0]["reason"] == "provider_refusal"
+    assert declined[0]["category"] == "reasoning_extraction"
+    assert not any(n in ("review.passed", "review.rejected") for n, _ in tracer.recorded_events)
+
+
+async def test_that_a_message_review_the_provider_refuses_is_declined_instead_of_failing() -> None:
+    reviewer = _reviewer(
+        cast(Any, _RefusingReviewGenerator()),
+        canned_response_store=_StubCannedResponseStore([]),
+    )
+
+    result = await reviewer.review_message(
+        _context(effort=Effort.HIGH), "Eggplant is 3 dollars today."
+    )
+
+    assert result is None
